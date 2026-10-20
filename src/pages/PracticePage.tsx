@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { EditorView } from '@codemirror/view';
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,6 +10,7 @@ import {
   Info,
   Lightbulb,
   ListChecks,
+  PanelRight,
   PanelRightClose,
   RefreshCw,
   Settings2,
@@ -16,6 +18,7 @@ import {
   Target,
   Trash2,
   Trophy,
+  X,
   XCircle,
 } from 'lucide-react';
 import type {
@@ -34,6 +37,7 @@ import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { formatDate } from '@/lib/format';
 import { SqlEditor } from '@/components/SqlEditor';
+import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { Markdown } from '@/components/Markdown';
 import { FindingsList } from '@/components/Findings';
 import { ExplainPanel } from '@/components/ExplainPanel';
@@ -49,12 +53,14 @@ import {
   Field,
   IconButton,
   Input,
+  Kbd,
   Modal,
   PageHeader,
   ScoreRing,
   Spinner,
   Textarea,
   cn,
+  useMediaQuery,
 } from '@/components/ui';
 
 interface AnswerState {
@@ -73,6 +79,19 @@ interface PracticeDraft {
 const EMPTY_ANSWER: AnswerState = { sql: '', answer: '', evaluation: null };
 
 const DRAFT_PREFIX = 'mylens.practice.draft';
+const SCHEMA_PANEL_KEY = 'mylens.practice.schemaPanel';
+
+function quoteIdentifier(name: string): string {
+  return `\`${name.replace(/`/g, '``')}\``;
+}
+
+function readSchemaPanelOpen(): boolean {
+  try {
+    return sessionStorage.getItem(SCHEMA_PANEL_KEY) !== 'closed';
+  } catch {
+    return true;
+  }
+}
 
 function draftKey(profileId: string, setId: string): string {
   return `${DRAFT_PREFIX}.${profileId}.${setId}`;
@@ -222,6 +241,11 @@ export function PracticePage() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(true);
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+  // lg+ renders the schema panel inline; below lg it is an overlay drawer.
+  const [schemaPanelOpen, setSchemaPanelOpen] = useState<boolean>(readSchemaPanelOpen);
+  const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
+  const isLargeViewport = useMediaQuery('(min-width: 1024px)');
+  const editorView = useRef<EditorView | null>(null);
   const generationAbort = useRef<AbortController | null>(null);
   const runRequest = useRef(0);
   // Which set the answers/reference request belongs to; a response for a set
@@ -238,6 +262,37 @@ export function PracticePage() {
   const reference = question ? answerMaterial[question.id] : undefined;
   const pinnedDatabase = practiceSet?.database ?? selectedDatabase;
   const databaseMismatch = Boolean(practiceSet && practiceSet.database !== selectedDatabase);
+  const schemaPanelVisible = isLargeViewport ? schemaPanelOpen : schemaDrawerOpen;
+
+  const toggleSchemaPanel = useCallback((): void => {
+    if (isLargeViewport) setSchemaPanelOpen((value) => !value);
+    else setSchemaDrawerOpen((value) => !value);
+  }, [isLargeViewport]);
+
+  // Remember the inline panel state for the rest of the browser session.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SCHEMA_PANEL_KEY, schemaPanelOpen ? 'open' : 'closed');
+    } catch {
+      // Session storage is best-effort (private mode); the panel still works.
+    }
+  }, [schemaPanelOpen]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        toggleSchemaPanel();
+        return;
+      }
+      if (event.key === 'Escape' && schemaDrawerOpen && !isLargeViewport) {
+        setSchemaDrawerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isLargeViewport, schemaDrawerOpen, toggleSchemaPanel]);
+
   const answeredCount = useMemo(
     () =>
       practiceSet
@@ -539,6 +594,31 @@ export function PracticePage() {
     } finally {
       if (runRequest.current === requestId) setRunning(false);
     }
+  };
+
+  /**
+   * Schema clicks land at the caret of the live editor when it is mounted;
+   * otherwise the identifier is appended to the stored draft so nothing is lost.
+   */
+  const insertFromSchema = (text: string): void => {
+    const view = editorView.current;
+    if (view && view.dom.isConnected) {
+      const { from, to } = view.state.selection.main;
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+      });
+      view.focus();
+      return;
+    }
+    const base = current.sql;
+    const separator = base.length > 0 && !/\s$/.test(base) ? ' ' : '';
+    updateCurrent({ sql: `${base}${separator}${text}` });
+  };
+
+  /** Preview only: the statement runs read-only and never records an attempt. */
+  const previewTable = (table: string): void => {
+    void runQuery(`SELECT * FROM ${quoteIdentifier(table)} LIMIT 5`);
   };
 
   const goTo = (index: number): void => {
@@ -1000,6 +1080,19 @@ export function PracticePage() {
                   <span className="ml-auto text-[10px] text-muted">
                     ~{question.estimatedMinutes} min · {question.schemaTables.join(', ')}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={schemaPanelVisible}
+                    title="Toggle schema browser (Ctrl/Cmd+B)"
+                    icon={<PanelRight size={12} />}
+                    onClick={toggleSchemaPanel}
+                  >
+                    Schema
+                    <span className="hidden xl:inline-flex">
+                      <Kbd>Ctrl B</Kbd>
+                    </span>
+                  </Button>
                 </div>
 
                 <h2 className="mt-3 text-[19px] font-extrabold tracking-tight">{question.title}</h2>
@@ -1040,54 +1133,80 @@ export function PracticePage() {
                 ) : null}
 
                 <div className="mt-4">
-                  {question.type === 'write-query' || question.type === 'fix-query' ? (
-                    <>
-                      <div className="h-[280px] overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
-                        <SqlEditor
-                          value={current.sql}
-                          onChange={(value) => updateCurrent({ sql: value })}
-                          schema={schema}
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+                    <div className="min-w-0 flex-1">
+                      {question.type === 'write-query' || question.type === 'fix-query' ? (
+                        <div
+                          className={cn(
+                            'h-[280px] overflow-hidden rounded-xl border border-line-soft bg-canvas/40',
+                            schemaPanelOpen && 'lg:h-[320px]',
+                          )}
+                        >
+                          <SqlEditor
+                            value={current.sql}
+                            onChange={(value) => updateCurrent({ sql: value })}
+                            schema={schema}
+                            profileId={activeProfileId}
+                            database={pinnedDatabase}
+                            liveLint={settings.liveLint}
+                            onRun={() => void runQuery(current.sql)}
+                            onRunSelection={() => void runQuery(current.sql)}
+                            onReview={() => undefined}
+                            onReady={(view) => {
+                              editorView.current = view;
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <Field
+                          label={
+                            question.type === 'review-query'
+                              ? 'Explain the issues you find'
+                              : 'Your answer, design notes, or explanation'
+                          }
+                        >
+                          <Textarea
+                            className="min-h-[220px]"
+                            value={current.answer}
+                            onChange={(event) => updateCurrent({ answer: event.target.value })}
+                            placeholder={
+                              question.type === 'review-query'
+                                ? 'List the problems, why they matter, and how you would fix them…'
+                                : 'Write your reasoning and any SQL/DDL you would use…'
+                            }
+                          />
+                        </Field>
+                      )}
+                    </div>
+
+                    {schemaPanelOpen ? (
+                      <aside className="hidden w-[280px] shrink-0 overflow-hidden rounded-xl border border-line-soft bg-panel lg:flex lg:min-h-[280px] lg:flex-col xl:w-[320px]">
+                        <SchemaSidebar
+                          variant="panel"
+                          className="min-h-0 flex-1"
+                          database={practiceSet?.database ?? pinnedDatabase}
                           profileId={activeProfileId}
-                          database={pinnedDatabase}
-                          liveLint={settings.liveLint}
-                          onRun={() => void runQuery(current.sql)}
-                          onRunSelection={() => void runQuery(current.sql)}
-                          onReview={() => undefined}
-                          onReady={() => undefined}
+                          onInsert={insertFromSchema}
+                          onPreviewTable={previewTable}
                         />
-                      </div>
-                      {runError ? <div className="callout danger mt-2">{runError}</div> : null}
-                      {runResult ? (
-                        <details open className="mt-2 rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                          <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
-                            Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
-                          </summary>
-                          <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
-                            <ResultsGrid result={runResult} />
-                          </div>
-                        </details>
-                      ) : null}
-                    </>
-                  ) : (
-                    <Field
-                      label={
-                        question.type === 'review-query'
-                          ? 'Explain the issues you find'
-                          : 'Your answer, design notes, or explanation'
-                      }
+                      </aside>
+                    ) : null}
+                  </div>
+
+                  {runError ? <div className="callout danger mt-2">{runError}</div> : null}
+                  {runResult ? (
+                    <details
+                      open
+                      className="mt-2 rounded-xl border border-line-soft bg-panel-2/40 p-2"
                     >
-                      <Textarea
-                        className="min-h-[220px]"
-                        value={current.answer}
-                        onChange={(event) => updateCurrent({ answer: event.target.value })}
-                        placeholder={
-                          question.type === 'review-query'
-                            ? 'List the problems, why they matter, and how you would fix them…'
-                            : 'Write your reasoning and any SQL/DDL you would use…'
-                        }
-                      />
-                    </Field>
-                  )}
+                      <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                        Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
+                      </summary>
+                      <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                        <ResultsGrid result={runResult} />
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1331,6 +1450,42 @@ export function PracticePage() {
             </>
           ) : null}
         </div>
+
+        {schemaDrawerOpen && !isLargeViewport ? (
+          <div
+            className="fixed inset-0 z-50"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Schema browser"
+          >
+            <div
+              className="absolute inset-0 bg-black/55 backdrop-blur-[1px]"
+              onClick={() => setSchemaDrawerOpen(false)}
+            />
+            <aside className="absolute inset-y-0 right-0 flex w-[min(88vw,360px)] flex-col border-l border-line bg-panel shadow-2xl">
+              <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
+                <span className="text-[11px] font-semibold text-ink">Schema</span>
+                <IconButton
+                  label="Close schema browser"
+                  className="ml-auto"
+                  onClick={() => setSchemaDrawerOpen(false)}
+                >
+                  <X size={14} />
+                </IconButton>
+              </div>
+              <div className="min-h-0 flex-1">
+                <SchemaSidebar
+                  variant="panel"
+                  className="h-full"
+                  database={practiceSet?.database ?? pinnedDatabase}
+                  profileId={activeProfileId}
+                  onInsert={insertFromSchema}
+                  onPreviewTable={previewTable}
+                />
+              </div>
+            </aside>
+          </div>
+        ) : null}
 
         {practiceSet && navigatorOpen ? (
           <aside className="practice-nav" aria-label="Question navigator">

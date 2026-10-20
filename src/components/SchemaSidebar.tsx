@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
@@ -13,22 +13,61 @@ import {
   Table2,
   X,
 } from 'lucide-react';
-import { useAppStore } from '@/store/app-store';
+import type { ColumnInfo, DatabaseObjects } from '@shared/types';
+import { loadObjects, useAppStore } from '@/store/app-store';
 import { useUiStore } from '@/store/ui-store';
-import { Badge, IconButton, Spinner, cn } from './ui';
+import { dbApi } from '@/lib/db-api';
+import { cn } from '@/lib/utils';
+import { Badge, IconButton, Spinner } from './ui';
 import { Tooltip } from './Tooltip';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
+import { ScrollArea } from './ui/scroll-area';
+
+export interface SchemaSidebarProps {
+  onInsert: (name: string) => void;
+  onOpenTable?: (table: string) => void;
+  onCloseMobile?: () => void;
+  /**
+   * Pin the tree to a database that may differ from the top-bar selection.
+   * When omitted, the sidebar follows `selectedDatabase` exactly as before.
+   */
+  database?: string | null;
+  /** Connection used to load a pinned database. Required when `database` is pinned. */
+  profileId?: string | null;
+  className?: string;
+  variant?: 'sidebar' | 'panel';
+  /** Renders a compact "Preview 5 rows" action next to each table. */
+  onPreviewTable?: (table: string) => void;
+}
+
+type ColumnState = ColumnInfo[] | 'loading' | 'error';
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function quoteIdentifier(name: string): string {
+  return `\`${name.replace(/`/g, '``')}\``;
+}
+
+function formatRows(rows: number): string {
+  return rows >= 1000 ? `${(rows / 1000).toFixed(1)}k` : String(rows);
+}
 
 export function SchemaSidebar({
   onInsert,
   onOpenTable,
   onCloseMobile,
-}: {
-  onInsert: (name: string) => void;
-  onOpenTable?: (table: string) => void;
-  onCloseMobile?: () => void;
-}) {
+  database = null,
+  profileId = null,
+  className,
+  variant = 'sidebar',
+  onPreviewTable,
+}: SchemaSidebarProps) {
   const navigate = useNavigate();
-  const objects = useAppStore((state) => state.objects);
+  const isPanel = variant === 'panel';
+  const storeObjects = useAppStore((state) => state.objects);
   const selectedDatabase = useAppStore((state) => state.selectedDatabase);
   const refreshObjects = useAppStore((state) => state.refreshObjects);
   const schemaCollapsed = useUiStore((state) => state.schemaCollapsed);
@@ -37,6 +76,51 @@ export function SchemaSidebar({
   const [openTables, setOpenTables] = useState(true);
   const [openViews, setOpenViews] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pinnedObjects, setPinnedObjects] = useState<DatabaseObjects | null>(null);
+  const [pinnedLoading, setPinnedLoading] = useState(false);
+  const [pinnedError, setPinnedError] = useState<string | null>(null);
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+  const [columns, setColumns] = useState<Record<string, ColumnState>>({});
+
+  const pinnedDatabase = database && database.length > 0 ? database : null;
+  const activeDatabase = pinnedDatabase ?? selectedDatabase;
+  // Only bypass the store when the pinned database is a different one. Reading
+  // `objects` for the selected database keeps the two views in sync.
+  const usesPinnedFetch = pinnedDatabase !== null && pinnedDatabase !== selectedDatabase;
+  const objects = usesPinnedFetch ? pinnedObjects : storeObjects;
+
+  useEffect(() => {
+    if (!usesPinnedFetch || !pinnedDatabase || !profileId) {
+      setPinnedObjects(null);
+      setPinnedError(null);
+      setPinnedLoading(false);
+      return;
+    }
+    let cancelled = false;
+    // Never show the previous database's objects while the new one loads.
+    setPinnedObjects(null);
+    setPinnedLoading(true);
+    setPinnedError(null);
+    loadObjects(profileId, pinnedDatabase)
+      .then((next) => {
+        if (!cancelled) setPinnedObjects(next);
+      })
+      .catch((error) => {
+        if (!cancelled) setPinnedError(errorMessage(error));
+      })
+      .finally(() => {
+        if (!cancelled) setPinnedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pinnedDatabase, profileId, usesPinnedFetch]);
+
+  // Column caches belong to one database; drop them when the tree retargets.
+  useEffect(() => {
+    setExpandedTables({});
+    setColumns({});
+  }, [activeDatabase]);
 
   const filteredTables = useMemo(() => {
     const tables = objects?.tables ?? [];
@@ -62,6 +146,21 @@ export function SchemaSidebar({
 
   const refresh = async (): Promise<void> => {
     setRefreshing(true);
+    if (usesPinnedFetch) {
+      if (!pinnedDatabase || !profileId) {
+        setRefreshing(false);
+        return;
+      }
+      setPinnedError(null);
+      try {
+        setPinnedObjects(await loadObjects(profileId, pinnedDatabase));
+      } catch (error) {
+        setPinnedError(errorMessage(error));
+      } finally {
+        setRefreshing(false);
+      }
+      return;
+    }
     try {
       await refreshObjects();
     } finally {
@@ -69,18 +168,64 @@ export function SchemaSidebar({
     }
   };
 
-  if (schemaCollapsed) {
-    const tableCount = objects?.tables.length ?? 0;
-    const viewCount = objects?.views.length ?? 0;
+  const loadColumns = async (table: string): Promise<void> => {
+    if (!profileId || !activeDatabase) return;
+    if (columns[table]) return;
+    setColumns((previous) => ({ ...previous, [table]: 'loading' }));
+    try {
+      const detail = await dbApi.tableDetail(profileId, activeDatabase, table);
+      setColumns((previous) => ({ ...previous, [table]: detail.columns }));
+    } catch {
+      setColumns((previous) => ({ ...previous, [table]: 'error' }));
+    }
+  };
+
+  const toggleTable = (table: string): void => {
+    const next = !expandedTables[table];
+    setExpandedTables((previous) => ({ ...previous, [table]: next }));
+    if (next) void loadColumns(table);
+  };
+
+  const renderColumns = (table: string): ReactNode => {
+    const state = columns[table];
+    if (!state || state === 'loading') {
+      return <div className="px-2 py-1 text-[10px] text-muted">Loading columns…</div>;
+    }
+    if (state === 'error') {
+      return <div className="px-2 py-1 text-[10px] text-muted">Columns unavailable.</div>;
+    }
+    if (state.length === 0) {
+      return <div className="px-2 py-1 text-[10px] text-muted">No columns.</div>;
+    }
+    return state.map((column) => (
+      <button
+        key={column.name}
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[10.5px] text-muted transition hover:bg-panel-3 hover:text-ink"
+        title={`Insert ${quoteIdentifier(column.name)} · ${column.dataType}`}
+        onClick={() => onInsert(quoteIdentifier(column.name))}
+      >
+        {column.key === 'PRI' ? (
+          <span className="shrink-0 rounded bg-ember/15 px-1 text-[8px] font-bold text-ember">
+            PK
+          </span>
+        ) : (
+          <span className="w-[18px] shrink-0" />
+        )}
+        <span className="truncate text-ink-soft">{column.name}</span>
+        <span className="ml-auto shrink-0 font-mono text-[9px] text-muted">{column.dataType}</span>
+      </button>
+    ));
+  };
+
+  if (!isPanel && schemaCollapsed) {
+    const tableCount = storeObjects?.tables.length ?? 0;
+    const viewCount = storeObjects?.views.length ?? 0;
     return (
       <aside className="schema-side schema-side-collapsed">
         <div className="schema-rail">
           <Tooltip label="Expand schema" side="right">
-            <IconButton
-              label="Expand schema"
-              nativeTitle={false}
-              onClick={toggleSchema}
-            >
+            <IconButton label="Expand schema" nativeTitle={false} onClick={toggleSchema}>
               <PanelLeftOpen size={14} />
             </IconButton>
           </Tooltip>
@@ -109,11 +254,7 @@ export function SchemaSidebar({
           </Tooltip>
           <div className="schema-rail-spacer" />
           <Tooltip label="Refresh schema" side="right">
-            <IconButton
-              label="Refresh schema"
-              nativeTitle={false}
-              onClick={() => void refresh()}
-            >
+            <IconButton label="Refresh schema" nativeTitle={false} onClick={() => void refresh()}>
               {refreshing ? <Spinner size={14} /> : <RefreshCw size={14} />}
             </IconButton>
           </Tooltip>
@@ -122,91 +263,111 @@ export function SchemaSidebar({
     );
   }
 
-  return (
-    <div className="schema-side">
-      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2.5">
-        <Database size={14} className="text-ember" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[11.5px] font-semibold">
-            {selectedDatabase ?? 'No database'}
-          </div>
-          <div className="text-[9.5px] text-muted">
-            {objects
-              ? `${objects.tables.length} tables · ${objects.views.length} views`
-              : 'loading schema…'}
-          </div>
-        </div>
-        <Tooltip label="Collapse schema" side="bottom">
-          <IconButton
-            label="Collapse schema"
-            nativeTitle={false}
-            onClick={toggleSchema}
-          >
-            <PanelLeftClose size={13} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip label="Refresh objects" side="bottom">
-          <IconButton
-            label="Refresh objects"
-            nativeTitle={false}
-            onClick={() => void refresh()}
-          >
-            {refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />}
-          </IconButton>
-        </Tooltip>
-        {onCloseMobile ? (
-          <IconButton
-            label="Close schema"
-            className="schema-mobile-close"
-            onClick={onCloseMobile}
-          >
-            <X size={13} />
-          </IconButton>
-        ) : null}
-      </div>
+  const summary =
+    pinnedLoading && !objects
+      ? 'loading schema…'
+      : pinnedError
+        ? 'could not load objects'
+        : objects
+          ? `${objects.tables.length} tables · ${objects.views.length} views`
+          : 'loading schema…';
 
-      <div className="p-2">
-        <div className="relative">
-          <Search
-            size={12}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-          />
-          <input
-            className="input input-search py-1.5 text-[11px]"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Filter tables and views…"
-          />
+  const tree = (
+    <>
+      {!activeDatabase ? (
+        <div className="px-3 py-6 text-center text-[11px] text-muted">
+          {isPanel
+            ? 'This challenge set has no database to browse.'
+            : 'Select a database in the top bar to browse its objects.'}
         </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto pb-3">
-        {!selectedDatabase ? (
-          <div className="px-3 py-6 text-center text-[11px] text-muted">
-            Select a database in the top bar to browse its objects.
-          </div>
-        ) : !objects ? (
-          <div className="flex flex-col gap-2 p-3">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <div key={index} className="skeleton h-5" />
-            ))}
-          </div>
-        ) : (
-          <>
+      ) : pinnedError ? (
+        <div className="flex flex-col items-start gap-2 p-3">
+          <div className="text-[10.5px] text-danger">{pinnedError}</div>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()}>
+            Retry
+          </button>
+        </div>
+      ) : !objects ? (
+        <div className="flex flex-col gap-2 p-3">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="skeleton h-5" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <Collapsible open={openTables} onOpenChange={setOpenTables}>
             <div className="tree-section">
-              <button
-                type="button"
-                className="tree-header w-full"
-                onClick={() => setOpenTables((value) => !value)}
-              >
+              <CollapsibleTrigger className="tree-header w-full">
                 {openTables ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 <span>Tables</span>
                 <Badge className="ml-auto">{filteredTables.length}</Badge>
-              </button>
-              {openTables ? (
+              </CollapsibleTrigger>
+              <CollapsibleContent>
                 <div className="tree-list">
                   {filteredTables.length === 0 ? (
                     <div className="px-2 py-3 text-[10.5px] text-muted">No tables match.</div>
+                  ) : isPanel ? (
+                    filteredTables.slice(0, 400).map((table) => {
+                      const expanded = Boolean(expandedTables[table.name]);
+                      return (
+                        <div key={table.name}>
+                          <div
+                            className="tree-item group"
+                            onClick={() => onInsert(table.name)}
+                            title={`Insert ${table.name}`}
+                          >
+                            <button
+                              type="button"
+                              className="-ml-1 shrink-0 rounded p-0.5 text-muted transition hover:bg-panel-3 hover:text-ink"
+                              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${table.name}`}
+                              aria-expanded={expanded}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleTable(table.name);
+                              }}
+                            >
+                              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                            </button>
+                            <Table2 size={12} className="shrink-0 text-muted" />
+                            <span className="truncate">{table.name}</span>
+                            {table.rowsEstimate > 0 ? (
+                              <span className="tree-rows">{formatRows(table.rowsEstimate)}</span>
+                            ) : null}
+                            {onPreviewTable ? (
+                              <button
+                                type="button"
+                                className="shrink-0 rounded px-1 py-0.5 text-[9px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
+                                title={`Preview 5 rows of ${table.name}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onPreviewTable(table.name);
+                                }}
+                              >
+                                Preview 5 rows
+                              </button>
+                            ) : null}
+                            {onOpenTable ? (
+                              <button
+                                type="button"
+                                className="ml-1 shrink-0 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
+                                title="Open table details"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openObject(table.name);
+                                }}
+                              >
+                                <ExternalLink size={10} />
+                              </button>
+                            ) : null}
+                          </div>
+                          {expanded ? (
+                            <div className="mb-1 ml-5 border-l border-line-soft pb-0.5 pl-1.5">
+                              {renderColumns(table.name)}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
                   ) : (
                     filteredTables.slice(0, 400).map((table) => (
                       <div
@@ -218,11 +379,7 @@ export function SchemaSidebar({
                         <Table2 size={12} className="shrink-0 text-muted" />
                         <span>{table.name}</span>
                         {table.rowsEstimate > 0 ? (
-                          <span className="tree-rows">
-                            {table.rowsEstimate >= 1000
-                              ? `${(table.rowsEstimate / 1000).toFixed(1)}k`
-                              : table.rowsEstimate}
-                          </span>
+                          <span className="tree-rows">{formatRows(table.rowsEstimate)}</span>
                         ) : null}
                         <button
                           type="button"
@@ -246,21 +403,19 @@ export function SchemaSidebar({
                     </div>
                   ) : null}
                 </div>
-              ) : null}
+              </CollapsibleContent>
             </div>
+          </Collapsible>
 
-            {objects.views.length > 0 ? (
+          {objects.views.length > 0 ? (
+            <Collapsible open={openViews} onOpenChange={setOpenViews}>
               <div className="tree-section">
-                <button
-                  type="button"
-                  className="tree-header w-full"
-                  onClick={() => setOpenViews((value) => !value)}
-                >
+                <CollapsibleTrigger className="tree-header w-full">
                   {openViews ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   <span>Views</span>
                   <Badge className="ml-auto">{filteredViews.length}</Badge>
-                </button>
-                {openViews ? (
+                </CollapsibleTrigger>
+                <CollapsibleContent>
                   <div className="tree-list">
                     {filteredViews.map((view) => (
                       <div
@@ -271,54 +426,118 @@ export function SchemaSidebar({
                       >
                         <Eye size={12} className="shrink-0 text-muted" />
                         <span>{view.name}</span>
-                        <button
-                          type="button"
-                          className="ml-auto rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
-                          title="Open view definition"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openObject(view.name);
-                          }}
-                        >
-                          <ExternalLink size={10} />
-                        </button>
+                        {onOpenTable ? (
+                          <button
+                            type="button"
+                            className="ml-auto rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
+                            title="Open view definition"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openObject(view.name);
+                            }}
+                          >
+                            <ExternalLink size={10} />
+                          </button>
+                        ) : null}
                       </div>
                     ))}
                   </div>
-                ) : null}
+                </CollapsibleContent>
               </div>
-            ) : null}
+            </Collapsible>
+          ) : null}
 
-            {objects.routines.length > 0 ? (
-              <div className="tree-section">
-                <div className="tree-header">
-                  <span>Routines</span>
-                  <Badge className="ml-auto">{objects.routines.length}</Badge>
-                </div>
-                <div className="tree-list">
-                  {objects.routines.slice(0, 30).map((routine) => (
-                    <div
-                      key={`${routine.type}-${routine.name}`}
-                      className="tree-item"
-                      onClick={() =>
-                        navigate(
-                          `/database?object=${encodeURIComponent(routine.name)}&routineType=${routine.type}`,
-                        )
-                      }
-                      title={`${routine.type} ${routine.name}`}
-                    >
-                      <span className="text-[9px] font-bold text-ember">
-                        {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
-                      </span>
-                      <span>{routine.name}</span>
-                    </div>
-                  ))}
-                </div>
+          {objects.routines.length > 0 ? (
+            <div className="tree-section">
+              <div className="tree-header">
+                <span>Routines</span>
+                <Badge className="ml-auto">{objects.routines.length}</Badge>
               </div>
-            ) : null}
-          </>
-        )}
+              <div className="tree-list">
+                {objects.routines.slice(0, 30).map((routine) => (
+                  <div
+                    key={`${routine.type}-${routine.name}`}
+                    className="tree-item"
+                    onClick={() =>
+                      navigate(
+                        `/database?object=${encodeURIComponent(routine.name)}&routineType=${routine.type}`,
+                      )
+                    }
+                    title={`${routine.type} ${routine.name}`}
+                  >
+                    <span className="text-[9px] font-bold text-ember">
+                      {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
+                    </span>
+                    <span>{routine.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <div
+      className={cn(
+        isPanel ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'schema-side',
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2.5">
+        <Database size={14} className="text-ember" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[11.5px] font-semibold">
+              {activeDatabase ?? 'No database'}
+            </span>
+            {usesPinnedFetch ? <Badge tone="ember">pinned</Badge> : null}
+          </div>
+          <div className="truncate text-[9.5px] text-muted">{summary}</div>
+        </div>
+        <Tooltip label="Refresh objects" side="bottom">
+          <IconButton label="Refresh objects" nativeTitle={false} onClick={() => void refresh()}>
+            {refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />}
+          </IconButton>
+        </Tooltip>
+        {!isPanel ? (
+          <Tooltip label="Collapse schema" side="bottom">
+            <IconButton label="Collapse schema" nativeTitle={false} onClick={toggleSchema}>
+              <PanelLeftClose size={13} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+        {!isPanel && onCloseMobile ? (
+          <IconButton label="Close schema" className="schema-mobile-close" onClick={onCloseMobile}>
+            <X size={13} />
+          </IconButton>
+        ) : null}
       </div>
+
+      <div className="p-2">
+        <div className="relative">
+          <Search
+            size={12}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            className="input input-search py-1.5 text-[11px]"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Filter tables and views…"
+          />
+        </div>
+      </div>
+
+      {isPanel ? (
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="pb-3">{tree}</div>
+        </ScrollArea>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto pb-3">{tree}</div>
+      )}
     </div>
   );
 }

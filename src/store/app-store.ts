@@ -95,6 +95,21 @@ function clientError(error: unknown): string {
   return String(error);
 }
 
+/**
+ * Fetch the objects of one database without touching the global store. The
+ * practice page is pinned to its set's database, which can differ from the
+ * top-bar selection, so it must not call `refreshObjects` (that writes
+ * `objects` for `selectedDatabase`).
+ */
+export async function loadObjects(
+  profileId: string,
+  database: string,
+): Promise<DatabaseObjects> {
+  return api.get<DatabaseObjects>(
+    `/api/db/${encodeURIComponent(profileId)}/databases/${encodeURIComponent(database)}/objects`,
+  );
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   bootError: null,
