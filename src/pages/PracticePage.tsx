@@ -1131,14 +1131,16 @@ export function PracticePage() {
                 ) : null}
 
                 {question.hints.length > 0 ? (
-                  <div className="mt-3 rounded-xl border border-warn/25 bg-warn/5 p-3">
+                  <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-2.5 py-1.5">
                     <div className="flex items-center gap-2">
-                      <Lightbulb size={13} className="text-warn" />
-                      <span className="text-[11px] font-semibold text-warn">Hints</span>
+                      <Lightbulb size={11} className="text-warn" />
+                      <span className="text-[10.5px] font-semibold tracking-wide text-warn uppercase">
+                        Hints
+                      </span>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="ml-auto"
+                        className="ml-auto h-6 px-2 text-[10.5px]"
                         onClick={() => setHintsShown((value) => Math.min(question.hints.length, value + 1))}
                         disabled={hintsShown >= question.hints.length}
                       >
@@ -1146,7 +1148,7 @@ export function PracticePage() {
                       </Button>
                     </div>
                     {question.hints.slice(0, hintsShown).map((hint, index) => (
-                      <div key={index} className="mt-1.5 text-[11.5px] text-ink-soft">
+                      <div key={index} className="mt-1 text-[11px] leading-5 text-ink-soft">
                         {index + 1}. {hint}
                       </div>
                     ))}
@@ -1155,14 +1157,9 @@ export function PracticePage() {
 
                 <div className="mt-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
-                    <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-1 flex-col">
                       {question.type === 'write-query' || question.type === 'fix-query' ? (
-                        <div
-                          className={cn(
-                            'h-[280px] overflow-hidden rounded-xl border border-line-soft bg-canvas/40',
-                            schemaPanelOpen && 'lg:h-[320px]',
-                          )}
-                        >
+                        <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
                           <SqlEditor
                             value={current.sql}
                             onChange={(value) => updateCurrent({ sql: value })}
