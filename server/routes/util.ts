@@ -46,7 +46,3 @@ export function header(req: Request, name: string): string | null {
   const value = req.get(name);
   return value ? value.trim() : null;
 }
-
-export const idSchema = z.string().min(1).max(200);
-export const databaseSchema = z.string().min(1).max(200);
-export const sqlSchema = z.string().min(1).max(1_000_000);

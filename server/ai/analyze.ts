@@ -275,7 +275,7 @@ function aiReviewFrom(
     summary: parsed.summary,
     findings: parsed.findings,
     rewrite: parsed.rewrite,
-    markdown: parsed.summary,
+    markdown: raw,
     usage: usageToShared(usage),
     durationMs,
   };

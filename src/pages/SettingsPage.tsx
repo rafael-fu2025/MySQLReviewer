@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Brain,
@@ -8,14 +8,12 @@ import {
   KeyRound,
   Laptop,
   Plus,
-  RefreshCw,
   Server,
   ShieldCheck,
   Sparkles,
   Star,
   Sun,
   Trash2,
-  XCircle,
   Zap,
 } from 'lucide-react';
 import type {
@@ -26,6 +24,7 @@ import type {
   ReportSummary,
   ThemePreference,
 } from '@shared/types';
+import { APP_VERSION } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import { formatRelative } from '@/lib/format';
@@ -35,7 +34,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   ConfirmDialog,
   Field,
   Input,
@@ -56,6 +54,59 @@ function parseTab(value: string | null): SettingsTab {
   return TAB_IDS.includes(value as SettingsTab) ? (value as SettingsTab) : 'connections';
 }
 
+type NumericField =
+  | 'rowLimit'
+  | 'queryTimeoutMs'
+  | 'cellMaxChars'
+  | 'aiContextChars'
+  | 'historyLimit';
+
+const NUMERIC_FIELDS: NumericField[] = [
+  'rowLimit',
+  'queryTimeoutMs',
+  'cellMaxChars',
+  'aiContextChars',
+  'historyLimit',
+];
+
+const NUMERIC_RULES: Record<NumericField, { label: string; min: number; max: number }> = {
+  rowLimit: { label: 'Row cap', min: 1, max: 10_000 },
+  queryTimeoutMs: { label: 'Query timeout', min: 1_000, max: 300_000 },
+  cellMaxChars: { label: 'Cell size cap', min: 256, max: 1_000_000 },
+  aiContextChars: { label: 'AI context budget', min: 2_000, max: 200_000 },
+  historyLimit: { label: 'History entries', min: 50, max: 5_000 },
+};
+
+function numericDraftsOf(settings: AppSettings): Record<NumericField, string> {
+  return {
+    rowLimit: String(settings.rowLimit),
+    queryTimeoutMs: String(settings.queryTimeoutMs),
+    cellMaxChars: String(settings.cellMaxChars),
+    aiContextChars: String(settings.aiContextChars),
+    historyLimit: String(settings.historyLimit),
+  };
+}
+
+function validateNumeric(field: NumericField, raw: string): { value?: number; error?: string } {
+  const rule = NUMERIC_RULES[field];
+  const trimmed = raw.trim();
+  if (!trimmed) return { error: `${rule.label} is required.` };
+  if (!/^\d+$/.test(trimmed)) return { error: `${rule.label} must be a whole number.` };
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value < rule.min || value > rule.max) {
+    return {
+      error: `${rule.label} must be between ${rule.min.toLocaleString()} and ${rule.max.toLocaleString()}.`,
+    };
+  }
+  return { value };
+}
+
+/** Settings without the theme, which is applied immediately and never edited through the draft. */
+function withoutTheme(settings: AppSettings): string {
+  const { theme: _theme, ...rest } = settings;
+  return JSON.stringify(rest);
+}
+
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const tab = parseTab(params.get('tab'));
@@ -69,8 +120,10 @@ export function SettingsPage() {
   const detectedXampp = useAppStore((state) => state.detectedXampp);
   const refreshProfiles = useAppStore((state) => state.refreshProfiles);
   const refreshProviders = useAppStore((state) => state.refreshProviders);
+  const refreshSettings = useAppStore((state) => state.refreshSettings);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const setTheme = useAppStore((state) => state.setTheme);
+  const disconnect = useAppStore((state) => state.disconnect);
   const toast = useAppStore((state) => state.toast);
 
   const [connectionModal, setConnectionModal] = useState<{
@@ -87,11 +140,26 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [draft, setDraft] = useState<AppSettings>(settings);
+  const [numericDrafts, setNumericDrafts] = useState<Record<NumericField, string>>(() =>
+    numericDraftsOf(settings),
+  );
+  const [numericErrors, setNumericErrors] = useState<Partial<Record<NumericField, string>>>({});
   const [savingSettings, setSavingSettings] = useState(false);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
+  const [clearingHistory, setClearingHistory] = useState(false);
+  const appliedSettingsRef = useRef(withoutTheme(settings));
 
   useEffect(() => {
+    const snapshot = withoutTheme(settings);
+    if (snapshot === appliedSettingsRef.current) return;
+    const previous = appliedSettingsRef.current;
+    appliedSettingsRef.current = snapshot;
+    // A theme change rewrites settings without touching these fields; keep unsaved edits intact.
+    if (withoutTheme(draft) !== previous) return;
     setDraft(settings);
-  }, [settings]);
+    setNumericDrafts(numericDraftsOf(settings));
+    setNumericErrors({});
+  }, [draft, settings]);
 
   useEffect(() => {
     void api
@@ -106,11 +174,50 @@ export function SettingsPage() {
     setParams(copy);
   };
 
+  const setNumericError = (field: NumericField, error: string | undefined): void => {
+    setNumericErrors((current) => {
+      const next = { ...current };
+      if (error) next[field] = error;
+      else delete next[field];
+      return next;
+    });
+  };
+
+  const updateNumeric = (field: NumericField, raw: string): void => {
+    setNumericDrafts((current) => ({ ...current, [field]: raw }));
+    const result = validateNumeric(field, raw);
+    setNumericError(field, result.error);
+    if (result.value !== undefined) {
+      setDraft((current) => ({ ...current, [field]: result.value }));
+    }
+  };
+
+  const blurNumeric = (field: NumericField): void => {
+    setNumericError(field, validateNumeric(field, numericDrafts[field]).error);
+  };
+
   const saveSettings = async (): Promise<void> => {
+    const errors: Partial<Record<NumericField, string>> = {};
+    const numeric: Partial<Record<NumericField, number>> = {};
+    for (const field of NUMERIC_FIELDS) {
+      const result = validateNumeric(field, numericDrafts[field]);
+      if (result.error) errors[field] = result.error;
+      else if (result.value !== undefined) numeric[field] = result.value;
+    }
+    setNumericErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast('Fix the highlighted numbers before saving.', 'error');
+      return;
+    }
     setSavingSettings(true);
     try {
-      await updateSettings(draft);
+      await updateSettings({ ...draft, ...numeric, theme });
       toast('Settings saved.', 'success');
+      const saved = useAppStore.getState().settings;
+      appliedSettingsRef.current = withoutTheme(saved);
+      setDraft(saved);
+      setNumericDrafts(numericDraftsOf(saved));
+      setNumericErrors({});
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), 'error');
     } finally {
@@ -120,12 +227,23 @@ export function SettingsPage() {
 
   const deleteConnection = async (): Promise<void> => {
     if (!deletingConnection) return;
-    setBusy(deletingConnection.id);
+    const target = deletingConnection;
+    const wasActive = target.id === activeProfileId;
+    setBusy(target.id);
     try {
-      await api.del(`/api/connections/${deletingConnection.id}`);
-      await refreshProfiles();
-      toast(`Deleted ${deletingConnection.name}.`, 'success');
+      await api.del(`/api/connections/${target.id}`);
+      // Drop the live session before refreshing so a failed refresh cannot leave a dead profile active.
+      if (wasActive) await disconnect();
       setDeletingConnection(null);
+      toast(`Deleted ${target.name}.`, 'success');
+      try {
+        await refreshProfiles();
+      } catch (error) {
+        toast(
+          `The profile list could not be refreshed: ${error instanceof Error ? error.message : String(error)}`,
+          'warn',
+        );
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), 'error');
     } finally {
@@ -190,7 +308,7 @@ export function SettingsPage() {
     setBusy(provider.id);
     try {
       await api.post(`/api/ai/providers/${provider.id}/default`);
-      await refreshProviders();
+      await Promise.all([refreshProviders(), refreshSettings()]);
       toast(`${provider.name} is now the default provider.`, 'success');
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), 'error');
@@ -215,15 +333,24 @@ export function SettingsPage() {
   };
 
   const clearHistory = async (): Promise<void> => {
+    if (!activeProfileId) {
+      setConfirmClearHistory(false);
+      toast('Connect to a database before clearing query history.', 'warn');
+      return;
+    }
+    setClearingHistory(true);
     try {
-      await api.del(
-        `/api/history?profileId=${encodeURIComponent(activeProfileId ?? '')}`,
-      );
+      await api.del(`/api/history?profileId=${encodeURIComponent(activeProfileId)}`);
       toast('Query history cleared for the active connection.', 'success');
+      setConfirmClearHistory(false);
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      setClearingHistory(false);
     }
   };
+
+  const activeProfileName = profiles.find((profile) => profile.id === activeProfileId)?.name ?? null;
 
   return (
     <div className="page">
@@ -466,6 +593,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <Switch
+                label="Live lint"
                 checked={draft.liveLint}
                 onChange={(value) => setDraft((current) => ({ ...current, liveLint: value }))}
               />
@@ -478,6 +606,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <Switch
+                label="Include schema by default"
                 checked={draft.includeSchemaByDefault}
                 onChange={(value) =>
                   setDraft((current) => ({ ...current, includeSchemaByDefault: value }))
@@ -487,16 +616,15 @@ export function SettingsPage() {
             <Field
               label="AI context budget (characters)"
               hint="Schema and plan text are truncated to this budget before sending."
+              error={numericErrors.aiContextChars}
             >
               <Input
                 type="number"
-                value={draft.aiContextChars}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    aiContextChars: Number(event.target.value),
-                  }))
-                }
+                inputMode="numeric"
+                value={numericDrafts.aiContextChars}
+                onChange={(event) => updateNumeric('aiContextChars', event.target.value)}
+                onBlur={() => blurNumeric('aiContextChars')}
+                aria-invalid={Boolean(numericErrors.aiContextChars)}
               />
             </Field>
             <Field label="Default AI provider">
@@ -562,6 +690,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <Switch
+                label="Mask sensitive columns"
                 checked={draft.maskSensitiveColumns}
                 onChange={(value) =>
                   setDraft((current) => ({ ...current, maskSensitiveColumns: value }))
@@ -584,55 +713,57 @@ export function SettingsPage() {
               <Field
                 label="Row cap"
                 hint="Applied as sql_select_limit for interactive queries. 1–10,000."
+                error={numericErrors.rowLimit}
               >
                 <Input
                   type="number"
-                  value={draft.rowLimit}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, rowLimit: Number(event.target.value) }))
-                  }
+                  inputMode="numeric"
+                  value={numericDrafts.rowLimit}
+                  onChange={(event) => updateNumeric('rowLimit', event.target.value)}
+                  onBlur={() => blurNumeric('rowLimit')}
+                  aria-invalid={Boolean(numericErrors.rowLimit)}
                 />
               </Field>
               <Field
                 label="Query timeout (ms)"
                 hint="Server-side max_statement_time / max_execution_time, plus client timeout."
+                error={numericErrors.queryTimeoutMs}
               >
                 <Input
                   type="number"
-                  value={draft.queryTimeoutMs}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      queryTimeoutMs: Number(event.target.value),
-                    }))
-                  }
+                  inputMode="numeric"
+                  value={numericDrafts.queryTimeoutMs}
+                  onChange={(event) => updateNumeric('queryTimeoutMs', event.target.value)}
+                  onBlur={() => blurNumeric('queryTimeoutMs')}
+                  aria-invalid={Boolean(numericErrors.queryTimeoutMs)}
                 />
               </Field>
               <Field
                 label="Cell size cap (characters)"
                 hint="Long text and binary values are truncated in the result grid."
+                error={numericErrors.cellMaxChars}
               >
                 <Input
                   type="number"
-                  value={draft.cellMaxChars}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      cellMaxChars: Number(event.target.value),
-                    }))
-                  }
+                  inputMode="numeric"
+                  value={numericDrafts.cellMaxChars}
+                  onChange={(event) => updateNumeric('cellMaxChars', event.target.value)}
+                  onBlur={() => blurNumeric('cellMaxChars')}
+                  aria-invalid={Boolean(numericErrors.cellMaxChars)}
                 />
               </Field>
-              <Field label="History entries" hint="Server-side query history cap. 50–5,000.">
+              <Field
+                label="History entries"
+                hint="Server-side query history cap. 50–5,000."
+                error={numericErrors.historyLimit}
+              >
                 <Input
                   type="number"
-                  value={draft.historyLimit}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      historyLimit: Number(event.target.value),
-                    }))
-                  }
+                  inputMode="numeric"
+                  value={numericDrafts.historyLimit}
+                  onChange={(event) => updateNumeric('historyLimit', event.target.value)}
+                  onBlur={() => blurNumeric('historyLimit')}
+                  aria-invalid={Boolean(numericErrors.historyLimit)}
                 />
               </Field>
             </div>
@@ -710,7 +841,13 @@ export function SettingsPage() {
                 variant="danger"
                 size="sm"
                 icon={<Trash2 size={11} />}
-                onClick={() => void clearHistory()}
+                onClick={() => {
+                  if (!activeProfileId) {
+                    toast('Connect to a database first — history is cleared per connection.', 'warn');
+                    return;
+                  }
+                  setConfirmClearHistory(true);
+                }}
               >
                 Clear query history
               </Button>
@@ -801,6 +938,21 @@ export function SettingsPage() {
       </Modal>
 
       <ConfirmDialog
+        open={confirmClearHistory}
+        onClose={() => setConfirmClearHistory(false)}
+        onConfirm={() => void clearHistory()}
+        title="Clear query history?"
+        message={
+          activeProfileName
+            ? `Delete the saved query history for “${activeProfileName}”. Reports and snippets are kept.`
+            : 'Delete the saved query history for the active connection. Reports and snippets are kept.'
+        }
+        confirmLabel="Clear history"
+        danger
+        loading={clearingHistory}
+      />
+
+      <ConfirmDialog
         open={Boolean(deletingConnection)}
         onClose={() => setDeletingConnection(null)}
         onConfirm={() => void deleteConnection()}
@@ -832,7 +984,7 @@ export function SettingsPage() {
 
       <div className="flex items-center justify-between text-[10px] text-muted">
         <span>MyLens · local MySQL Review Studio</span>
-        <span className="font-mono">v{boot?.version ?? '1.0.0'}</span>
+        <span className="font-mono">v{boot?.version ?? APP_VERSION}</span>
       </div>
     </div>
   );

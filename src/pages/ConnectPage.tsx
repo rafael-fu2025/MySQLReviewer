@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
-  CheckCircle2,
   Database,
   Edit3,
   KeyRound,
@@ -11,11 +10,11 @@ import {
   PlugZap,
   Plus,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Zap,
 } from 'lucide-react';
 import type { ConnectionProfile, TestConnectionResult } from '@shared/types';
+import { APP_VERSION } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api, ApiError } from '@/lib/api';
 import { formatRelative } from '@/lib/format';
@@ -38,6 +37,7 @@ function ProfileCard({
   profile,
   active,
   connecting,
+  testing,
   onConnect,
   onEdit,
   onDelete,
@@ -46,6 +46,7 @@ function ProfileCard({
   profile: ConnectionProfile;
   active: boolean;
   connecting: boolean;
+  testing: boolean;
   onConnect: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -116,7 +117,13 @@ function ProfileCard({
         >
           {active ? 'Reconnect' : 'Connect'}
         </Button>
-        <Button variant="ghost" size="sm" onClick={onTest}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onTest}
+          loading={testing}
+          disabled={connecting}
+        >
           Test
         </Button>
         <span className="ml-auto text-[10px] text-muted">
@@ -139,11 +146,12 @@ export function ConnectPage() {
   const toast = useAppStore((state) => state.toast);
   const nodeVersion = useAppStore((state) => state.boot?.nodeVersion ?? '');
   const dataDir = useAppStore((state) => state.boot?.dataDir ?? '');
-  const version = useAppStore((state) => state.boot?.version ?? '1.0.0');
+  const version = useAppStore((state) => state.boot?.version ?? APP_VERSION);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ConnectionProfile | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [passwordFor, setPasswordFor] = useState<ConnectionProfile | null>(null);
   const [password, setPassword] = useState('');
@@ -151,29 +159,42 @@ export function ConnectPage() {
   const [deleting, setDeleting] = useState<ConnectionProfile | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  const attempt = async (profile: ConnectionProfile, suppliedPassword?: string): Promise<void> => {
+  /**
+   * Connect to a profile. Returns the failure message instead of throwing so callers
+   * that fire it from a click handler cannot produce an unhandled rejection.
+   */
+  const attempt = async (
+    profile: ConnectionProfile,
+    suppliedPassword?: string,
+  ): Promise<string | null> => {
     setConnectingId(profile.id);
     setError(null);
     try {
       await connect(profile.id, suppliedPassword);
       toast(`Connected to ${profile.name}.`, 'success');
       navigate('/workspace');
+      return null;
     } catch (err) {
       const apiError = err instanceof ApiError ? err : null;
-      if (apiError?.code === 'ACCESS_DENIED' && suppliedPassword === undefined) {
-        setPasswordFor(profile);
-        setPassword('');
-        setPasswordError(apiError.message);
+      const message = apiError?.message ?? (err instanceof Error ? err.message : String(err));
+      if (apiError?.code === 'ACCESS_DENIED') {
+        if (suppliedPassword === undefined) {
+          setPasswordFor(profile);
+          setPassword('');
+        }
+        setPasswordError(message);
       } else {
-        setError(apiError?.message ?? String(err));
+        setError(message);
       }
-      throw err;
+      return message;
     } finally {
       setConnectingId(null);
     }
   };
 
   const testProfile = async (profile: ConnectionProfile): Promise<void> => {
+    if (testingId) return;
+    setTestingId(profile.id);
     try {
       const result = await api.post<TestConnectionResult>('/api/connections/test', {
         name: profile.name,
@@ -196,6 +217,8 @@ export function ConnectPage() {
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -204,8 +227,9 @@ export function ConnectPage() {
     setDeletingBusy(true);
     try {
       await api.del(`/api/connections/${deleting.id}`);
-      await refreshProfiles();
+      // Clear the live session first so a failed refresh cannot leave a deleted profile active.
       if (activeProfileId === deleting.id) await disconnect();
+      await refreshProfiles();
       toast(`Deleted ${deleting.name}.`, 'success');
       setDeleting(null);
     } catch (err) {
@@ -383,6 +407,7 @@ export function ConnectPage() {
                 profile={profile}
                 active={profile.id === activeProfileId}
                 connecting={connectingId === profile.id}
+                testing={testingId === profile.id}
                 onConnect={() => void attempt(profile)}
                 onEdit={() => {
                   setEditing(profile);
@@ -464,12 +489,10 @@ export function ConnectPage() {
               onClick={async () => {
                 if (!passwordFor) return;
                 setPasswordError(null);
-                try {
-                  await attempt(passwordFor, password);
+                const failure = await attempt(passwordFor, password);
+                if (!failure) {
                   setPasswordFor(null);
                   setPassword('');
-                } catch (err) {
-                  setPasswordError(err instanceof Error ? err.message : String(err));
                 }
               }}
             >
@@ -486,6 +509,8 @@ export function ConnectPage() {
           <Field label="Password" error={passwordError}>
             <Input
               type="password"
+              name="mylens-session-password"
+              autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               onKeyDown={(event) => {
@@ -493,11 +518,11 @@ export function ConnectPage() {
                   event.preventDefault();
                   void (async () => {
                     if (!passwordFor) return;
-                    try {
-                      await attempt(passwordFor, password);
+                    setPasswordError(null);
+                    const failure = await attempt(passwordFor, password);
+                    if (!failure) {
                       setPasswordFor(null);
-                    } catch (err) {
-                      setPasswordError(err instanceof Error ? err.message : String(err));
+                      setPassword('');
                     }
                   })();
                 }

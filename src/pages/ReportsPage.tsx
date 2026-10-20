@@ -9,6 +9,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  XCircle,
 } from 'lucide-react';
 import type { ReportSummary } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
@@ -25,14 +26,19 @@ import {
   ScoreRing,
   Spinner,
   Tabs,
-  cn,
 } from '@/components/ui';
+
+/** Export is per report, so only that report's buttons go busy. */
+function isExporting(exporting: string | null, reportId: string): boolean {
+  return exporting?.startsWith(`${reportId}:`) ?? false;
+}
 
 export function ReportsPage() {
   const navigate = useNavigate();
   const toast = useAppStore((state) => state.toast);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'audit' | 'review'>('all');
   const [search, setSearch] = useState('');
   const [deleting, setDeleting] = useState<ReportSummary | null>(null);
@@ -41,10 +47,12 @@ export function ReportsPage() {
 
   const load = async (): Promise<void> => {
     setLoading(true);
+    setLoadError(null);
     try {
       setReports(await api.get<ReportSummary[]>('/api/reports'));
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error');
+      setReports([]);
+      setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
@@ -78,6 +86,11 @@ export function ReportsPage() {
     } finally {
       setExporting(null);
     }
+  };
+
+  const clearFilters = (): void => {
+    setFilter('all');
+    setSearch('');
   };
 
   const remove = async (): Promise<void> => {
@@ -151,17 +164,43 @@ export function ReportsPage() {
             <div key={index} className="skeleton h-44" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={<FileText size={24} />}
-          title="No reports yet"
-          copy="Run a full audit or save an AI review to keep it here."
-          action={
-            <Button variant="primary" onClick={() => navigate('/audit')}>
-              Run an audit
+      ) : loadError ? (
+        <Card className="p-6">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-danger/30 bg-danger/10 text-danger">
+              <XCircle size={22} />
+            </div>
+            <div className="text-[14px] font-bold">Reports could not be loaded</div>
+            <div className="max-w-md text-[12px] text-muted">{loadError}</div>
+            <Button variant="secondary" icon={<RefreshCw size={12} />} onClick={() => void load()}>
+              Retry
             </Button>
-          }
-        />
+          </div>
+        </Card>
+      ) : filtered.length === 0 ? (
+        reports.length === 0 ? (
+          <EmptyState
+            icon={<FileText size={24} />}
+            title="No reports yet"
+            copy="Run a full audit or save an AI review to keep it here."
+            action={
+              <Button variant="primary" onClick={() => navigate('/audit')}>
+                Run an audit
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<Search size={24} />}
+            title="No reports match this filter"
+            copy={`None of the ${reports.length} saved report${reports.length === 1 ? '' : 's'} match the current tab and search.`}
+            action={
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((report) => (
@@ -215,7 +254,7 @@ export function ReportsPage() {
                     )
                   }
                   onClick={() => void doExport(report, 'md')}
-                  disabled={Boolean(exporting)}
+                  disabled={isExporting(exporting, report.id)}
                 >
                   MD
                 </Button>
@@ -230,7 +269,7 @@ export function ReportsPage() {
                     )
                   }
                   onClick={() => void doExport(report, 'html')}
-                  disabled={Boolean(exporting)}
+                  disabled={isExporting(exporting, report.id)}
                   title="HTML"
                 />
                 <Button
@@ -244,7 +283,7 @@ export function ReportsPage() {
                     )
                   }
                   onClick={() => void doExport(report, 'json')}
-                  disabled={Boolean(exporting)}
+                  disabled={isExporting(exporting, report.id)}
                   title="JSON"
                 />
                 <Button

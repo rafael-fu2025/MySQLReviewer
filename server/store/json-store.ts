@@ -81,7 +81,19 @@ export async function writeJsonAtomic(file: string, value: unknown): Promise<voi
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const body = `${JSON.stringify(value, null, 2)}\n`;
-  await fs.writeFile(tmp, body, 'utf8');
+  try {
+    // Reports can contain connection details and SQL, so keep them private.
+    await fs.writeFile(tmp, body, { encoding: 'utf8', mode: 0o600 });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    // Windows and some network filesystems cannot apply POSIX modes. The file
+    // is still created; do not fail the write over an unsupported mode.
+    if (err.code === 'EPERM' || err.code === 'EACCES' || err.code === 'EINVAL') {
+      await fs.writeFile(tmp, body, 'utf8');
+    } else {
+      throw error;
+    }
+  }
   try {
     await fs.rename(tmp, file);
   } catch (error) {

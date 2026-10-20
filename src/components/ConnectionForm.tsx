@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, PlugZap, XCircle } from 'lucide-react';
 import type {
   ConnectionProfile,
@@ -12,6 +12,7 @@ import {
   Checkbox,
   CopyButton,
   Field,
+  IconButton,
   Input,
   Spinner,
   cn,
@@ -60,6 +61,32 @@ function initialState(profile?: ConnectionProfile | null): FormState {
   };
 }
 
+type FieldKey = 'name' | 'host' | 'port' | 'user';
+
+const PORT_MIN = 1;
+const PORT_MAX = 65535;
+
+function validatePort(value: string): { port?: number; error?: string } {
+  const trimmed = value.trim();
+  if (!trimmed) return { error: 'Enter a port. 3306 is the MySQL default.' };
+  if (!/^\d+$/.test(trimmed)) return { error: 'Port must be a whole number.' };
+  const port = Number(trimmed);
+  if (!Number.isFinite(port) || port < PORT_MIN || port > PORT_MAX) {
+    return { error: `Port must be between ${PORT_MIN} and ${PORT_MAX}.` };
+  }
+  return { port };
+}
+
+function validateFields(form: FormState): { errors: Partial<Record<FieldKey, string>>; port?: number } {
+  const errors: Partial<Record<FieldKey, string>> = {};
+  if (!form.name.trim()) errors.name = 'Enter a name for this connection.';
+  if (!form.host.trim()) errors.host = 'Enter a host name or IP address.';
+  if (!form.user.trim()) errors.user = 'Enter the MySQL user name.';
+  const portResult = validatePort(form.port);
+  if (portResult.error) errors.port = portResult.error;
+  return { errors, port: portResult.port };
+}
+
 export function ConnectionForm({
   profile,
   onSaved,
@@ -69,6 +96,8 @@ export function ConnectionForm({
   onSaved: (profile: ConnectionProfile) => void;
   onCancel?: () => void;
 }) {
+  const passwordId = useId();
+  const advancedId = useId();
   const [form, setForm] = useState<FormState>(() => initialState(profile));
   const [showPassword, setShowPassword] = useState(false);
   const [advanced, setAdvanced] = useState(form.sslEnabled || Boolean(form.socketPath));
@@ -79,9 +108,27 @@ export function ConnectionForm({
   const [grantSql, setGrantSql] = useState<string | null>(null);
   const [grantBusy, setGrantBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]): void => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const clearFieldError = (key: FieldKey): void => {
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  /** Endpoint edits invalidate the database list returned by the last test. */
+  const setEndpoint = (key: 'host' | 'port' | 'user' | 'socketPath', value: string): void => {
+    set(key, value);
+    if (key !== 'socketPath') clearFieldError(key);
+    setTest(null);
+    setTestDatabases([]);
   };
 
   const ssl = (): SslConfig | undefined =>
@@ -95,10 +142,10 @@ export function ConnectionForm({
         }
       : undefined;
 
-  const buildPayload = () => ({
+  const buildPayload = (port: number) => ({
     name: form.name.trim(),
     host: form.host.trim(),
-    port: Number(form.port),
+    port,
     user: form.user.trim(),
     ...(form.clearPassword
       ? { password: '' }
@@ -114,12 +161,25 @@ export function ConnectionForm({
     allowServerWideInsights: form.allowServerWideInsights,
   });
 
+  const check = (): { ok: boolean; port?: number } => {
+    const { errors, port } = validateFields(form);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError('Fix the highlighted connection fields before continuing.');
+      return { ok: false };
+    }
+    setError(null);
+    return { ok: true, port };
+  };
+
   const runTest = async (): Promise<void> => {
+    const validation = check();
+    if (!validation.ok || validation.port === undefined) return;
     setTesting(true);
     setTest(null);
     setError(null);
     try {
-      const payload = buildPayload();
+      const payload = buildPayload(validation.port);
       const result = await api.post<TestConnectionResult>('/api/connections/test', {
         ...payload,
         includeDatabases: true,
@@ -169,6 +229,8 @@ export function ConnectionForm({
 
   const save = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault();
+    const validation = check();
+    if (!validation.ok || validation.port === undefined) return;
     if (form.databaseScope === 'selected' && form.allowedDatabases.length === 0) {
       setError('Select at least one database for a scoped connection.');
       return;
@@ -176,7 +238,7 @@ export function ConnectionForm({
     setSaving(true);
     setError(null);
     try {
-      const payload = buildPayload();
+      const payload = buildPayload(validation.port);
       const saved = profile
         ? await api.put<ConnectionProfile>(`/api/connections/${profile.id}`, payload)
         : await api.post<ConnectionProfile>('/api/connections', payload);
@@ -212,62 +274,82 @@ export function ConnectionForm({
   return (
     <form className="flex flex-col gap-4" onSubmit={save}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Connection name" className="sm:col-span-2">
+        <Field label="Connection name" className="sm:col-span-2" error={fieldErrors.name}>
           <Input
             value={form.name}
-            onChange={(event) => set('name', event.target.value)}
+            onChange={(event) => {
+              set('name', event.target.value);
+              clearFieldError('name');
+            }}
             placeholder="XAMPP (local MariaDB)"
+            aria-invalid={Boolean(fieldErrors.name)}
             autoFocus
           />
         </Field>
-        <Field label="Host">
+        <Field label="Host" error={fieldErrors.host}>
           <Input
             value={form.host}
-            onChange={(event) => set('host', event.target.value)}
+            onChange={(event) => setEndpoint('host', event.target.value)}
             placeholder="127.0.0.1"
+            aria-invalid={Boolean(fieldErrors.host)}
           />
         </Field>
-        <Field label="Port">
+        <Field label="Port" error={fieldErrors.port}>
           <Input
             value={form.port}
-            onChange={(event) => set('port', event.target.value)}
+            onChange={(event) => setEndpoint('port', event.target.value)}
+            onBlur={() => {
+              const result = validatePort(form.port);
+              if (result.error) {
+                setFieldErrors((current) => ({ ...current, port: result.error }));
+              }
+            }}
             inputMode="numeric"
             placeholder="3306"
+            aria-invalid={Boolean(fieldErrors.port)}
           />
         </Field>
-        <Field label="MySQL user">
+        <Field label="MySQL user" error={fieldErrors.user}>
           <Input
             value={form.user}
-            onChange={(event) => set('user', event.target.value)}
+            onChange={(event) => setEndpoint('user', event.target.value)}
             placeholder="root"
+            aria-invalid={Boolean(fieldErrors.user)}
           />
         </Field>
-        <Field
-          label="Password"
-          hint={
-            profile?.hasPassword && !form.password && !form.clearPassword
-              ? 'Leave blank to keep the saved password.'
-              : 'The password is encrypted at rest when remembered.'
-          }
-        >
-          <div className="relative">
+        <div className="field">
+          <label className="field-label" htmlFor={passwordId}>
+            Password
+          </label>
+          <div className="flex items-center gap-1">
             <Input
-              className="pr-10 font-mono"
+              id={passwordId}
+              className="min-w-0 flex-1 font-mono"
               type={showPassword ? 'text' : 'password'}
               value={form.password}
-              onChange={(event) => set('password', event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                set('password', value);
+                // Typing a new password overrides a pending "clear the saved password".
+                if (value) set('clearPassword', false);
+              }}
               placeholder={profile?.hasPassword ? '••••••••' : 'empty for XAMPP root'}
             />
-            <button
+            <IconButton
               type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+              label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
               onClick={() => setShowPassword((value) => !value)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
+            </IconButton>
           </div>
-        </Field>
+          <span className="field-hint">
+            {profile?.hasPassword && !form.password && !form.clearPassword
+              ? 'Leave blank to keep the saved password.'
+              : 'The password is encrypted at rest when remembered.'}
+          </span>
+        </div>
         <Field label="Default database" hint="Optional. The workspace database selector still works.">
           <Input
             value={form.database}
@@ -285,7 +367,10 @@ export function ConnectionForm({
             <Checkbox
               label="Clear the saved password"
               checked={form.clearPassword}
-              onChange={(value) => set('clearPassword', value)}
+              onChange={(value) => {
+                set('clearPassword', value);
+                if (value) set('password', '');
+              }}
             />
           ) : null}
         </div>
@@ -402,12 +487,17 @@ export function ConnectionForm({
         type="button"
         className="flex w-fit items-center gap-1 text-[11px] text-muted hover:text-ink"
         onClick={() => setAdvanced((value) => !value)}
+        aria-expanded={advanced}
+        aria-controls={advancedId}
       >
         {advanced ? 'Hide' : 'Show'} socket & SSL options
       </button>
 
       {advanced ? (
-        <div className="grid grid-cols-1 gap-3 rounded-xl border border-line-soft bg-panel-2/40 p-3 sm:grid-cols-2">
+        <div
+          id={advancedId}
+          className="grid grid-cols-1 gap-3 rounded-xl border border-line-soft bg-panel-2/40 p-3 sm:grid-cols-2"
+        >
           <Field
             label="Socket path"
             hint="Optional. Used instead of host/port when set."
@@ -416,7 +506,7 @@ export function ConnectionForm({
             <Input
               className="font-mono text-[11.5px]"
               value={form.socketPath}
-              onChange={(event) => set('socketPath', event.target.value)}
+              onChange={(event) => setEndpoint('socketPath', event.target.value)}
               placeholder="C:/xampp/mysql/mysql.sock"
             />
           </Field>

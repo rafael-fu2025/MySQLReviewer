@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  Database,
   KeyRound,
   RefreshCw,
   ShieldAlert,
@@ -29,6 +31,7 @@ function userLabel(user: DbUser): string {
 }
 
 export function SecurityPage() {
+  const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const toast = useAppStore((state) => state.toast);
   const [data, setData] = useState<SecurityAuditResult | null>(null);
@@ -39,7 +42,11 @@ export function SecurityPage() {
   const [grantsLoading, setGrantsLoading] = useState(false);
 
   const load = async (): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!activeProfileId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -75,6 +82,24 @@ export function SecurityPage() {
       setGrantsLoading(false);
     }
   };
+
+  if (!activeProfileId) {
+    return (
+      <div className="page">
+        <PageHeader title="Security" subtitle="Accounts, grants, authentication, and configuration risk." />
+        <EmptyState
+          icon={<Database size={24} />}
+          title="Connect to a database"
+          copy="The security audit reads accounts, grants, and server settings from the active connection. Choose a profile to run it."
+          action={
+            <Button variant="primary" onClick={() => navigate('/connect')}>
+              Connect to a database
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   if (loading && !data) {
     return (

@@ -191,9 +191,39 @@ export function getCachedServerInfo(profileId: string): ServerInfo | null {
   return serverInfoCache.get(profileId) ?? null;
 }
 
+export interface ConnectionReleaseOptions {
+  /**
+   * Roll back any transaction the statement may have left open before the
+   * connection returns to the pool. Pooled connections are reused, so an
+   * unreleased transaction would leak row locks into later requests.
+   */
+  rollbackOnRelease?: boolean;
+}
+
+/**
+ * Best-effort cleanup of session state that must not survive a pooled
+ * connection. `ROLLBACK` is a no-op when no transaction is open, and it runs
+ * before `autocommit` is restored so that restoring it cannot implicitly
+ * commit anything (unlike an unconditional COMMIT).
+ */
+async function resetConnectionForPool(connection: PoolConnection): Promise<boolean> {
+  try {
+    await connection.query('ROLLBACK');
+  } catch {
+    return false;
+  }
+  try {
+    await connection.query('SET SESSION autocommit = 1');
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 export async function withConnection<T>(
   profileId: string,
   fn: (conn: PoolConnection) => Promise<T>,
+  options: ConnectionReleaseOptions = {},
 ): Promise<T> {
   const pool = await getPool(profileId);
   const connection = await pool.getConnection();
@@ -204,8 +234,16 @@ export async function withConnection<T>(
     fatal = isFatalConnectionError(error);
     throw error;
   } finally {
-    if (fatal) connection.destroy();
-    else connection.release();
+    if (fatal) {
+      connection.destroy();
+    } else if (options.rollbackOnRelease) {
+      const reset = await resetConnectionForPool(connection);
+      // A connection whose state could not be reset must not be reused.
+      if (reset) connection.release();
+      else connection.destroy();
+    } else {
+      connection.release();
+    }
   }
 }
 

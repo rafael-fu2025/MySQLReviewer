@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,7 +20,7 @@ import {
   formatNumber,
 } from '@/lib/format';
 import { useAppStore } from '@/store/app-store';
-import { Badge, Button, ConfirmDialog, EmptyState, cn } from './ui';
+import { Badge, Button, ConfirmDialog, EmptyState } from './ui';
 
 function cellContent(value: CellValue): { node: ReactNode; className: string; title?: string } {
   if (value === null) {
@@ -71,7 +71,33 @@ function cellContent(value: CellValue): { node: ReactNode; className: string; ti
   };
 }
 
-export function ResultsGrid({
+/**
+ * One result row. Rows are memoized so a parent render (page change, toast,
+ * unrelated state) never re-serializes the cells that are already on screen.
+ */
+const ResultRow = memo(function ResultRow({
+  row,
+  rowNumber,
+}: {
+  row: CellValue[];
+  rowNumber: number;
+}) {
+  return (
+    <tr>
+      <td className="text-muted/60">{rowNumber}</td>
+      {row.map((value, columnIndex) => {
+        const cell = cellContent(value);
+        return (
+          <td key={columnIndex} className={cell.className} title={cell.title}>
+            {cell.node}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
+function ResultsGridBase({
   result,
   onReveal,
 }: {
@@ -82,6 +108,10 @@ export function ResultsGrid({
   const [page, setPage] = useState(0);
   const [revealOpen, setRevealOpen] = useState(false);
   const pageSize = 100;
+
+  // The grid is memoized on `result` alone; keep the callback fresh via a ref.
+  const onRevealRef = useRef(onReveal);
+  onRevealRef.current = onReveal;
 
   useEffect(() => {
     setPage(0);
@@ -240,17 +270,11 @@ export function ResultsGrid({
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
-                <tr key={page * pageSize + rowIndex}>
-                  <td className="text-muted/60">{page * pageSize + rowIndex + 1}</td>
-                  {row.map((value, columnIndex) => {
-                    const cell = cellContent(value);
-                    return (
-                      <td key={columnIndex} className={cell.className} title={cell.title}>
-                        {cell.node}
-                      </td>
-                    );
-                  })}
-                </tr>
+                <ResultRow
+                  key={page * pageSize + rowIndex}
+                  row={row}
+                  rowNumber={page * pageSize + rowIndex + 1}
+                />
               ))}
             </tbody>
           </table>
@@ -290,7 +314,7 @@ export function ResultsGrid({
         onClose={() => setRevealOpen(false)}
         onConfirm={() => {
           setRevealOpen(false);
-          onReveal?.();
+          onRevealRef.current?.();
         }}
         title="Reveal sensitive values?"
         message="This re-runs the current statement without masking credential-like columns. Only continue in a private environment; the result may contain passwords, tokens, or personal data."
@@ -300,3 +324,14 @@ export function ResultsGrid({
     </div>
   );
 }
+
+/**
+ * Only a new result (or the arrival/removal of a reveal handler) can change
+ * what the grid renders, so compare those and ignore callback identity churn.
+ */
+export const ResultsGrid = memo(
+  ResultsGridBase,
+  (previous, next) =>
+    previous.result === next.result &&
+    Boolean(previous.onReveal) === Boolean(next.onReveal),
+);

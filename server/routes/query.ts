@@ -32,6 +32,13 @@ queryRouter.post(
   asyncHandler(async (req, res) => {
     const profileId = param(req, 'profileId');
     const body = parseBody(QueryBody, req);
+    if (body.revealSensitive === true && !isWritesUnlocked(profileId)) {
+      throw new AppError(
+        'REVEAL_LOCKED',
+        'Unlock writes for this connection before revealing masked values.',
+        403,
+      );
+    }
     const result = await executeQuery(profileId, body.sql, {
       database: body.database ?? null,
       revealSensitive: body.revealSensitive === true,

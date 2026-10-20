@@ -429,7 +429,6 @@ export interface QueryColumn {
   typeName: string;
   typeCode: number;
   flags: number;
-  nullable?: boolean;
   sensitive?: boolean;
 }
 
@@ -457,15 +456,6 @@ export interface QueryResult {
   masked: boolean;
 }
 
-export interface QueryErrorPayload {
-  code: string;
-  message: string;
-  sqlState?: string;
-  errno?: number;
-  details?: unknown;
-  classification?: StatementClassification;
-}
-
 /* ------------------------------------------------------------------ */
 /* EXPLAIN                                                             */
 /* ------------------------------------------------------------------ */
@@ -474,7 +464,6 @@ export interface ExplainNode {
   id: string;
   label: string;
   table: string | null;
-  database: string | null;
   accessType: string | null;
   key: string | null;
   possibleKeys: string[];
@@ -603,7 +592,7 @@ export interface AiUsage {
 }
 
 export interface AiChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
 }
 
@@ -686,24 +675,6 @@ export interface AuditReport {
   ai: AiReview | null;
   durationMs: number;
   steps: AuditStep[];
-}
-
-export interface AuditRequest {
-  profileId: string;
-  databases: string[];
-  includeAi?: boolean;
-  providerId?: string;
-  model?: string;
-}
-
-export interface AuditEvent {
-  type: 'step' | 'progress' | 'ai-delta' | 'report' | 'error';
-  step?: AuditStep;
-  percent?: number;
-  message?: string;
-  delta?: string;
-  report?: AuditReport;
-  error?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -816,11 +787,6 @@ export interface PerformanceSnapshot {
   generatedAt: string;
 }
 
-export interface VariableInfo {
-  name: string;
-  value: string;
-}
-
 /* ------------------------------------------------------------------ */
 /* AI providers                                                        */
 /* ------------------------------------------------------------------ */
@@ -912,6 +878,12 @@ export type PracticeTopic =
   | 'design'
   | 'security';
 
+/**
+ * Server-internal / at-rest shape of a practice question. It carries the grading
+ * material (`brokenSql`, `referenceSql`, `expectedResult`) and must never be sent
+ * to the browser for an unanswered question — use `PracticeQuestionPublic` on the
+ * wire instead.
+ */
 export interface PracticeQuestion {
   id: string;
   type: PracticeTaskType;
@@ -929,6 +901,21 @@ export interface PracticeQuestion {
   execute: boolean;
 }
 
+/**
+ * Client-safe practice question. The reference solution and the expected output
+ * are withheld until the profile has attempted the question; after that they are
+ * available from `GET /api/practice/sets/:id/answers`. The deliberately broken
+ * input is also withheld, except for `fix-query` tasks where it is the prompt
+ * itself and must be visible before an attempt.
+ */
+export type PracticeQuestionPublic = Omit<
+  PracticeQuestion,
+  'brokenSql' | 'referenceSql' | 'expectedResult'
+> & {
+  /** Present only for `fix-query` questions. */
+  brokenSql?: string | null;
+};
+
 export interface PracticeSet {
   id: string;
   profileId: string;
@@ -938,6 +925,25 @@ export interface PracticeSet {
   model: string;
   summary: string;
   questions: PracticeQuestion[];
+}
+
+/** Wire shape of a practice set: questions are stripped of answer material. */
+export interface PracticeSetPublic extends Omit<PracticeSet, 'questions'> {
+  questions: PracticeQuestionPublic[];
+}
+
+/** Answer material released after a question has been attempted. */
+export interface PracticeAnswer {
+  questionId: string;
+  referenceSql: string | null;
+  expectedResult: string | null;
+  brokenSql: string | null;
+  orderMatters: boolean;
+}
+
+export interface PracticeAnswers {
+  setId: string;
+  answers: PracticeAnswer[];
 }
 
 export interface PracticeGenerateRequest {
@@ -992,7 +998,15 @@ export interface PracticeEvaluation {
   userAnswer: string | null;
   userResult: QueryResult | null;
   referenceResult: QueryResult | null;
+  /** Set when the submission matched an earlier attempt and nothing was recorded. */
+  duplicate?: boolean;
 }
+
+/** Wire shape of an evaluation inside attempt listings: no reference material. */
+export type PracticeEvaluationPublic = Omit<
+  PracticeEvaluation,
+  'referenceSql' | 'referenceResult'
+>;
 
 export interface PracticeEvaluateRequest {
   profileId: string;
@@ -1019,6 +1033,11 @@ export interface PracticeAttempt {
   createdAt: string;
 }
 
+/** Wire shape of an attempt: the embedded evaluation drops reference material. */
+export interface PracticeAttemptPublic extends Omit<PracticeAttempt, 'evaluation'> {
+  evaluation: PracticeEvaluationPublic;
+}
+
 export interface PracticeProgressTopic {
   topic: PracticeTopic;
   attempts: number;
@@ -1032,6 +1051,11 @@ export interface PracticeProgress {
   topics: PracticeProgressTopic[];
   recent: PracticeAttempt[];
   recommendedTopics: PracticeTopic[];
+}
+
+/** Wire shape of progress: recent attempts drop reference material. */
+export interface PracticeProgressPublic extends Omit<PracticeProgress, 'recent'> {
+  recent: PracticeAttemptPublic[];
 }
 
 export interface PracticeGenerateResult {
@@ -1123,6 +1147,13 @@ export interface StoredReviewReport {
   sql: string;
   review: StaticReviewResult;
   ai: AiReview | null;
+}
+
+/** Response of `POST /api/review/save`. */
+export interface SavedReviewResult {
+  id: string;
+  title: string;
+  createdAt: string;
 }
 
 /* ------------------------------------------------------------------ */

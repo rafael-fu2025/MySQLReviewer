@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { AlertTriangle, Database, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Database, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
 import { AppShell } from '@/components/AppShell';
 import { ToastViewport, Button, Card, Spinner } from '@/components/ui';

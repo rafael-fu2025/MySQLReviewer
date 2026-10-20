@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { completeOpenAi, streamOpenAi } from '../server/ai/openai';
 import { completeAnthropic } from '../server/ai/anthropic';
 import { completeGoogle } from '../server/ai/google';
+import {
+  decryptProviderHeaders,
+  encryptProviderHeaders,
+} from '../server/store/providers';
+import { canReuseStoredPassword } from '../server/routes/connections';
 import { testProvider } from './fixtures';
 
 afterEach(() => {
@@ -164,3 +169,70 @@ describe('AI provider adapters', () => {
     });
   });
 });
+
+describe('provider custom header storage', () => {
+  it('encrypts header values at rest and decrypts them on read', async () => {
+    const stored = await encryptProviderHeaders({
+      'X-Gateway-Key': 'gateway-secret',
+      'X-Org': '',
+    });
+
+    expect(stored['X-Gateway-Key']).not.toBe('gateway-secret');
+    expect(stored['X-Gateway-Key'].startsWith('v1:')).toBe(true);
+    expect(stored['X-Org']).toBe('');
+    expect(await decryptProviderHeaders(stored)).toEqual({
+      'X-Gateway-Key': 'gateway-secret',
+      'X-Org': '',
+    });
+  });
+
+  it('reads legacy plaintext headers and migrates them on the next save', async () => {
+    const legacy = { 'X-Legacy': 'plain-token' };
+    expect(await decryptProviderHeaders(legacy)).toEqual(legacy);
+
+    const migrated = await encryptProviderHeaders(legacy);
+    expect(migrated['X-Legacy']).not.toBe('plain-token');
+    expect(migrated['X-Legacy'].startsWith('v1:')).toBe(true);
+    expect(await decryptProviderHeaders(migrated)).toEqual(legacy);
+  });
+
+  it('handles missing header maps', async () => {
+    expect(await encryptProviderHeaders(undefined)).toEqual({});
+    expect(await decryptProviderHeaders(undefined)).toEqual({});
+  });
+});
+
+describe('connection test credential reuse', () => {
+  const stored = { host: 'db.internal', port: 3306, user: 'app', socketPath: null };
+
+  it('reuses the saved password for the same target', () => {
+    expect(
+      canReuseStoredPassword(stored, {
+        host: ' DB.internal ',
+        port: 3306,
+        user: 'app',
+      }),
+    ).toBe(true);
+  });
+
+  it('refuses to reuse it for a different host, port, user, or socket', () => {
+    expect(
+      canReuseStoredPassword(stored, { host: 'evil.test', port: 3306, user: 'app' }),
+    ).toBe(false);
+    expect(
+      canReuseStoredPassword(stored, { host: 'db.internal', port: 3307, user: 'app' }),
+    ).toBe(false);
+    expect(
+      canReuseStoredPassword(stored, { host: 'db.internal', port: 3306, user: 'root' }),
+    ).toBe(false);
+    expect(
+      canReuseStoredPassword(stored, {
+        host: 'db.internal',
+        port: 3306,
+        user: 'app',
+        socketPath: '/tmp/mysql.sock',
+      }),
+    ).toBe(false);
+  });
+});
+

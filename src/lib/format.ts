@@ -1,5 +1,5 @@
-import type { CellValue, QueryColumn, Severity } from '@shared/types';
-import { downloadBlob, downloadText } from './api';
+import type { CellValue, QueryColumn } from '@shared/types';
+import { downloadText } from './api';
 
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || !Number.isFinite(bytes)) return '—';
@@ -101,10 +101,6 @@ export function downloadJson(filename: string, data: unknown): void {
   downloadText(filename, JSON.stringify(data, null, 2), 'application/json;charset=utf-8');
 }
 
-export function downloadTextFile(filename: string, text: string): void {
-  downloadText(filename, text, 'text/plain;charset=utf-8');
-}
-
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -124,14 +120,6 @@ export async function copyText(text: string): Promise<boolean> {
       return false;
     }
   }
-}
-
-export function downloadBlobFile(filename: string, content: string, mime: string): void {
-  downloadBlob(filename, new Blob([content], { type: mime }));
-}
-
-export function severityRank(severity: Severity): number {
-  return { critical: 0, high: 1, medium: 2, low: 3, info: 4 }[severity];
 }
 
 export function scoreTone(score: number | null | undefined): 'mint' | 'warn' | 'danger' | 'muted' {
@@ -157,8 +145,4 @@ export function statusTone(status: string): string {
     default:
       return 'muted';
   }
-}
-
-export function titleForKind(kind: string): string {
-  return kind.charAt(0).toUpperCase() + kind.slice(1);
 }

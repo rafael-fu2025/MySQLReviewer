@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { MySQL, sql } from '@codemirror/lang-sql';
 import { EditorState, Prec } from '@codemirror/state';
@@ -74,6 +74,11 @@ function severityFor(severity: string): Diagnostic['severity'] {
   return 'info';
 }
 
+// Module-level constants: recreating these per render would force CodeMirror to
+// reconfigure the whole editor on every keystroke.
+const highlightExtension = syntaxHighlighting(highlight);
+const tabSizeExtension = EditorState.tabSize.of(2);
+
 export function SqlEditor({
   value,
   onChange,
@@ -97,7 +102,15 @@ export function SqlEditor({
   onReview: () => void;
   onReady: (view: EditorView) => void;
 }) {
-  const viewRef = useRef<EditorView | null>(null);
+  // CodeMirror reconfigures every extension whenever `extensions` or `onChange`
+  // changes identity, so both must stay stable across renders. Callbacks are
+  // routed through a ref to always invoke the latest props without rebuilding.
+  const handlersRef = useRef({ onChange, onRun, onRunSelection, onReview });
+  handlersRef.current = { onChange, onRun, onRunSelection, onReview };
+
+  const handleChange = useCallback((next: string): void => {
+    handlersRef.current.onChange(next);
+  }, []);
 
   const sqlExtension = useMemo(() => {
     const schemaObject: Record<string, string[]> = {};
@@ -161,7 +174,7 @@ export function SqlEditor({
             key: 'Mod-Enter',
             preventDefault: true,
             run: () => {
-              onRun();
+              handlersRef.current.onRun();
               return true;
             },
           },
@@ -169,7 +182,7 @@ export function SqlEditor({
             key: 'Shift-Mod-Enter',
             preventDefault: true,
             run: () => {
-              onRunSelection();
+              handlersRef.current.onRunSelection();
               return true;
             },
           },
@@ -177,13 +190,24 @@ export function SqlEditor({
             key: 'Shift-Mod-r',
             preventDefault: true,
             run: () => {
-              onReview();
+              handlersRef.current.onReview();
               return true;
             },
           },
         ]),
       ),
-    [onReview, onRun, onRunSelection],
+    [],
+  );
+
+  const extensions = useMemo(
+    () => [
+      sqlExtension,
+      highlightExtension,
+      tabSizeExtension,
+      ...lintExtensions,
+      keymapExtension,
+    ],
+    [keymapExtension, lintExtensions, sqlExtension],
   );
 
   return (
@@ -192,13 +216,7 @@ export function SqlEditor({
       height="100%"
       className="h-full"
       theme={editorTheme}
-      extensions={[
-        sqlExtension,
-        syntaxHighlighting(highlight),
-        EditorState.tabSize.of(2),
-        ...lintExtensions,
-        keymapExtension,
-      ]}
+      extensions={extensions}
       basicSetup={{
         lineNumbers: true,
         highlightActiveLineGutter: true,
@@ -226,10 +244,9 @@ export function SqlEditor({
         lintKeymap: true,
       }}
       onCreateEditor={(view) => {
-        viewRef.current = view;
         onReady(view);
       }}
-      onChange={onChange}
+      onChange={handleChange}
       placeholder="-- MySQL runs here. Press Ctrl+Enter to execute."
     />
   );

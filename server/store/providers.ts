@@ -19,6 +19,7 @@ interface StoredProvider {
   apiKeyEnc?: string | null;
   authHeader: string;
   authPrefix: string;
+  /** Header values are encrypted at rest; legacy plaintext values still read back. */
   headers: Record<string, string>;
   extraBody: Record<string, unknown>;
   temperature: number;
@@ -93,6 +94,35 @@ function sanitizeExtraBody(input: Record<string, unknown> | undefined): Record<s
   return input;
 }
 
+/**
+ * Custom headers often carry gateway tokens, so they are encrypted at rest with
+ * the same local key as API keys. A record written before this existed holds
+ * plaintext: `decryptSecret` passes non-`v1:` values through unchanged, and the
+ * values are encrypted the next time the provider is saved.
+ */
+export async function encryptProviderHeaders(
+  headers: Record<string, string> | undefined,
+): Promise<Record<string, string>> {
+  if (!headers) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = value ? await encryptSecret(value) : '';
+  }
+  return out;
+}
+
+export async function decryptProviderHeaders(
+  headers: Record<string, string> | undefined,
+): Promise<Record<string, string>> {
+  if (!headers) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    const plain = await decryptSecret(value);
+    out[key] = plain ?? '';
+  }
+  return out;
+}
+
 function validate(input: AiProviderInput): AiProviderInput {
   const name = input.name?.trim();
   const baseUrl = input.baseUrl?.trim();
@@ -133,7 +163,7 @@ async function toPublic(provider: StoredProvider): Promise<AiProvider> {
     apiKeyHint: hint,
     authHeader: provider.authHeader,
     authPrefix: provider.authPrefix,
-    headers: provider.headers,
+    headers: await decryptProviderHeaders(provider.headers),
     extraBody: provider.extraBody,
     temperature: provider.temperature,
     maxTokens: provider.maxTokens,
@@ -212,7 +242,7 @@ export async function createProvider(input: AiProviderInput): Promise<AiProvider
         : null,
     authHeader: (clean.authHeader ?? defaults.authHeader).trim(),
     authPrefix: clean.authPrefix ?? defaults.authPrefix,
-    headers: sanitizeHeaders(clean.headers),
+    headers: await encryptProviderHeaders(sanitizeHeaders(clean.headers)),
     extraBody: sanitizeExtraBody(clean.extraBody),
     temperature: clampNumber(clean.temperature, 0, 2, 0.2),
     maxTokens: Math.trunc(clampNumber(clean.maxTokens, 16, 128_000, 4096)),
@@ -262,7 +292,7 @@ export async function updateProvider(id: string, input: AiProviderInput): Promis
       apiKeyEnc,
       authHeader: (clean.authHeader ?? defaults.authHeader).trim(),
       authPrefix: clean.authPrefix ?? defaults.authPrefix,
-      headers: sanitizeHeaders(clean.headers),
+      headers: await encryptProviderHeaders(sanitizeHeaders(clean.headers)),
       extraBody: sanitizeExtraBody(clean.extraBody),
       temperature: clampNumber(clean.temperature, 0, 2, previous.temperature),
       maxTokens: Math.trunc(clampNumber(clean.maxTokens, 16, 128_000, previous.maxTokens)),

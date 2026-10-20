@@ -81,10 +81,14 @@ async function request<T>(
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(new Error('Request timed out.')),
-    options.timeoutMs ?? 120_000,
-  );
+  // The server enforces its own 300s ceiling per statement, so the client must
+  // wait longer than that or it would abort valid slow queries first.
+  const timeoutMs = options.timeoutMs ?? 360_000;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   if (options.signal) {
     if (options.signal.aborted) controller.abort();
     else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
@@ -100,8 +104,15 @@ async function request<T>(
     });
   } catch (error) {
     clearTimeout(timeout);
-    if (controller.signal.aborted && options.signal?.aborted) {
+    if (options.signal?.aborted) {
       throw new ApiError('CANCELLED', 'The request was cancelled.', 499);
+    }
+    if (timedOut) {
+      throw new ApiError(
+        'TIMEOUT',
+        `The request timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        504,
+      );
     }
     throw new ApiError(
       'NETWORK_ERROR',

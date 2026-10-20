@@ -66,6 +66,54 @@ export async function assertServerWideAllowed(profileId: string): Promise<Databa
   return scope;
 }
 
+/** Minimal processlist shape needed to decide whether a session is in scope. */
+export interface ProcessScopeTarget {
+  id: number;
+  db: string | null;
+}
+
+export function isProcessInScope(
+  process: ProcessScopeTarget,
+  scope: DatabaseScope,
+): boolean {
+  if (scope.mode === 'all') return true;
+  return process.db != null && scope.allowed.has(process.db);
+}
+
+/**
+ * Kill targets must exist in the current processlist, and on a scoped
+ * connection they must be attached to an allowed database. A session without a
+ * database cannot be verified, so it is treated as out of scope.
+ */
+export function assertProcessInScope(
+  processId: number,
+  processlist: readonly ProcessScopeTarget[],
+  scope: DatabaseScope,
+): ProcessScopeTarget {
+  const target = processlist.find((process) => process.id === processId);
+  if (!target) {
+    throw new AppError(
+      'PROCESS_NOT_FOUND',
+      `No session with id ${processId} is visible on this server.`,
+      400,
+      { processId },
+    );
+  }
+  if (!isProcessInScope(target, scope)) {
+    throw new AppError(
+      'PROCESS_NOT_ALLOWED',
+      `Session ${processId} is not using a database in this connection’s allowed scope.`,
+      403,
+      {
+        processId,
+        database: target.db,
+        allowedDatabases: Array.from(scope.allowed),
+      },
+    );
+  }
+  return target;
+}
+
 function collectFromValue(value: unknown, out: Set<string>): void {
   if (!Array.isArray(value)) return;
   for (const entry of value) {

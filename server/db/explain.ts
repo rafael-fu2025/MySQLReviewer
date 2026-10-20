@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
+import sqlParser from 'node-sql-parser';
 import type { RowDataPacket } from 'mysql2/promise';
 import type { ExplainNode, ExplainResult, Finding } from '../../shared/types';
 import { AppError } from '../errors';
 import { getSettings } from '../store/settings';
+import { getStoredProfile } from '../store/profiles';
 import { classifySql } from '../review/sql-classifier';
 import {
   connectProfile,
@@ -79,7 +81,6 @@ function makeNode(value: Record<string, unknown>, flags: string[]): ExplainNode 
     id: crypto.randomUUID(),
     label: tableName ?? String(value.select_id ?? 'plan'),
     table: tableName,
-    database: null,
     accessType,
     key: value.key == null ? null : String(value.key),
     possibleKeys,
@@ -320,6 +321,42 @@ export interface ExplainOptions {
   analyze?: boolean;
 }
 
+const parserModule = sqlParser as unknown as typeof import('node-sql-parser');
+const sqlParserInstance = new parserModule.Parser();
+
+/**
+ * `EXPLAIN ... ${sql}` is built by string interpolation, so the statement is
+ * parsed first and only a single SELECT/UNION (which node-sql-parser reports as
+ * type `select`, including CTEs and set operations) may be appended. This runs
+ * before any connection is acquired.
+ */
+export function assertExplainableStatement(sql: string): void {
+  let parsed: unknown;
+  try {
+    parsed = sqlParserInstance.astify(sql, { database: 'MySQL' });
+  } catch {
+    throw new AppError(
+      'EXPLAIN_PARSE_ERROR',
+      'The statement could not be parsed. Explain accepts a single SELECT or UNION statement.',
+      400,
+    );
+  }
+  const nodes = Array.isArray(parsed) ? parsed : [parsed];
+  if (nodes.length !== 1) {
+    throw new AppError('MULTI_STATEMENT', 'Explain one statement at a time.', 400);
+  }
+  const node = nodes[0] as { type?: unknown } | null;
+  const type = typeof node?.type === 'string' ? node.type.toLowerCase() : '';
+  if (type !== 'select') {
+    throw new AppError(
+      'EXPLAIN_UNSUPPORTED',
+      'Explain only accepts SELECT and UNION statements. Rewrite other statements as a SELECT, or run them normally.',
+      400,
+      { type: type || null },
+    );
+  }
+}
+
 export async function runExplain(
   profileId: string,
   sql: string,
@@ -337,6 +374,11 @@ export async function runExplain(
     );
   }
   const classification = classified.overall;
+  assertExplainableStatement(sql);
+  // Resolve the default database so an unqualified statement cannot inherit the
+  // database that a previous request left selected on this pooled connection.
+  const profile = await getStoredProfile(profileId);
+  const effectiveDatabase = database ?? profile.database ?? null;
   if (options.analyze && classification.needsUnlock && !isWritesUnlocked(profileId)) {
     throw new AppError(
       'WRITE_LOCKED',
@@ -345,64 +387,77 @@ export async function runExplain(
       { classification },
     );
   }
-  await assertSqlScope(profileId, sql, database);
+  await assertSqlScope(profileId, sql, effectiveDatabase);
+  if (classification.needsUnlock && !effectiveDatabase) {
+    throw new AppError(
+      'DATABASE_REQUIRED',
+      'EXPLAIN ANALYZE runs this statement, so it needs a database. Select one or set a default database on the connection.',
+      400,
+      { classification },
+    );
+  }
 
   const settings = await getSettings();
   const server = getCachedServerInfo(profileId) ?? (await connectProfile(profileId));
   const started = performance.now();
 
-  return withConnection(profileId, async (conn) => {
-    if (database) await conn.query('USE ??', [database]);
-    const guards = await applyQueryGuards(conn, server, settings);
-    try {
-      let raw: unknown = null;
-      let text: string | undefined;
-      let analyzed = false;
+  return withConnection(
+    profileId,
+    async (conn) => {
+      if (effectiveDatabase) await conn.query('USE ??', [effectiveDatabase]);
+      const guards = await applyQueryGuards(conn, server, settings);
+      try {
+        let raw: unknown = null;
+        let text: string | undefined;
+        let analyzed = false;
 
-      if (options.analyze) {
-        analyzed = true;
-        if (server.flavor === 'mariadb') {
-          const [rows] = await conn.query<Row[]>(
-            `ANALYZE FORMAT=JSON ${sql}`,
-          );
-          raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
-        } else {
-          const [jsonRows] = await conn.query<Row[]>(
-            `EXPLAIN FORMAT=JSON ${sql}`,
-          );
-          raw = jsonRows.length > 0
-            ? parseJsonColumn(Object.values(jsonRows[0])[0])
-            : null;
-          try {
-            const [textRows] = await conn.query<Row[]>(`EXPLAIN ANALYZE ${sql}`);
-            text = textRows
-              .map((row) => Object.values(row).map(String).join(' '))
-              .join('\n');
-          } catch {
-            text = undefined;
+        if (options.analyze) {
+          analyzed = true;
+          if (server.flavor === 'mariadb') {
+            const [rows] = await conn.query<Row[]>(
+              `ANALYZE FORMAT=JSON ${sql}`,
+            );
+            raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
+          } else {
+            const [jsonRows] = await conn.query<Row[]>(
+              `EXPLAIN FORMAT=JSON ${sql}`,
+            );
+            raw = jsonRows.length > 0
+              ? parseJsonColumn(Object.values(jsonRows[0])[0])
+              : null;
+            try {
+              const [textRows] = await conn.query<Row[]>(`EXPLAIN ANALYZE ${sql}`);
+              text = textRows
+                .map((row) => Object.values(row).map(String).join(' '))
+                .join('\n');
+            } catch {
+              text = undefined;
+            }
           }
+        } else {
+          const [rows] = await conn.query<Row[]>(`EXPLAIN FORMAT=JSON ${sql}`);
+          raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
         }
-      } else {
-        const [rows] = await conn.query<Row[]>(`EXPLAIN FORMAT=JSON ${sql}`);
-        raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
-      }
 
-      const nodes = raw ? visit(raw) : [];
-      const findings = explainFindings(nodes);
-      return {
-        sql,
-        analyzed,
-        format: raw ? 'json' : 'text',
-        nodes,
-        insights: findings,
-        suggestions: [],
-        raw: raw ?? text ?? null,
-        text,
-        totalCost: raw ? findTotalCost(raw) : null,
-        executionMs: Math.round(performance.now() - started),
-      } satisfies ExplainResult;
-    } finally {
-      await guards.cleanup();
-    }
-  });
+        const nodes = raw ? visit(raw) : [];
+        const findings = explainFindings(nodes);
+        return {
+          sql,
+          analyzed,
+          format: raw ? 'json' : 'text',
+          nodes,
+          insights: findings,
+          suggestions: [],
+          raw: raw ?? text ?? null,
+          text,
+          totalCost: raw ? findTotalCost(raw) : null,
+          executionMs: Math.round(performance.now() - started),
+        } satisfies ExplainResult;
+      } finally {
+        await guards.cleanup();
+      }
+    },
+    // EXPLAIN ANALYZE of a write statement can open a transaction.
+    { rollbackOnRelease: classification.needsUnlock },
+  );
 }

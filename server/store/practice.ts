@@ -73,6 +73,21 @@ export async function listPracticeAttempts(
   return attempts.slice(0, Math.max(1, Math.min(100, limit)));
 }
 
+/**
+ * Every recorded attempt for one set, independent of the listing window used by
+ * `listPracticeAttempts`. Used for duplicate detection and for deciding whether a
+ * question's answer material may be released.
+ */
+export async function listPracticeAttemptsForSet(
+  profileId: string,
+  setId: string,
+): Promise<PracticeAttempt[]> {
+  const file = await store.read();
+  return file.attempts.filter(
+    (attempt) => attempt.profileId === profileId && attempt.setId === setId,
+  );
+}
+
 export async function clearPracticeAttempts(profileId?: string): Promise<void> {
   await store.update((current) => ({
     sets: current.sets,

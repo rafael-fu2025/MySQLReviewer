@@ -1,19 +1,29 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { PracticeGenerateRequest } from '../../shared/types';
+import { AppError } from '../errors';
 import { resolveProvider } from '../store/providers';
 import {
   clearPracticeAttempts,
   getPracticeProgress,
+  getPracticeSet,
   listPracticeAttempts,
+  listPracticeAttemptsForSet,
   listPracticeSets,
 } from '../store/practice';
+import {
+  buildPracticeAnswers,
+  canRevealPracticeAnswers,
+  toPublicPracticeAttempt,
+  toPublicPracticeProgress,
+  toPublicPracticeSet,
+} from '../db/practice';
 import {
   evaluatePractice,
   generatePracticeSet,
 } from '../ai/practice';
 import { openSse } from '../sse';
-import { asyncHandler, parseBody, parseQuery } from './util';
+import { asyncHandler, param, parseBody, parseQuery } from './util';
 
 const TopicsSchema = z.array(
   z.enum([
@@ -61,6 +71,10 @@ const ProfileQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+const AnswersQuery = z.object({
+  profileId: z.string().min(1).max(200),
+});
+
 export const practiceRouter = Router();
 
 practiceRouter.post(
@@ -93,7 +107,8 @@ practiceRouter.post(
         (text) => sse.send('delta', { text }),
         controller.signal,
       );
-      sse.send('result', { set: result.set });
+      // Never stream the reference solution: the client gets the client-safe shape.
+      sse.send('result', { set: toPublicPracticeSet(result.set) });
       sse.send('done', {});
     } catch (error) {
       sse.send('error', {
@@ -137,7 +152,27 @@ practiceRouter.get(
   '/sets',
   asyncHandler(async (req, res) => {
     const query = parseQuery(ProfileQuery, req);
-    res.json({ data: await listPracticeSets(query.profileId, query.limit ?? 20) });
+    const sets = await listPracticeSets(query.profileId, query.limit ?? 20);
+    res.json({ data: sets.map(toPublicPracticeSet) });
+  }),
+);
+
+practiceRouter.get(
+  '/sets/:id/answers',
+  asyncHandler(async (req, res) => {
+    const id = param(req, 'id');
+    const query = parseQuery(AnswersQuery, req);
+    const set = await getPracticeSet(id);
+    if (!canRevealPracticeAnswers(set, query.profileId)) {
+      throw new AppError(
+        'PRACTICE_SET_FORBIDDEN',
+        'This practice set belongs to another connection.',
+        403,
+      );
+    }
+    const attempts = await listPracticeAttemptsForSet(query.profileId, set.id);
+    const attempted = new Set(attempts.map((attempt) => attempt.questionId));
+    res.json({ data: buildPracticeAnswers(set, attempted) });
   }),
 );
 
@@ -145,9 +180,8 @@ practiceRouter.get(
   '/attempts',
   asyncHandler(async (req, res) => {
     const query = parseQuery(ProfileQuery, req);
-    res.json({
-      data: await listPracticeAttempts(query.profileId, query.limit ?? 30),
-    });
+    const attempts = await listPracticeAttempts(query.profileId, query.limit ?? 30);
+    res.json({ data: attempts.map(toPublicPracticeAttempt) });
   }),
 );
 
@@ -155,7 +189,7 @@ practiceRouter.get(
   '/progress',
   asyncHandler(async (req, res) => {
     const query = parseQuery(ProfileQuery, req);
-    res.json({ data: await getPracticeProgress(query.profileId) });
+    res.json({ data: toPublicPracticeProgress(await getPracticeProgress(query.profileId)) });
   }),
 );
 

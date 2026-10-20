@@ -13,6 +13,7 @@ import {
 } from '../db/manager';
 import { listDatabases } from '../db/introspection';
 import { generateGrantSql } from '../db/grants';
+import { AppError } from '../errors';
 import {
   createProfile,
   deleteProfile,
@@ -65,6 +66,39 @@ const UnlockSchema = z.object({
 
 export const connectionsRouter = Router();
 
+export interface PasswordReuseTarget {
+  host: string;
+  port: number;
+  user: string;
+  socketPath?: string | null;
+}
+
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeSocketPath(value: string | null | undefined): string | null {
+  const trimmed = (value ?? '').trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * The saved password may only be reused when the test targets the exact same
+ * server and account it was saved for. Otherwise editing the host and pressing
+ * "Test" would ship the stored credential to a different server.
+ */
+export function canReuseStoredPassword(
+  stored: PasswordReuseTarget,
+  candidate: PasswordReuseTarget,
+): boolean {
+  return (
+    normalizeHost(stored.host) === normalizeHost(candidate.host) &&
+    stored.port === candidate.port &&
+    stored.user === candidate.user &&
+    normalizeSocketPath(stored.socketPath) === normalizeSocketPath(candidate.socketPath)
+  );
+}
+
 connectionsRouter.get(
   '/',
   asyncHandler(async (_req, res) => {
@@ -78,11 +112,16 @@ connectionsRouter.post(
     const body = parseBody(TestSchema, req);
     let password = body.password;
     if (password === undefined && body.profileId) {
-      try {
-        await getStoredProfile(body.profileId);
+      const stored = await getStoredProfile(body.profileId).catch(() => null);
+      if (stored) {
+        if (!canReuseStoredPassword(stored, body)) {
+          throw new AppError(
+            'PASSWORD_REQUIRED',
+            'The saved password is only reused when the host, port, user, and socket path match the saved connection. Enter the password to test these settings.',
+            400,
+          );
+        }
         password = await resolveProfilePassword(body.profileId);
-      } catch {
-        // The profile may have been deleted; test with the supplied data.
       }
     }
     const result: TestConnectionResult = await testConnection(

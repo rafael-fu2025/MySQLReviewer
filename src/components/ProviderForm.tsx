@@ -341,10 +341,14 @@ export function ProviderForm({
       </details>
 
       <div className="flex flex-wrap items-center gap-5">
-        <label className="flex items-center gap-2 text-[12px] text-ink-soft">
-          <Switch checked={form.streaming} onChange={(value) => set('streaming', value)} />
-          Stream responses
-        </label>
+        <div className="flex items-center gap-2 text-[12px] text-ink-soft">
+          <Switch
+            label="Stream responses"
+            checked={form.streaming}
+            onChange={(value) => set('streaming', value)}
+          />
+          <span>Stream responses</span>
+        </div>
         <Checkbox
           label="Use as the default provider"
           checked={form.isDefault}

@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Copy,
-  FileSearch,
   MessageSquare,
   ScanSearch,
   Send,
@@ -123,6 +122,13 @@ export function ReviewPanel({
     if (ai) setTab('ai');
   }, [ai]);
 
+  useEffect(() => {
+    return () => {
+      chatAbortRef.current?.abort();
+      chatAbortRef.current = null;
+    };
+  }, []);
+
   const provider = providers.find((item) => item.id === providerId) ?? null;
 
   useEffect(() => {
@@ -185,10 +191,6 @@ export function ReviewPanel({
             } else if (event === 'done') {
               setChatStreaming(false);
             }
-          },
-          onError: (error) => {
-            setChatError(error instanceof Error ? error.message : String(error));
-            setChatStreaming(false);
           },
         },
         controller.signal,

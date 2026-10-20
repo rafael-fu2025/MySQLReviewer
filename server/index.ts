@@ -15,6 +15,7 @@ import {
   ensureDataDirs,
 } from './config';
 import { AppError, mapDbError } from './errors';
+import { isBootstrapRequestAllowed } from './bootstrap-origin';
 import { shutdownPools } from './db/manager';
 import { listProfiles } from './store/profiles';
 import { listProviders } from './store/providers';
@@ -91,7 +92,24 @@ app.get('/api/health', (_req, res) => {
   res.json({ data: { ok: true, app: APP_NAME, version: APP_VERSION } });
 });
 
-app.get('/api/bootstrap', async (_req, res, next) => {
+app.get('/api/bootstrap', async (req, res, next) => {
+  const expectedOrigin = `${req.protocol}://${req.headers.host ?? ''}`;
+  if (
+    !isBootstrapRequestAllowed({
+      origin: req.get('origin'),
+      secFetchSite: req.get('sec-fetch-site'),
+      expectedOrigin,
+      allowedOrigins: DEV_ORIGINS,
+    })
+  ) {
+    res.status(403).json({
+      error: {
+        code: 'ORIGIN_NOT_ALLOWED',
+        message: 'The bootstrap request must come from the MyLens app itself.',
+      },
+    });
+    return;
+  }
   try {
     const [profiles, providers, settings] = await Promise.all([
       listProfiles(),

@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
-  Copy,
   Database,
   Download,
   Eye,
@@ -15,19 +14,18 @@ import {
   RefreshCw,
   Search,
   Table2,
-  Trash2,
   X,
 } from 'lucide-react';
 import type {
   ColumnInfo,
-  DatabaseObjects,
-  ForeignKeyInfo,
+  QueryResult,
   TableDataFilter,
   TableDetail,
   TableSummary,
 } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { dbApi } from '@/lib/db-api';
+import { downloadText } from '@/lib/api';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { ResultsGrid } from '@/components/ResultsGrid';
 import { CreateDatabaseModal } from '@/components/CreateDatabaseModal';
@@ -36,7 +34,6 @@ import {
   Badge,
   Button,
   Card,
-  ConfirmDialog,
   CopyButton,
   EmptyState,
   IconButton,
@@ -70,7 +67,8 @@ function TableLink({
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-semibold text-ink">{table.name}</div>
         <div className="mt-0.5 font-mono text-[9.5px] text-muted">
-          {table.engine ?? 'view'} · {formatNumber(table.rowsEstimate)} rows ·{' '}
+          {table.engine ?? (table.type === 'BASE TABLE' ? '—' : 'view')} ·{' '}
+          {formatNumber(table.rowsEstimate)} rows ·{' '}
           {formatBytes(table.dataBytes + table.indexBytes)}
         </div>
       </div>
@@ -110,9 +108,19 @@ function RelationMap({
     return 60 + index * ((height - 120) / (count - 1));
   };
 
+  // SVG nodes are reachable with the keyboard and behave like buttons.
+  const activateNode = (
+    event: React.KeyboardEvent<SVGGElement>,
+    action: () => void,
+  ): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    action();
+  };
+
   return (
     <div className="overflow-auto rounded-xl border border-line-soft bg-panel-2/25">
-      <svg width={width} height={height} role="img" aria-label="Table relationships">
+      <svg width={width} height={height} role="group" aria-label="Table relationships">
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-muted)" />
@@ -177,8 +185,14 @@ function RelationMap({
           return (
             <g
               key={`in-node-${fk.name}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${fk.referencedDatabase}.${fk.referencedTable}`}
               className="cursor-pointer"
               onClick={() => onOpen(fk.referencedDatabase, fk.referencedTable)}
+              onKeyDown={(event) =>
+                activateNode(event, () => onOpen(fk.referencedDatabase, fk.referencedTable))
+              }
             >
               <rect x={30} y={y - 18} width={150} height={36} rx={9} fill="var(--color-panel-2)" stroke="var(--color-line)" />
               <text x={105} y={y + 4} textAnchor="middle" fill="var(--color-ink-soft)" fontSize={11}>
@@ -192,8 +206,14 @@ function RelationMap({
           return (
             <g
               key={`out-node-${fk.name}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${fk.referencedDatabase}.${fk.referencedTable}`}
               className="cursor-pointer"
               onClick={() => onOpen(fk.referencedDatabase, fk.referencedTable)}
+              onKeyDown={(event) =>
+                activateNode(event, () => onOpen(fk.referencedDatabase, fk.referencedTable))
+              }
             >
               <rect x={width - 180} y={y - 18} width={150} height={36} rx={9} fill="var(--color-panel-2)" stroke="var(--color-line)" />
               <text x={width - 105} y={y + 4} textAnchor="middle" fill="var(--color-ink-soft)" fontSize={11}>
@@ -221,7 +241,6 @@ function DataPreview({
   table: string;
   columns: ColumnInfo[];
 }) {
-  const toast = useAppStore((state) => state.toast);
   const [limit, setLimit] = useState(100);
   const [orderBy, setOrderBy] = useState('');
   const [orderDir, setOrderDir] = useState<'asc' | 'desc'>('asc');
@@ -229,40 +248,89 @@ function DataPreview({
   const [column, setColumn] = useState(columns[0]?.name ?? '');
   const [operator, setOperator] = useState<TableDataFilter['operator']>('=');
   const [value, setValue] = useState('');
-  const [result, setResult] = useState<Awaited<ReturnType<typeof dbApi.tableData>> | null>(null);
+  const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [revealConfirm, setRevealConfirm] = useState(false);
+  // Only the newest request may write the grid: a slow response for table A must
+  // never land after a faster response for table B.
+  const requestId = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const load = async (
-    nextFilters = filters,
-    nextOrder = orderBy,
-    nextDir = orderDir,
-    nextLimit = limit,
-    nextReveal = false,
-  ): Promise<void> => {
-    setLoading(true);
+  const load = useCallback(
+    async (
+      nextFilters: TableDataFilter[],
+      nextOrder: string,
+      nextDir: 'asc' | 'desc',
+      nextLimit: number,
+      nextReveal = false,
+    ): Promise<void> => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const id = requestId.current + 1;
+      requestId.current = id;
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await dbApi.tableData(
+          profileId,
+          database,
+          table,
+          {
+            limit: nextLimit,
+            orderBy: nextOrder || null,
+            orderDir: nextDir,
+            filters: nextFilters,
+            revealSensitive: nextReveal,
+          },
+          { signal: controller.signal },
+        );
+        if (requestId.current !== id) return;
+        setResult(data);
+      } catch (err) {
+        if (requestId.current !== id || controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (requestId.current === id) setLoading(false);
+      }
+    },
+    [database, profileId, table],
+  );
+
+  // A different table or database starts from a clean preview. The component is
+  // remounted on navigation, but the reset also covers an in-place change.
+  useEffect(() => {
+    setLimit(100);
+    setOrderBy('');
+    setOrderDir('asc');
+    setFilters([]);
+    setColumn(columns[0]?.name ?? '');
+    setOperator('=');
+    setValue('');
+    setResult(null);
     setError(null);
-    try {
-      const data = await dbApi.tableData(profileId, database, table, {
-        limit: nextLimit,
-        orderBy: nextOrder || null,
-        orderDir: nextDir,
-        filters: nextFilters,
-        revealSensitive: nextReveal,
-      });
-      setResult(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [database, table]);
 
   useEffect(() => {
     void load([], '', 'asc', 100);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId, database, table]);
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [load]);
+
+  // Columns change after a schema refresh (or when another database exposes a
+  // table with the same name). Never leave the filter/sort pointing at a column
+  // that no longer exists.
+  useEffect(() => {
+    const names = new Set(columns.map((item) => item.name));
+    setColumn((previous) => (names.has(previous) ? previous : (columns[0]?.name ?? '')));
+    setOrderBy((previous) => (previous && !names.has(previous) ? '' : previous));
+    setFilters((previous) => {
+      const next = previous.filter((filter) => names.has(filter.column));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [columns]);
 
   const addFilter = (): void => {
     if (!column) return;
@@ -417,7 +485,7 @@ function DataPreview({
           size="sm"
           className="ml-auto"
           icon={loading ? <Spinner size={12} /> : <RefreshCw size={12} />}
-          onClick={() => void load()}
+          onClick={() => void load(filters, orderBy, orderDir, limit)}
           loading={loading}
         >
           Refresh
@@ -433,35 +501,24 @@ function DataPreview({
         <div className="overflow-hidden rounded-xl border border-line-soft">
           <ResultsGrid
             result={result}
-            onReveal={() => setRevealConfirm(true)}
+            onReveal={() => void load(filters, orderBy, orderDir, limit, true)}
           />
         </div>
       ) : null}
-
-      <ConfirmDialog
-        open={revealConfirm}
-        onClose={() => setRevealConfirm(false)}
-        onConfirm={() => {
-          setRevealConfirm(false);
-          void load(filters, orderBy, orderDir, limit, true);
-        }}
-        title="Reveal sensitive values?"
-        message="The table preview will reload without masking credential-like columns. Only continue in a private environment."
-        confirmLabel="Reveal values"
-        danger
-      />
     </div>
   );
 }
 
 function TableDetailView({
   detail,
+  profileId,
   onRefresh,
   refreshing,
   onBack,
   onOpenRelated,
 }: {
   detail: TableDetail;
+  profileId: string;
   onRefresh: () => void;
   refreshing: boolean;
   onBack: () => void;
@@ -470,7 +527,14 @@ function TableDetailView({
   const [tab, setTab] = useState<'overview' | 'columns' | 'indexes' | 'relations' | 'data' | 'ddl' | 'triggers'>(
     'overview',
   );
+  // The preview is mounted on first visit and then kept alive (hidden) so its
+  // filters, sort, and row limit survive tab switches and metadata refreshes.
+  const [dataMounted, setDataMounted] = useState(false);
   const summary = detail.summary;
+
+  useEffect(() => {
+    if (tab === 'data') setDataMounted(true);
+  }, [tab]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -686,14 +750,15 @@ function TableDetailView({
         </div>
       ) : null}
 
-      {tab === 'data' ? (
-        <DataPreview
-          key={summary.name}
-          profileId={useAppStore.getState().activeProfileId ?? ''}
-          database={summary.database}
-          table={summary.name}
-          columns={detail.columns}
-        />
+      {dataMounted ? (
+        <div className={tab === 'data' ? undefined : 'hidden'}>
+          <DataPreview
+            profileId={profileId}
+            database={summary.database}
+            table={summary.name}
+            columns={detail.columns}
+          />
+        </div>
       ) : null}
 
       {tab === 'ddl' ? (
@@ -708,13 +773,11 @@ function TableDetailView({
                   size="sm"
                   icon={<Download size={12} />}
                   onClick={() => {
-                    const blob = new Blob([detail.createSql ?? ''], { type: 'text/plain;charset=utf-8' });
-                    const url = URL.createObjectURL(blob);
-                    const anchor = document.createElement('a');
-                    anchor.href = url;
-                    anchor.download = `${summary.name}.sql`;
-                    anchor.click();
-                    URL.revokeObjectURL(url);
+                    downloadText(
+                      `${summary.name}.sql`,
+                      detail.createSql ?? '',
+                      'application/sql;charset=utf-8',
+                    );
                   }}
                 >
                   Download
@@ -754,6 +817,15 @@ function SparklesIcon() {
   return <RefreshCw size={22} />;
 }
 
+/** Identity of a table-detail request: profile + database + table. */
+function detailKeyFor(
+  profileId: string | null,
+  database: string | null,
+  table: string | null,
+): string {
+  return `${profileId ?? ''}\u0000${database ?? ''}\u0000${table ?? ''}`;
+}
+
 export function DatabasePage() {
   const [params, setParams] = useSearchParams();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
@@ -773,9 +845,25 @@ export function DatabasePage() {
   const objectType = params.get('objectType') ?? 'view';
   const routineType = params.get('routineType') as 'FUNCTION' | 'PROCEDURE' | null;
 
-  const [objects, setObjects] = useState<DatabaseObjects | null>(null);
+  // Objects live in the app store: the sidebar, the workspace, and post-DDL
+  // refreshes all share one copy, so this page never holds a second snapshot.
+  const objects = useAppStore((state) => state.objects);
+  const refreshObjects = useAppStore((state) => state.refreshObjects);
   const [objectsLoading, setObjectsLoading] = useState(false);
-  const [detail, setDetail] = useState<TableDetail | null>(null);
+  const [objectsError, setObjectsError] = useState<string | null>(null);
+  const [objectsRequest, setObjectsRequest] = useState(0);
+
+  // The detail is tagged with the profile/database/table it was fetched for, so
+  // a response for table A can never render under table B's URL.
+  const detailKey = detailKeyFor(activeProfileId, selectedDatabase, tableParam);
+  const [detailState, setDetailState] = useState<{
+    key: string;
+    detail: TableDetail | null;
+    error: string | null;
+  } | null>(null);
+  const detailRequest = useRef(0);
+  const detail = detailState?.key === detailKey ? detailState.detail : null;
+  const detailError = detailState?.key === detailKey ? detailState.error : null;
   const [detailLoading, setDetailLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState('');
@@ -822,47 +910,58 @@ export function DatabasePage() {
 
   useEffect(() => {
     if (!activeProfileId || !selectedDatabase) {
-      setObjects(null);
+      setObjectsError(null);
+      setObjectsLoading(false);
       return;
     }
     let cancelled = false;
     setObjectsLoading(true);
-    dbApi
-      .objects(activeProfileId, selectedDatabase)
-      .then((result) => {
-        if (!cancelled) setObjects(result);
-      })
+    setObjectsError(null);
+    void refreshObjects()
       .catch((error) => {
-        if (!cancelled) toast(error instanceof Error ? error.message : String(error), 'error');
+        if (!cancelled) setObjectsError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        if (!cancelled) setObjectsLoading(false);
+        if (cancelled) return;
+        setObjectsLoading(false);
+        // refreshObjects deliberately swallows transport errors, so a completed
+        // call with no objects in the store means the fetch failed.
+        if (!useAppStore.getState().objects) {
+          setObjectsError('Could not load the tables, views, and routines for this database.');
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [activeProfileId, selectedDatabase, refreshKey, toast]);
+  }, [activeProfileId, selectedDatabase, refreshObjects, objectsRequest]);
 
   useEffect(() => {
     if (!activeProfileId || !selectedDatabase || !tableParam) {
-      setDetail(null);
+      setDetailLoading(false);
       return;
     }
-    let cancelled = false;
+    const key = detailKeyFor(activeProfileId, selectedDatabase, tableParam);
+    const requestId = detailRequest.current + 1;
+    detailRequest.current = requestId;
     setDetailLoading(true);
     dbApi
       .tableDetail(activeProfileId, selectedDatabase, tableParam)
       .then((result) => {
-        if (!cancelled) setDetail(result);
+        if (detailRequest.current !== requestId) return;
+        setDetailState({ key, detail: result, error: null });
       })
       .catch((error) => {
-        if (!cancelled) toast(error instanceof Error ? error.message : String(error), 'error');
+        if (detailRequest.current !== requestId) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setDetailState({ key, detail: null, error: message });
+        toast(message, 'error');
       })
       .finally(() => {
-        if (!cancelled) setDetailLoading(false);
+        if (detailRequest.current === requestId) setDetailLoading(false);
       });
     return () => {
-      cancelled = true;
+      // Invalidate the in-flight response even if it never settles.
+      if (detailRequest.current === requestId) detailRequest.current += 1;
     };
   }, [activeProfileId, selectedDatabase, tableParam, refreshKey, toast]);
 
@@ -945,12 +1044,25 @@ export function DatabasePage() {
     return needle ? list.filter((view) => view.name.toLowerCase().includes(needle)) : list;
   }, [objects?.views, search]);
 
+  /** Patch the query string without dropping unrelated parameters. */
+  const patchParams = (patch: Record<string, string | null>): void => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) next.delete(key);
+      else next.set(key, value);
+    }
+    setParams(next);
+  };
+
   const selectTable = (database: string, table: string): void => {
     if (database !== selectedDatabase) setDatabase(database);
-    const next = new URLSearchParams();
-    next.set('db', database);
-    next.set('table', table);
-    setParams(next);
+    patchParams({
+      db: database,
+      table,
+      object: null,
+      objectType: null,
+      routineType: null,
+    });
   };
 
   const selectObject = (
@@ -960,18 +1072,23 @@ export function DatabasePage() {
     rType?: 'FUNCTION' | 'PROCEDURE',
   ): void => {
     if (database !== selectedDatabase) setDatabase(database);
-    const next = new URLSearchParams();
-    next.set('db', database);
-    next.set('object', name);
-    next.set('objectType', type);
-    if (rType) next.set('routineType', rType);
-    setParams(next);
+    patchParams({
+      db: database,
+      table: null,
+      object: name,
+      objectType: type,
+      routineType: rType ?? null,
+    });
   };
 
   const backToDatabase = (): void => {
-    const next = new URLSearchParams();
-    if (selectedDatabase) next.set('db', selectedDatabase);
-    setParams(next);
+    patchParams({
+      db: selectedDatabase,
+      table: null,
+      object: null,
+      objectType: null,
+      routineType: null,
+    });
   };
 
   if (!selectedDatabase) {
@@ -1031,10 +1148,15 @@ export function DatabasePage() {
                 <div className="text-[9.5px] text-muted">
                   {objects
                     ? `${objects.tables.length} tables · ${objects.views.length} views`
-                    : 'loading…'}
+                    : objectsError
+                      ? 'unavailable'
+                      : 'loading…'}
                 </div>
               </div>
-              <IconButton label="Refresh objects" onClick={() => setRefreshKey((value) => value + 1)}>
+              <IconButton
+                label="Refresh objects"
+                onClick={() => setObjectsRequest((value) => value + 1)}
+              >
                 {objectsLoading ? <Spinner size={13} /> : <RefreshCw size={13} />}
               </IconButton>
             </div>
@@ -1048,13 +1170,13 @@ export function DatabasePage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Filter objects…"
+                aria-label="Filter database objects"
               />
             </div>
           </div>
 
           <div className="h-[560px] overflow-auto p-2">
             <Section
-              id="tables"
               label="Tables"
               count={filteredTables.length}
               open={openSections.tables}
@@ -1081,7 +1203,6 @@ export function DatabasePage() {
             </Section>
 
             <Section
-              id="views"
               label="Views"
               count={filteredViews.length}
               open={openSections.views}
@@ -1101,7 +1222,6 @@ export function DatabasePage() {
             </Section>
 
             <Section
-              id="routines"
               label="Routines"
               count={objects?.routines.length ?? 0}
               open={openSections.routines}
@@ -1130,7 +1250,6 @@ export function DatabasePage() {
             </Section>
 
             <Section
-              id="triggers"
               label="Triggers"
               count={objects?.triggers.length ?? 0}
               open={openSections.triggers}
@@ -1150,7 +1269,6 @@ export function DatabasePage() {
             </Section>
 
             <Section
-              id="events"
               label="Events"
               count={objects?.events.length ?? 0}
               open={openSections.events}
@@ -1172,18 +1290,39 @@ export function DatabasePage() {
         </aside>
 
         <div className="min-w-0 flex-1 p-4">
-          {detailLoading ? (
-            <div className="flex items-center gap-2 p-8 text-[12px] text-muted">
-              <Spinner size={15} /> Loading table…
-            </div>
-          ) : tableParam && detail ? (
-            <TableDetailView
-              detail={detail}
-              onRefresh={() => setRefreshKey((value) => value + 1)}
-              refreshing={detailLoading}
-              onBack={backToDatabase}
-              onOpenRelated={selectTable}
-            />
+          {tableParam ? (
+            detail ? (
+              <TableDetailView
+                detail={detail}
+                profileId={activeProfileId ?? ''}
+                onRefresh={() => setRefreshKey((value) => value + 1)}
+                refreshing={detailLoading}
+                onBack={backToDatabase}
+                onOpenRelated={selectTable}
+              />
+            ) : detailLoading || !detailError ? (
+              <div className="flex items-center gap-2 p-8 text-[12px] text-muted">
+                <Spinner size={15} /> Loading table…
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <PageHeader
+                  title={tableParam}
+                  subtitle={`Table details could not be loaded from ${selectedDatabase}.`}
+                  actions={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<RefreshCw size={12} />}
+                      onClick={() => setRefreshKey((value) => value + 1)}
+                    >
+                      Retry
+                    </Button>
+                  }
+                />
+                <div className="callout danger">{detailError}</div>
+              </div>
+            )
           ) : (
             <div className="flex flex-col gap-4">
               <PageHeader
@@ -1204,7 +1343,7 @@ export function DatabasePage() {
                       variant="secondary"
                       size="sm"
                       icon={objectsLoading ? <Spinner size={12} /> : <RefreshCw size={12} />}
-                      onClick={() => setRefreshKey((value) => value + 1)}
+                      onClick={() => setObjectsRequest((value) => value + 1)}
                       loading={objectsLoading}
                     >
                       Refresh
@@ -1225,7 +1364,19 @@ export function DatabasePage() {
                   <div className="section-title">Tables</div>
                   <Badge className="ml-auto">{filteredTables.length}</Badge>
                 </div>
-                {objectsLoading ? (
+                {objectsError && !objects ? (
+                  <div className="callout danger flex flex-wrap items-center gap-2">
+                    <span className="flex-1">{objectsError}</span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<RefreshCw size={12} />}
+                      onClick={() => setObjectsRequest((value) => value + 1)}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : objectsLoading && !objects ? (
                   <div className="flex items-center gap-2 py-6 text-[12px] text-muted">
                     <Spinner size={14} /> Loading objects…
                   </div>
@@ -1256,10 +1407,7 @@ export function DatabasePage() {
         state={objectModal}
         onClose={() => {
           setObjectModal((current) => ({ ...current, open: false }));
-          const next = new URLSearchParams();
-          if (selectedDatabase) next.set('db', selectedDatabase);
-          if (tableParam) next.set('table', tableParam);
-          setParams(next);
+          patchParams({ object: null, objectType: null, routineType: null });
         }}
       />
 
@@ -1280,14 +1428,12 @@ export function DatabasePage() {
 }
 
 function Section({
-  id,
   label,
   count,
   open,
   onToggle,
   children,
 }: {
-  id: string;
   label: string;
   count: number;
   open: boolean;

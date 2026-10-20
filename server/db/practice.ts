@@ -1,7 +1,19 @@
 import type {
   Finding,
+  PracticeAnswers,
+  PracticeAttempt,
+  PracticeAttemptPublic,
   PracticeComparison,
+  PracticeEvaluation,
+  PracticeEvaluationPublic,
+  PracticeProgress,
+  PracticeProgressPublic,
+  PracticeQuestion,
+  PracticeQuestionPublic,
   PracticeScores,
+  PracticeSet,
+  PracticeSetPublic,
+  PracticeTaskType,
   QueryResult,
 } from '../../shared/types';
 import { AppError } from '../errors';
@@ -11,6 +23,111 @@ import { executeQuery } from './query';
 
 function clamp(value: number, min = 0, max = 100): number {
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Client-safe payloads                                                */
+/* ------------------------------------------------------------------ */
+
+const SQL_SHAPED_HINT = /\bselect\b[\s\S]{0,400}?\bfrom\b|```/i;
+
+/**
+ * Hints are free-form model output. A hint that contains a complete statement is
+ * the answer wearing a hint costume, so it is dropped from the public payload.
+ */
+function hintRevealsAnswer(hint: string): boolean {
+  return SQL_SHAPED_HINT.test(hint);
+}
+
+export function toPublicPracticeQuestion(
+  question: PracticeQuestion,
+): PracticeQuestionPublic {
+  const base: PracticeQuestionPublic = {
+    id: question.id,
+    type: question.type,
+    title: question.title,
+    scenario: question.scenario,
+    difficulty: question.difficulty,
+    topics: question.topics,
+    schemaTables: question.schemaTables,
+    orderMatters: question.orderMatters,
+    hints: question.hints.filter((hint) => !hintRevealsAnswer(hint)),
+    estimatedMinutes: question.estimatedMinutes,
+    execute: question.execute,
+  };
+  // For fix-query tasks the broken statement is the question, so it must be
+  // visible before the profile attempts it. Every other type keeps it hidden.
+  if (question.type === 'fix-query') {
+    return { ...base, brokenSql: question.brokenSql };
+  }
+  return base;
+}
+
+export function toPublicPracticeSet(set: PracticeSet): PracticeSetPublic {
+  return {
+    ...set,
+    questions: set.questions.map(toPublicPracticeQuestion),
+  };
+}
+
+export function toPublicPracticeEvaluation(
+  evaluation: PracticeEvaluation,
+): PracticeEvaluationPublic {
+  const {
+    referenceSql: _referenceSql,
+    referenceResult: _referenceResult,
+    ...safe
+  } = evaluation;
+  return safe;
+}
+
+export function toPublicPracticeAttempt(attempt: PracticeAttempt): PracticeAttemptPublic {
+  return {
+    ...attempt,
+    evaluation: toPublicPracticeEvaluation(attempt.evaluation),
+  };
+}
+
+export function toPublicPracticeProgress(
+  progress: PracticeProgress,
+): PracticeProgressPublic {
+  return {
+    ...progress,
+    recent: progress.recent.map(toPublicPracticeAttempt),
+  };
+}
+
+/**
+ * Answer material is released only to the profile that owns the set. Anything
+ * else is a 403 (foreign profile) or, for an unknown set, a 404 from the store.
+ */
+export function canRevealPracticeAnswers(
+  set: Pick<PracticeSet, 'profileId'>,
+  profileId: string,
+): boolean {
+  return set.profileId === profileId;
+}
+
+/**
+ * Answer material is released only for questions the profile already attempted.
+ * The caller is responsible for having verified set ownership.
+ */
+export function buildPracticeAnswers(
+  set: PracticeSet,
+  attemptedQuestionIds: ReadonlySet<string>,
+): PracticeAnswers {
+  return {
+    setId: set.id,
+    answers: set.questions
+      .filter((question) => attemptedQuestionIds.has(question.id))
+      .map((question) => ({
+        questionId: question.id,
+        referenceSql: question.referenceSql,
+        expectedResult: question.expectedResult,
+        brokenSql: question.brokenSql,
+        orderMatters: question.orderMatters,
+      })),
+  };
 }
 
 function canonicalCell(value: unknown): string {
@@ -140,11 +257,162 @@ export function comparePracticeResults(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Deterministic (AI-free) scoring signals                             */
+/* ------------------------------------------------------------------ */
+
+const STRUCTURAL_KEYWORDS = [
+  'select',
+  'from',
+  'join',
+  'left join',
+  'right join',
+  'inner join',
+  'cross join',
+  'where',
+  'group by',
+  'having',
+  'order by',
+  'limit',
+  'offset',
+  'distinct',
+  'union',
+  'union all',
+  'intersect',
+  'except',
+  'with',
+  'recursive',
+  'over',
+  'partition by',
+  'case',
+  'insert',
+  'update',
+  'delete',
+  'exists',
+  'between',
+  'like',
+  'coalesce',
+  'count',
+  'sum',
+  'avg',
+  'min',
+  'max',
+];
+
+function normalizeSqlText(sql: string): string {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n\r]*/g, ' ')
+    .replace(/#[^\n\r]*/g, ' ')
+    .replace(/`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** Comparison form used to detect resubmissions of the same answer. */
+export function normalizePracticeSql(sql: string): string {
+  return normalizeSqlText(sql).replace(/[;\s]+$/, '');
+}
+
+export function normalizePracticeAnswer(answer: string): string {
+  return answer.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+export function isSamePracticeSubmission(
+  a: { userSql?: string | null; userAnswer?: string | null },
+  b: { userSql?: string | null; userAnswer?: string | null },
+): boolean {
+  return (
+    normalizePracticeSql(a.userSql ?? '') === normalizePracticeSql(b.userSql ?? '') &&
+    normalizePracticeAnswer(a.userAnswer ?? '') === normalizePracticeAnswer(b.userAnswer ?? '')
+  );
+}
+
+function keywordsIn(sql: string): Set<string> {
+  const text = normalizeSqlText(sql);
+  const found = new Set<string>();
+  for (const keyword of STRUCTURAL_KEYWORDS) {
+    const pattern = new RegExp(
+      `(?:^|[^a-z0-9_])${keyword.replace(/ /g, '\\s+')}(?:[^a-z0-9_]|$)`,
+    );
+    if (pattern.test(text)) found.add(keyword);
+  }
+  return found;
+}
+
+function tableReferences(sql: string): Set<string> {
+  const text = normalizeSqlText(sql);
+  const tables = new Set<string>();
+  const pattern = /(?:from|join)\s+([a-z0-9_$.]+)/g;
+  let match = pattern.exec(text);
+  while (match) {
+    const name = match[1].split('.').pop();
+    if (name) tables.add(name);
+    match = pattern.exec(text);
+  }
+  return tables;
+}
+
+function coverage(required: Set<string>, actual: Set<string>): number {
+  if (required.size === 0) return 1;
+  let matched = 0;
+  for (const value of required) {
+    if (actual.has(value)) matched += 1;
+  }
+  return matched / required.size;
+}
+
+export interface PracticeSubmissionSignals {
+  userSql: string;
+  userAnswer: string;
+  questionType: PracticeTaskType;
+  referenceSql: string | null;
+}
+
+/**
+ * Grades an unexecuted submission from structure alone: does the SQL parse, does
+ * it cover the clauses and tables the reference needs, and did the profile say
+ * anything at all. This replaces the previous "no AI score means zero" rule that
+ * capped every non-executed answer at 40 overall.
+ */
+export function staticPracticeCorrectness(input: PracticeSubmissionSignals): number {
+  const sql = input.userSql.trim();
+  const answer = input.userAnswer.trim();
+  const sqlRequired = input.questionType !== 'concept';
+
+  if (!sql) {
+    if (sqlRequired) return answer ? 25 : 0;
+    if (!answer) return 0;
+    return clamp(40 + Math.min(60, answer.split(/\s+/).length * 2));
+  }
+
+  const classified = classifySql(sql);
+  if (classified.empty) return 0;
+
+  let score = 60;
+  if (input.referenceSql) {
+    const keywordScore = coverage(keywordsIn(input.referenceSql), keywordsIn(sql));
+    const tableScore = coverage(tableReferences(input.referenceSql), tableReferences(sql));
+    score = Math.round((keywordScore * 0.6 + tableScore * 0.4) * 100);
+  }
+  if (classified.multiStatement) score -= 20;
+  if (
+    !classified.overall.readOnly ||
+    classified.overall.lockRead ||
+    classified.overall.needsUnlock
+  ) {
+    score = Math.min(score, 45);
+  }
+  return clamp(score);
+}
+
 export function scorePractice(input: {
   findings: Finding[];
   comparison: PracticeComparison | null;
   executed: boolean;
   aiScores?: Partial<PracticeScores> | null;
+  submission?: PracticeSubmissionSignals | null;
 }): PracticeScores {
   const scored = scoreFindings(input.findings);
   const performance = clamp(100 - scored.deductions.performance);
@@ -153,6 +421,8 @@ export function scorePractice(input: {
   );
 
   let correctness: number;
+  let overall: number;
+
   if (input.executed && input.comparison) {
     if (input.comparison.matched) {
       correctness = input.comparison.truncated ? 90 : 100;
@@ -167,19 +437,25 @@ export function scorePractice(input: {
         correctness = Math.min(correctness, 30);
       }
     }
+    overall = clamp(correctness * 0.6 + performance * 0.25 + style * 0.15);
   } else if (input.executed) {
     correctness = 0;
+    overall = clamp(performance * 0.25 + style * 0.15);
+  } else if (input.aiScores) {
+    // AI grading keeps its original weighting.
+    correctness = clamp(input.aiScores.correctness ?? 0);
+    overall = clamp(
+      (input.aiScores.correctness ?? 0) * 0.6 +
+        (input.aiScores.performance ?? performance) * 0.25 +
+        (input.aiScores.style ?? style) * 0.15,
+    );
   } else {
-    correctness = clamp(input.aiScores?.correctness ?? 0);
+    const structural = input.submission
+      ? staticPracticeCorrectness(input.submission)
+      : 0;
+    correctness = clamp(structural - scored.deductions.correctness);
+    overall = clamp(correctness * 0.6 + performance * 0.25 + style * 0.15);
   }
-
-  const overall = input.executed
-    ? clamp(correctness * 0.6 + performance * 0.25 + style * 0.15)
-    : clamp(
-        (input.aiScores?.correctness ?? 0) * 0.6 +
-          (input.aiScores?.performance ?? performance) * 0.25 +
-          (input.aiScores?.style ?? style) * 0.15,
-      );
 
   return { correctness, performance, style, overall };
 }

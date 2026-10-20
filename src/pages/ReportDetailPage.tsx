@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
-  Download,
   FileJson,
   FileText,
   Globe2,
@@ -12,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { AuditReport, StoredReviewReport } from '@shared/types';
 import { api, downloadReport } from '@/lib/api';
-import { formatDate, formatDuration } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { AuditReportView } from '@/components/AuditReportView';
 import { FindingCard, FindingsHint, FindingsList } from '@/components/Findings';
 import { Markdown } from '@/components/Markdown';
@@ -215,9 +214,17 @@ export function ReportDetailPage() {
   const [report, setReport] = useState<AuditReport | StoredReviewReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [missingId, setMissingId] = useState(!id);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setReport(null);
+      setError(null);
+      setMissingId(true);
+      setLoading(false);
+      return;
+    }
+    setMissingId(false);
     let cancelled = false;
     setLoading(true);
     api
@@ -242,6 +249,24 @@ export function ReportDetailPage() {
         <div className="flex items-center gap-2 text-[12px] text-muted">
           <Spinner size={14} /> Loading report…
         </div>
+      </div>
+    );
+  }
+
+  if (missingId) {
+    return (
+      <div className="page">
+        <PageHeader title="Report" subtitle="Saved audit or review." />
+        <EmptyState
+          icon={<XCircle size={24} />}
+          title="Report not found"
+          copy="This URL does not include a report id. Open a report from the list instead."
+          action={
+            <Button variant="secondary" onClick={() => navigate('/reports')}>
+              Back to reports
+            </Button>
+          }
+        />
       </div>
     );
   }

@@ -24,7 +24,6 @@ import {
 import type {
   AiReview,
   HistoryEntry,
-  QueryResult,
   Snippet,
   StatementClassification,
 } from '@shared/types';
@@ -172,6 +171,8 @@ export function WorkspacePage() {
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
   const viewRef = useRef<EditorView | null>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
+  /** Latest run sequence per tab, so a superseded response cannot patch state. */
+  const runSeqRef = useRef<Map<string, number>>(new Map());
   const editorAreaRef = useRef<HTMLDivElement>(null);
   const revealNextRef = useRef(false);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -239,8 +240,15 @@ export function WorkspacePage() {
   };
 
   const revealSensitiveValues = (): void => {
+    // Re-run exactly what produced the masked result, not whatever the editor
+    // holds now (the user may have typed since the last run).
+    const executed = activeTab?.executedSql?.trim();
+    if (!executed) {
+      toast('Run the statement before revealing sensitive values.', 'warn');
+      return;
+    }
     revealNextRef.current = true;
-    void execute();
+    void execute(executed);
   };
 
   const execute = async (override?: string): Promise<void> => {
@@ -255,12 +263,19 @@ export function WorkspacePage() {
       toast('Select a connection first.', 'warn');
       return;
     }
-    patch({ running: true, error: null, outputTab: 'results', executedSql: text });
+    if (!activeTab) return;
+    const tabId = activeTab.id;
+    // Every run on this tab supersedes the previous one; only the newest
+    // response is allowed to patch the tab.
+    const seq = (runSeqRef.current.get(tabId) ?? 0) + 1;
+    runSeqRef.current.set(tabId, seq);
+    const isCurrent = (): boolean => runSeqRef.current.get(tabId) === seq;
+
+    patchTab(tabId, { running: true, error: null, outputTab: 'results', executedSql: text });
     try {
       const result = await dbApi.run(activeProfileId, text, selectedDatabase, {
         revealSensitive: reveal,
       });
-      patch({ running: false, result, error: null, outputTab: 'results' });
       if (result.kind === 'write' || result.kind === 'ddl' || result.kind === 'admin') {
         setTimeout(() => {
           void refreshSchema(true);
@@ -268,11 +283,27 @@ export function WorkspacePage() {
           void refreshDatabases();
         }, 220);
       }
+      if (!isCurrent()) return;
+      // Re-state `executedSql`: an edit made while the query was in flight
+      // cleared it, but this result still belongs to `text`.
+      patchTab(tabId, {
+        running: false,
+        result,
+        error: null,
+        outputTab: 'results',
+        executedSql: text,
+      });
     } catch (error) {
-      patch({ running: false });
+      if (!isCurrent()) return;
+      patchTab(tabId, { running: false });
+      // A locked write opens the unlock dialog; the previous result stays valid
+      // unless the user proceeds with the unlocked statement.
       if (error instanceof ApiError && handleLocked(error, text)) return;
       const apiError = error instanceof ApiError ? error : null;
-      patch({
+      patchTab(tabId, {
+        // The failure belongs to this run, so the previous rows must not linger
+        // next to the new error.
+        result: null,
         error:
           apiError ??
           new ApiError('UNKNOWN', error instanceof Error ? error.message : String(error), 500),
@@ -391,6 +422,8 @@ export function WorkspacePage() {
         body,
         {
           onEvent: ({ event, data }) => {
+            // A superseded run must not touch the tab the newer run owns.
+            if (aiAbortRef.current !== controller) return;
             if (event === 'delta') {
               const payload = data as { text?: string };
               if (payload.text) {
@@ -418,18 +451,11 @@ export function WorkspacePage() {
               patch({ aiRunning: false, aiStreaming: false });
             }
           },
-          onError: (error) => {
-            patch({
-              aiRunning: false,
-              aiStreaming: false,
-              aiError: error instanceof Error ? error.message : String(error),
-            });
-          },
         },
         controller.signal,
       );
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
+      if (aiAbortRef.current === controller && (error as Error).name !== 'AbortError') {
         patch({
           aiRunning: false,
           aiStreaming: false,
@@ -437,8 +463,10 @@ export function WorkspacePage() {
         });
       }
     } finally {
-      if (aiAbortRef.current === controller) aiAbortRef.current = null;
-      patch({ aiRunning: false, aiStreaming: false });
+      if (aiAbortRef.current === controller) {
+        aiAbortRef.current = null;
+        patch({ aiRunning: false, aiStreaming: false });
+      }
     }
   };
 
@@ -583,20 +611,49 @@ export function WorkspacePage() {
     window.addEventListener('mouseup', onUp);
   };
 
+  // The workspace event bus is global, so subscribe once and read the newest
+  // handlers through a ref instead of re-subscribing on every render.
+  const actionsRef = useRef({
+    createTab,
+    execute,
+    runSelection,
+    explain,
+    review,
+    formatCurrent,
+    openHistory,
+    openSnippets,
+  });
+  actionsRef.current = {
+    createTab,
+    execute,
+    runSelection,
+    explain,
+    review,
+    formatCurrent,
+    openHistory,
+    openSnippets,
+  };
+
   useEffect(() => {
     return onWorkspace((action: WorkspaceAction) => {
-      if (action === 'new-tab') createTab();
-      if (action === 'run') void execute();
-      if (action === 'run-selection') runSelection();
-      if (action === 'explain') void explain(false);
-      if (action === 'review') void review();
-      if (action === 'format') formatCurrent();
-      if (action === 'history') void openHistory();
-      if (action === 'snippets') void openSnippets();
+      const handlers = actionsRef.current;
+      if (action === 'new-tab') handlers.createTab();
+      if (action === 'run') void handlers.execute();
+      if (action === 'run-selection') handlers.runSelection();
+      if (action === 'explain') void handlers.explain(false);
+      if (action === 'review') void handlers.review();
+      if (action === 'format') handlers.formatCurrent();
+      if (action === 'history') void handlers.openHistory();
+      if (action === 'snippets') void handlers.openSnippets();
     });
-    // Uses the latest closures from this render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      aiAbortRef.current?.abort();
+      aiAbortRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
+  Database,
   Gauge,
   Pause,
   Play,
@@ -27,7 +29,6 @@ import {
   Card,
   ConfirmDialog,
   EmptyState,
-  Input,
   PageHeader,
   Spinner,
   StatCard,
@@ -72,6 +73,7 @@ function varsOf(snapshot: PerformanceSnapshot | null): [string, string][] {
 }
 
 export function PerformancePage() {
+  const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const unlockedUntil = useAppStore((state) => state.unlockedUntil);
   const toast = useAppStore((state) => state.toast);
@@ -90,7 +92,13 @@ export function PerformancePage() {
   const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now());
 
   const load = async (quiet = false): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!activeProfileId) {
+      setSnapshot(null);
+      snapshotRef.current = null;
+      setHistory([]);
+      setLoading(false);
+      return;
+    }
     if (!quiet) setLoading(true);
     setError(null);
     try {
@@ -109,6 +117,7 @@ export function PerformancePage() {
 
   useEffect(() => {
     void load();
+    if (!activeProfileId) return;
     const timer = setInterval(() => {
       if (!paused && document.visibilityState === 'visible') void load(true);
     }, 5_000);
@@ -161,6 +170,27 @@ export function PerformancePage() {
       setKilling(false);
     }
   };
+
+  if (!activeProfileId) {
+    return (
+      <div className="page">
+        <PageHeader
+          title="Performance"
+          subtitle="A live snapshot of server throughput, sessions, slow work, and configuration."
+        />
+        <EmptyState
+          icon={<Database size={24} />}
+          title="Connect to a database"
+          copy="Performance metrics are read live from the active connection. Choose a profile to see throughput, sessions, slow queries, and server variables."
+          action={
+            <Button variant="primary" onClick={() => navigate('/connect')}>
+              Connect to a database
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="page">

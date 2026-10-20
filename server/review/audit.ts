@@ -27,7 +27,7 @@ import {
 } from '../db/metrics';
 import { collectSecurityData } from '../db/security-audit';
 import { withConnection } from '../db/manager';
-import { getDatabaseScope } from '../db/scope';
+import { getDatabaseScope, assertServerWideAllowed, type DatabaseScope } from '../db/scope';
 import {
   runConfigRules,
   runPerformanceRules,
@@ -63,7 +63,13 @@ interface UnusedIndexesResult {
 async function loadUnusedIndexes(
   profileId: string,
   server: ServerInfo,
+  scope: DatabaseScope,
 ): Promise<UnusedIndexesResult> {
+  const schemaInScope = (schema: unknown): boolean => {
+    if (scope.mode !== 'selected') return true;
+    return typeof schema === 'string' && scope.allowed.has(schema);
+  };
+
   if (server.capabilities.sysSchema) {
     try {
       const rows = await withConnection(profileId, async (conn) => {
@@ -74,7 +80,8 @@ async function loadUnusedIndexes(
         );
         return result as Record<string, unknown>[];
       });
-      const findings: Finding[] = rows.map((row) => ({
+      const visible = rows.filter((row) => schemaInScope(row.object_schema));
+      const findings: Finding[] = visible.map((row) => ({
         id: crypto.randomUUID(),
         ruleId: 'schema.unused-index',
         title: 'Index has not been used since statistics reset',
@@ -95,7 +102,7 @@ async function loadUnusedIndexes(
       }));
       return {
         findings,
-        coverage: { check: 'Unused indexes', status: 'ran', count: rows.length },
+        coverage: { check: 'Unused indexes', status: 'ran', count: visible.length },
       };
     } catch {
       // Fall through to performance_schema.
@@ -115,7 +122,8 @@ async function loadUnusedIndexes(
         );
         return result as Record<string, unknown>[];
       });
-      const findings: Finding[] = rows.map((row) => ({
+      const visible = rows.filter((row) => schemaInScope(row.OBJECT_SCHEMA));
+      const findings: Finding[] = visible.map((row) => ({
         id: crypto.randomUUID(),
         ruleId: 'schema.unused-index',
         title: 'Index has not been used since statistics reset',
@@ -136,7 +144,7 @@ async function loadUnusedIndexes(
       }));
       return {
         findings,
-        coverage: { check: 'Unused indexes', status: 'ran', count: rows.length },
+        coverage: { check: 'Unused indexes', status: 'ran', count: visible.length },
       };
     } catch {
       // Fall through to unsupported.
@@ -176,6 +184,9 @@ function aiSummaryReview(
 }
 
 export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
+  // Defense in depth: the route checks this too, but any future caller must not
+  // be able to run server-wide collection on a scoped connection.
+  await assertServerWideAllowed(input.profileId);
   const started = Date.now();
   const profile = await getProfile(input.profileId);
   const databases = Array.from(
@@ -387,7 +398,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
   }
 
   emit(90, 'Checking index usage.');
-  const unused = await loadUnusedIndexes(input.profileId, input.server);
+  const unused = await loadUnusedIndexes(input.profileId, input.server, scope);
   coverage.push(unused.coverage);
 
   const findings = dedupeFindings([

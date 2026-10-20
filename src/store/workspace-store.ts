@@ -105,7 +105,20 @@ function loadInitial(): { tabs: QueryTab[]; activeId: string } {
   return { tabs: [tab], activeId: tab.id };
 }
 
-function save(state: { tabs: QueryTab[]; activeId: string }): void {
+const SAVE_DELAY_MS = 400;
+
+let pendingSave: { tabs: QueryTab[]; activeId: string } | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Serialize the pending snapshot now. Safe to call at any time. */
+function flush(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const state = pendingSave;
+  pendingSave = null;
+  if (!state) return;
   try {
     const tabs: StoredTab[] = state.tabs.map((tab) => ({
       id: tab.id,
@@ -116,6 +129,21 @@ function save(state: { tabs: QueryTab[]; activeId: string }): void {
   } catch {
     // Storage can be unavailable in private browsing; the app still works.
   }
+}
+
+/** Debounced write: editing must not hit localStorage on every keystroke. */
+function save(state: { tabs: QueryTab[]; activeId: string }): void {
+  pendingSave = state;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, SAVE_DELAY_MS);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flush);
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
 }
 
 const initial = loadInitial();
@@ -160,7 +188,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   updateSql: (id, sql) => {
-    const tabs = get().tabs.map((tab) => (tab.id === id ? { ...tab, sql } : tab));
+    const tabs = get().tabs.map((tab) => {
+      if (tab.id !== id) return tab;
+      // Nothing changed: keep the derived state (and object identity) intact.
+      if (tab.sql === sql) return tab;
+      return {
+        ...tab,
+        sql,
+        // Everything below describes the *previous* text, so it is stale now.
+        result: null,
+        error: null,
+        explain: null,
+        review: null,
+        ai: null,
+        aiRaw: '',
+        aiStreaming: false,
+        aiError: null,
+        executedSql: null,
+      };
+    });
     set({ tabs });
     save({ tabs, activeId: get().activeId });
   },
@@ -177,11 +223,3 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }));
   },
 }));
-
-export function tabById(id: string): QueryTab | undefined {
-  return useWorkspaceStore.getState().tabs.find((tab) => tab.id === id);
-}
-
-export function isWriteLockedError(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.code === 'WRITE_LOCKED';
-}

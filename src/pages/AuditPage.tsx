@@ -12,7 +12,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import type {
-  AiProvider,
   AuditReport,
   AuditStep,
   ReportSummary,
@@ -45,7 +44,6 @@ export function AuditPage() {
   const databases = useAppStore((state) => state.databases);
   const selectedDatabase = useAppStore((state) => state.selectedDatabase);
   const providers = useAppStore((state) => state.providers);
-  const settings = useAppStore((state) => state.settings);
   const toast = useAppStore((state) => state.toast);
 
   const [selected, setSelected] = useState<Set<string>>(() => {
@@ -209,12 +207,16 @@ export function AuditPage() {
     }
   };
 
-  const cancelAudit = (): void => {
+  const stopWatching = (): void => {
+    // Client-only: the server keeps auditing and still saves the report.
     abortRef.current?.abort();
     abortRef.current = null;
     setRunning(false);
-    setMessage('Audit cancelled.');
-    toast('Audit cancelled.', 'info');
+    setMessage('Stopped watching. The audit continues on the server.');
+    toast(
+      'Stopped watching. The audit continues on the server and its report will still be saved.',
+      'info',
+    );
   };
 
   const totalTables = userDatabases
@@ -260,9 +262,13 @@ export function AuditPage() {
             <span className="text-[13px] font-semibold">Running audit</span>
             <span className="text-[11px] text-muted">{message}</span>
             <span className="ml-auto font-mono text-[11px]">{progress}%</span>
-            <Button variant="ghost" size="sm" icon={<Square size={11} />} onClick={cancelAudit}>
-              Cancel
+            <Button variant="ghost" size="sm" icon={<Square size={11} />} onClick={stopWatching}>
+              Stop watching
             </Button>
+          </div>
+          <div className="mt-1 text-[10px] text-muted">
+            Stop watching only closes this view. The audit keeps running on the server and the
+            report is still saved to Reports.
           </div>
           <div className="mt-2">
             <ProgressBar percent={progress} />

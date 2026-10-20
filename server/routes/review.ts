@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import type { StoredReviewReport } from '../../shared/types';
+import type { StaticReviewResult, StoredReviewReport } from '../../shared/types';
 import { getProfile } from '../store/profiles';
 import { saveReport } from '../store/reports';
 import { resolveProvider } from '../store/providers';
@@ -32,14 +32,59 @@ const AiReviewBodySchema = z.object({
   findings: z.array(z.unknown()).max(1_000).optional(),
 });
 
-const SaveReviewSchema = z.object({
+/**
+ * Structural validation for a review the client already computed. Nested rule
+ * output is passed through so this does not have to mirror every Finding field.
+ */
+const StaticReviewResultSchema = z
+  .object({
+    sql: z.string().max(1_000_000),
+    statements: z.array(z.unknown()).max(10_000),
+    findings: z.array(z.unknown()).max(10_000),
+    score: z
+      .object({
+        score: z.number(),
+        grade: z.enum(['A', 'B', 'C', 'D', 'F']),
+      })
+      .passthrough(),
+    context: z.object({ database: z.string().nullable() }).passthrough(),
+    explain: z.unknown().nullable().optional(),
+    suggestions: z.array(z.unknown()).max(10_000),
+    warnings: z.array(z.string().max(20_000)).max(1_000),
+  })
+  .passthrough();
+
+export const SaveReviewSchema = z.object({
   profileId: z.string().max(200).optional(),
   database: z.string().max(200).nullable().optional(),
   sql: z.string().min(1).max(1_000_000),
   includeExplain: z.boolean().optional(),
   analyze: z.boolean().optional(),
   ai: z.unknown().nullable().optional(),
+  review: StaticReviewResultSchema.optional(),
 });
+
+export type SaveReviewBody = z.infer<typeof SaveReviewSchema>;
+
+/**
+ * Resolve the artifact to persist. Saving must never execute the statement (or
+ * anything else) against MySQL, so a client-supplied review is stored as-is.
+ * Older clients that do not send one get a purely static review: no schema read
+ * and no EXPLAIN/ANALYZE.
+ */
+export async function resolveReviewForSave(
+  body: SaveReviewBody,
+): Promise<StaticReviewResult> {
+  if (body.review) return body.review as unknown as StaticReviewResult;
+  return runStaticReview({
+    profileId: body.profileId,
+    database: body.database,
+    sql: body.sql,
+    includeSchema: false,
+    includeExplain: false,
+    analyze: false,
+  });
+}
 
 export const reviewRouter = Router();
 
@@ -101,14 +146,7 @@ reviewRouter.post(
   '/save',
   asyncHandler(async (req, res) => {
     const body = parseBody(SaveReviewSchema, req);
-    const review = await runStaticReview({
-      profileId: body.profileId,
-      database: body.database,
-      sql: body.sql,
-      includeSchema: true,
-      includeExplain: Boolean(body.includeExplain),
-      analyze: Boolean(body.analyze),
-    });
+    const review = await resolveReviewForSave(body);
     const profile = body.profileId ? await getProfile(body.profileId).catch(() => null) : null;
     const report: StoredReviewReport = {
       id: `review_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,

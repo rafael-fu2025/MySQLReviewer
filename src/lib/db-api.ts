@@ -9,12 +9,14 @@ import type {
   GrantSqlRequest,
   GrantSqlResult,
   HistoryEntry,
-  PracticeAttempt,
+  PracticeAnswers,
+  PracticeAttemptPublic,
   PracticeEvaluateRequest,
   PracticeEvaluation,
-  PracticeProgress,
-  PracticeSet,
+  PracticeProgressPublic,
+  PracticeSetPublic,
   QueryResult,
+  SavedReviewResult,
   Snippet,
   StaticReviewResult,
   TableDataRequest,
@@ -80,7 +82,7 @@ export const dbApi = {
     statement: string;
     includeExplain: boolean;
     ai: AiReview | null;
-  }): Promise<{ id: string }> {
+  }): Promise<SavedReviewResult> {
     return api.post('/api/review/save', {
       profileId: payload.profileId,
       database: payload.database,
@@ -155,10 +157,12 @@ export const dbApi = {
     database: string,
     table: string,
     payload: TableDataRequest,
+    options: { signal?: AbortSignal } = {},
   ): Promise<QueryResult> {
     return api.post<QueryResult>(
       `/api/db/${encodeURIComponent(profileId)}/databases/${encodeURIComponent(database)}/tables/${encodeURIComponent(table)}/data`,
       payload,
+      options,
     );
   },
 
@@ -198,21 +202,32 @@ export const dbApi = {
     );
   },
 
-  practiceSets(profileId: string, limit = 20): Promise<PracticeSet[]> {
-    return api.get<PracticeSet[]>(
+  practiceSets(profileId: string, limit = 20): Promise<PracticeSetPublic[]> {
+    return api.get<PracticeSetPublic[]>(
       `/api/practice/sets?profileId=${encodeURIComponent(profileId)}&limit=${limit}`,
     );
   },
 
-  practiceAttempts(profileId: string, limit = 30): Promise<PracticeAttempt[]> {
-    return api.get<PracticeAttempt[]>(
+  practiceAttempts(profileId: string, limit = 30): Promise<PracticeAttemptPublic[]> {
+    return api.get<PracticeAttemptPublic[]>(
       `/api/practice/attempts?profileId=${encodeURIComponent(profileId)}&limit=${limit}`,
     );
   },
 
-  practiceProgress(profileId: string): Promise<PracticeProgress> {
-    return api.get<PracticeProgress>(
+  practiceProgress(profileId: string): Promise<PracticeProgressPublic> {
+    return api.get<PracticeProgressPublic>(
       `/api/practice/progress?profileId=${encodeURIComponent(profileId)}`,
+    );
+  },
+
+  /**
+   * Reference material is released only for questions this profile has already
+   * attempted; the server filters the list, so the response never contains
+   * answers for unattempted questions.
+   */
+  practiceAnswers(setId: string, profileId: string): Promise<PracticeAnswers> {
+    return api.get<PracticeAnswers>(
+      `/api/practice/sets/${encodeURIComponent(setId)}/answers?profileId=${encodeURIComponent(profileId)}`,
     );
   },
 

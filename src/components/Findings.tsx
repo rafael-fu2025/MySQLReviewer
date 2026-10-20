@@ -11,9 +11,7 @@ import type { Finding, FindingCategory, FindingGroup, Severity } from '@shared/t
 import { CATEGORY_LABELS, SEVERITY_ORDER } from '@shared/types';
 import {
   Badge,
-  Button,
   EmptyState,
-  SearchInput,
   SeverityBadge,
   cn,
   severityCounts,
@@ -253,13 +251,7 @@ export function FindingsList({
   );
 }
 
-export function GroupedFindings({
-  groups,
-  onJumpToLine,
-}: {
-  groups: FindingGroup[];
-  onJumpToLine?: (line: number) => void;
-}) {
+export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [category, setCategory] = useState<FindingCategory | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -388,22 +380,6 @@ export function GroupedFindings({
           <EmptyState icon={<Filter size={20} />} title="No groups match the filters" />
         ) : null}
       </div>
-    </div>
-  );
-}
-
-export function FindingsSummary({ findings }: { findings: Finding[] }) {
-  const counts = severityCounts(findings);
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {SEVERITY_ORDER.map((severity) =>
-        counts[severity] > 0 ? (
-          <span key={severity} className={cn('badge', `sev-${severity}`)}>
-            {counts[severity]} {severity}
-          </span>
-        ) : null,
-      )}
-      {findings.length === 0 ? <Badge tone="mint">clean</Badge> : null}
     </div>
   );
 }

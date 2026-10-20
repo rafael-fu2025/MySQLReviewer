@@ -19,13 +19,14 @@ import {
   XCircle,
 } from 'lucide-react';
 import type {
+  PracticeAnswer,
   PracticeComparison,
   PracticeDifficulty,
   PracticeEvaluation,
-  PracticeProgress,
-  PracticeQuestion,
-  PracticeSet,
+  PracticeProgressPublic,
+  PracticeSetPublic,
   PracticeTopic,
+  QueryResult,
 } from '@shared/types';
 import { PRACTICE_DIFFICULTIES, PRACTICE_TOPICS } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
@@ -60,9 +61,54 @@ interface AnswerState {
   sql: string;
   answer: string;
   evaluation: PracticeEvaluation | null;
+  /** True when the server matched an earlier identical submission. */
+  duplicate?: boolean;
+}
+
+interface PracticeDraft {
+  sql: string;
+  answer: string;
 }
 
 const EMPTY_ANSWER: AnswerState = { sql: '', answer: '', evaluation: null };
+
+const DRAFT_PREFIX = 'mylens.practice.draft';
+
+function draftKey(profileId: string, setId: string): string {
+  return `${DRAFT_PREFIX}.${profileId}.${setId}`;
+}
+
+function readDraft(profileId: string, setId: string): Record<string, PracticeDraft> {
+  try {
+    const raw = localStorage.getItem(draftKey(profileId, setId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const drafts: Record<string, PracticeDraft> = {};
+    for (const [questionId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const draft = value as Partial<PracticeDraft> | null;
+      if (!draft || typeof draft.sql !== 'string' || typeof draft.answer !== 'string') continue;
+      drafts[questionId] = { sql: draft.sql, answer: draft.answer };
+    }
+    return drafts;
+  } catch {
+    return {};
+  }
+}
+
+function writeDraft(
+  profileId: string,
+  setId: string,
+  drafts: Record<string, PracticeDraft>,
+): void {
+  try {
+    const key = draftKey(profileId, setId);
+    if (Object.keys(drafts).length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(drafts));
+  } catch {
+    // Storage can be unavailable (private mode, quota); drafts are best-effort.
+  }
+}
 
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
@@ -161,23 +207,37 @@ export function PracticePage() {
   const [generating, setGenerating] = useState(false);
   const [generationText, setGenerationText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [practiceSet, setPracticeSet] = useState<PracticeSet | null>(null);
+  const [practiceSet, setPracticeSet] = useState<PracticeSetPublic | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
+  const [answerMaterial, setAnswerMaterial] = useState<Record<string, PracticeAnswer>>({});
   const [hintsShown, setHintsShown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [progress, setProgress] = useState<PracticeProgress | null>(null);
-  const [recentSets, setRecentSets] = useState<PracticeSet[]>([]);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<QueryResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<PracticeProgressPublic | null>(null);
+  const [recentSets, setRecentSets] = useState<PracticeSetPublic[]>([]);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(true);
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
   const generationAbort = useRef<AbortController | null>(null);
+  const runRequest = useRef(0);
+  // Which set the answers/reference request belongs to; a response for a set
+  // that is no longer open must never be applied.
+  const activeSetId = useRef<string | null>(null);
+  // Which set already had its drafts read, so the writer never races the reader.
+  const persistedSetId = useRef<string | null>(null);
 
   const question = practiceSet?.questions[activeIndex] ?? null;
   const current = question ? answers[question.id] ?? EMPTY_ANSWER : EMPTY_ANSWER;
   const evaluation = current.evaluation;
   const flaggedCurrent = question ? Boolean(flagged[question.id]) : false;
+  // Released by the server only for questions this profile has already attempted.
+  const reference = question ? answerMaterial[question.id] : undefined;
+  const pinnedDatabase = practiceSet?.database ?? selectedDatabase;
+  const databaseMismatch = Boolean(practiceSet && practiceSet.database !== selectedDatabase);
   const answeredCount = useMemo(
     () =>
       practiceSet
@@ -231,7 +291,45 @@ export function PracticePage() {
 
   useEffect(() => {
     setHintsShown(0);
+    setRunResult(null);
+    setRunError(null);
   }, [question?.id]);
+
+  // Restore unsubmitted drafts when a set becomes active (for example after a
+  // reload and reopening it from the recent list).
+  useEffect(() => {
+    if (!activeProfileId || !practiceSet) return;
+    const stored = readDraft(activeProfileId, practiceSet.id);
+    if (Object.keys(stored).length === 0) return;
+    setAnswers((previous) => {
+      const next = { ...previous };
+      for (const [questionId, draft] of Object.entries(stored)) {
+        if (next[questionId]?.evaluation) continue;
+        next[questionId] = { ...(next[questionId] ?? EMPTY_ANSWER), ...draft };
+      }
+      return next;
+    });
+  }, [activeProfileId, practiceSet]);
+
+  // Persist only unanswered text: once a question is graded the server owns the
+  // attempt and the local draft is cleared.
+  useEffect(() => {
+    if (!activeProfileId || !practiceSet) return;
+    if (persistedSetId.current !== practiceSet.id) {
+      // First commit after the set was opened: the restore effect has queued the
+      // stored drafts but they are not in `answers` yet, so writing now would
+      // erase them.
+      persistedSetId.current = practiceSet.id;
+      return;
+    }
+    const drafts: Record<string, PracticeDraft> = {};
+    for (const [questionId, value] of Object.entries(answers)) {
+      if (value.evaluation) continue;
+      if (!value.sql.trim() && !value.answer.trim()) continue;
+      drafts[questionId] = { sql: value.sql, answer: value.answer };
+    }
+    writeDraft(activeProfileId, practiceSet.id, drafts);
+  }, [activeProfileId, practiceSet, answers]);
 
   const updateCurrent = (patch: Partial<AnswerState>): void => {
     if (!question) return;
@@ -239,6 +337,33 @@ export function PracticePage() {
       ...previous,
       [question.id]: { ...(previous[question.id] ?? EMPTY_ANSWER), ...patch },
     }));
+  };
+
+  const loadAnswers = async (setId: string): Promise<void> => {
+    if (!activeProfileId) return;
+    try {
+      const payload = await dbApi.practiceAnswers(setId, activeProfileId);
+      if (activeSetId.current !== setId) return;
+      setAnswerMaterial(
+        Object.fromEntries(payload.answers.map((item) => [item.questionId, item])),
+      );
+    } catch {
+      // Reference material is supplementary; grading already happened.
+    }
+  };
+
+  const activateSet = (next: PracticeSetPublic | null): void => {
+    activeSetId.current = next?.id ?? null;
+    persistedSetId.current = null;
+    setPracticeSet(next);
+    setActiveIndex(0);
+    setAnswers({});
+    setAnswerMaterial({});
+    setFlagged({});
+    setHintsShown(0);
+    setRunResult(null);
+    setRunError(null);
+    if (next) void loadAnswers(next.id);
   };
 
   const loadProgress = async (): Promise<void> => {
@@ -290,13 +415,9 @@ export function PracticePage() {
               const payload = data as { text?: string };
               if (payload.text) setGenerationText((currentText) => currentText + payload.text);
             } else if (event === 'result') {
-              const payload = data as { set?: PracticeSet };
+              const payload = data as { set?: PracticeSetPublic };
               if (payload.set) {
-                setPracticeSet(payload.set);
-                setActiveIndex(0);
-                setAnswers({});
-                setFlagged({});
-                setHintsShown(0);
+                activateSet(payload.set);
                 setSetupOpen(false);
                 void loadProgress();
               }
@@ -364,8 +485,20 @@ export function PracticePage() {
         model: includeAi ? model || undefined : undefined,
         includeAi: Boolean(includeAi && providerId),
       });
-      updateCurrent({ evaluation: result });
+      if (result.duplicate) {
+        // The server recognised an identical resubmission and did not record a
+        // new attempt, so no progress counter changes here either.
+        updateCurrent({ evaluation: result, duplicate: true });
+        void loadAnswers(practiceSet.id);
+        toast(
+          'Already submitted — this answer was recorded earlier and was not counted again.',
+          'info',
+        );
+        return;
+      }
+      updateCurrent({ evaluation: result, duplicate: false });
       void loadProgress();
+      void loadAnswers(practiceSet.id);
       toast(
         result.verdict === 'correct'
           ? 'Correct. Nicely done.'
@@ -381,6 +514,33 @@ export function PracticePage() {
     }
   };
 
+  /**
+   * Run is an execution preview, not a submission: it never records an attempt.
+   * Submit is the only path that grades.
+   */
+  const runQuery = async (sql: string): Promise<void> => {
+    if (!activeProfileId || !selectedDatabase) return;
+    const text = sql.trim();
+    if (!text) {
+      toast('Write a query before running it.', 'warn');
+      return;
+    }
+    const requestId = runRequest.current + 1;
+    runRequest.current = requestId;
+    setRunning(true);
+    setRunError(null);
+    try {
+      const result = await dbApi.run(activeProfileId, text, pinnedDatabase ?? selectedDatabase);
+      if (runRequest.current !== requestId) return;
+      setRunResult(result);
+    } catch (err) {
+      if (runRequest.current !== requestId) return;
+      setRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (runRequest.current === requestId) setRunning(false);
+    }
+  };
+
   const goTo = (index: number): void => {
     if (!practiceSet) return;
     setActiveIndex(Math.max(0, Math.min(practiceSet.questions.length - 1, index)));
@@ -391,6 +551,7 @@ export function PracticePage() {
     try {
       await dbApi.clearPracticeAttempts(activeProfileId);
       setClearConfirm(false);
+      setAnswerMaterial({});
       await loadProgress();
       toast('Practice attempts cleared.', 'success');
     } catch (err) {
@@ -422,7 +583,7 @@ export function PracticePage() {
             <FlaskConical size={17} className="shrink-0 text-ember" />
             <span className="practice-toolbar-title">SQL Lab</span>
             <Badge tone="mint">
-              <Target size={10} /> {selectedDatabase}
+              <Target size={10} /> {practiceSet.database}
             </Badge>
             <span className="truncate text-[10.5px] text-muted">
               {answeredCount}/{practiceSet.questions.length} answered
@@ -473,6 +634,17 @@ export function PracticePage() {
         <div className="callout danger flex items-start gap-2">
           <XCircle size={15} className="mt-0.5 shrink-0" />
           <span>{error}</span>
+        </div>
+      ) : null}
+
+      {databaseMismatch ? (
+        <div className="callout warn flex items-start gap-2">
+          <Info size={15} className="mt-0.5 shrink-0" />
+          <span>
+            This challenge set belongs to <strong>{practiceSet?.database}</strong>. Answers are
+            graded against that database; generate a new set to practise on{' '}
+            <strong>{selectedDatabase}</strong>.
+          </span>
         </div>
       ) : null}
 
@@ -757,10 +929,7 @@ export function PracticePage() {
                     type="button"
                     className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
                     onClick={() => {
-                      setPracticeSet(item);
-                      setActiveIndex(0);
-                      setAnswers({});
-                      setFlagged({});
+                      activateSet(item);
                       setSetupOpen(false);
                     }}
                   >
@@ -872,20 +1041,33 @@ export function PracticePage() {
 
                 <div className="mt-4">
                   {question.type === 'write-query' || question.type === 'fix-query' ? (
-                    <div className="h-[280px] overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
-                      <SqlEditor
-                        value={current.sql}
-                        onChange={(value) => updateCurrent({ sql: value })}
-                        schema={schema}
-                        profileId={activeProfileId}
-                        database={selectedDatabase}
-                        liveLint={settings.liveLint}
-                        onRun={() => void evaluate()}
-                        onRunSelection={() => void evaluate()}
-                        onReview={() => undefined}
-                        onReady={() => undefined}
-                      />
-                    </div>
+                    <>
+                      <div className="h-[280px] overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
+                        <SqlEditor
+                          value={current.sql}
+                          onChange={(value) => updateCurrent({ sql: value })}
+                          schema={schema}
+                          profileId={activeProfileId}
+                          database={pinnedDatabase}
+                          liveLint={settings.liveLint}
+                          onRun={() => void runQuery(current.sql)}
+                          onRunSelection={() => void runQuery(current.sql)}
+                          onReview={() => undefined}
+                          onReady={() => undefined}
+                        />
+                      </div>
+                      {runError ? <div className="callout danger mt-2">{runError}</div> : null}
+                      {runResult ? (
+                        <details open className="mt-2 rounded-xl border border-line-soft bg-panel-2/40 p-2">
+                          <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                            Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
+                          </summary>
+                          <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                            <ResultsGrid result={runResult} />
+                          </div>
+                        </details>
+                      ) : null}
+                    </>
                   ) : (
                     <Field
                       label={
@@ -923,11 +1105,47 @@ export function PracticePage() {
                     </span>
                   ) : (
                     <span className="text-[10px] text-muted">
-                      Your SQL runs read-only against {selectedDatabase}.
+                      {running
+                        ? 'Running the query…'
+                        : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Submit grades it.`}
                     </span>
                   )}
                 </div>
               </Card>
+
+              {/* Released by the server only after this question was attempted. */}
+              {reference ? (
+                <Card className="p-4">
+                  <details>
+                    <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+                      Reference solution
+                    </summary>
+                    {reference.brokenSql && question.type !== 'fix-query' ? (
+                      <>
+                        <div className="mono-label mt-2">Query under review</div>
+                        <CodeBlock text={reference.brokenSql} className="mt-1 text-[11px]" />
+                      </>
+                    ) : null}
+                    {reference.referenceSql ? (
+                      <CodeBlock text={reference.referenceSql} className="mt-2 text-[11px]" />
+                    ) : (
+                      <div className="mt-2 text-[11px] text-muted">
+                        This challenge has no reference SQL; compare with the feedback above.
+                      </div>
+                    )}
+                    {reference.expectedResult ? (
+                      <div className="mt-2 text-[11px] text-muted">
+                        Expected: {reference.expectedResult}
+                      </div>
+                    ) : null}
+                    {reference.orderMatters ? (
+                      <div className="mt-2">
+                        <Badge tone="neutral">row order matters</Badge>
+                      </div>
+                    ) : null}
+                  </details>
+                </Card>
+              ) : null}
 
               {evaluation ? (
                 <Card className="p-4">
@@ -945,6 +1163,9 @@ export function PracticePage() {
                         ) : (
                           <Badge tone="warn">not executed</Badge>
                         )}
+                        {current.duplicate ? (
+                          <Badge tone="info">already submitted · not counted again</Badge>
+                        ) : null}
                         <span className="ml-auto text-[10px] text-muted">
                           {evaluation.executed
                             ? 'result compared with the reference'
@@ -1051,20 +1272,6 @@ export function PracticePage() {
                     </details>
                   ) : null}
 
-                  {question.referenceSql ? (
-                    <details className="mt-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
-                      <summary className="cursor-pointer text-[11px] font-semibold text-muted">
-                        Reference solution
-                      </summary>
-                      <CodeBlock text={question.referenceSql} className="mt-2 text-[11px]" />
-                      {question.expectedResult ? (
-                        <div className="mt-2 text-[11px] text-muted">
-                          Expected: {question.expectedResult}
-                        </div>
-                      ) : null}
-                    </details>
-                  ) : null}
-
                   {evaluation.userResult || evaluation.referenceResult ? (
                     <div className="mt-4 flex flex-col gap-2">
                       {evaluation.userResult ? (
@@ -1113,7 +1320,7 @@ export function PracticePage() {
                       size="sm"
                       className="ml-auto"
                       onClick={() => {
-                        updateCurrent({ evaluation: null });
+                        updateCurrent({ evaluation: null, duplicate: false });
                       }}
                     >
                       Try again

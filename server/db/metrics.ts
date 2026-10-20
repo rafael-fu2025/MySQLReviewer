@@ -11,6 +11,8 @@ import type {
 } from '../../shared/types';
 import { getCachedServerInfo, connectProfile, withConnection } from './manager';
 import { getTopTables } from './introspection';
+import { assertProcessInScope, getDatabaseScope } from './scope';
+import { AppError } from '../errors';
 
 interface Row extends RowDataPacket {
   [key: string]: unknown;
@@ -83,7 +85,41 @@ export async function getProcessList(profileId: string): Promise<ProcessInfo[]> 
   }));
 }
 
-export function computeMetrics(status: Record<string, string>): PerformanceMetrics {
+export interface QpsSample {
+  questions: number;
+  at: number;
+}
+
+/** Last `Questions` counter reading per profile, used for delta-based QPS. */
+const qpsSamples = new Map<string, QpsSample>();
+
+/**
+ * Questions per second between two counter readings. A counter reset (or any
+ * non-positive delta) is reported as 0 rather than a negative rate.
+ */
+export function computeDeltaQps(
+  previous: QpsSample | null | undefined,
+  current: QpsSample,
+): number {
+  if (!previous) return 0;
+  const elapsedMs = current.at - previous.at;
+  if (!(elapsedMs > 0)) return 0;
+  const delta = current.questions - previous.questions;
+  if (!(delta > 0)) return 0;
+  return delta / (elapsedMs / 1000);
+}
+
+function sampleQps(profileId: string, questions: number, at: number): number {
+  const previous = qpsSamples.get(profileId);
+  qpsSamples.set(profileId, { questions, at });
+  return computeDeltaQps(previous, { questions, at });
+}
+
+export function computeMetrics(
+  status: Record<string, string>,
+  profileId?: string,
+  at = Date.now(),
+): PerformanceMetrics {
   const n = (key: string): number => num(status[key]);
   const uptimeSeconds = n('Uptime');
   const questions = n('Questions');
@@ -91,7 +127,7 @@ export function computeMetrics(status: Record<string, string>): PerformanceMetri
   const physicalReads = n('Innodb_buffer_pool_reads');
   return {
     uptimeSeconds,
-    qps: uptimeSeconds > 0 ? questions / uptimeSeconds : 0,
+    qps: profileId ? sampleQps(profileId, questions, at) : 0,
     threadsConnected: n('Threads_connected'),
     threadsRunning: n('Threads_running'),
     maxUsedConnections: n('Max_used_connections'),
@@ -124,8 +160,37 @@ function normalizeSlowSql(sql: string): string {
     .slice(0, 1_500);
 }
 
+/**
+ * Resolve a server-reported `slow_query_log_file` inside `datadir`.
+ * Absolute paths, UNC/drive paths, and anything that escapes the data directory
+ * resolve to `null` so the file is never read.
+ */
+export function resolveSlowLogPath(file: string, datadir: string): string | null {
+  const raw = file.trim();
+  const base = datadir.trim();
+  if (!raw || !base) return null;
+  if (raw.includes('\0') || base.includes('\0')) return null;
+  // Check both flavors so a POSIX absolute path cannot slip through on Windows
+  // (and vice versa).
+  if (path.isAbsolute(raw) || path.win32.isAbsolute(raw) || path.posix.isAbsolute(raw)) {
+    return null;
+  }
+  const resolvedBase = path.resolve(base);
+  const resolved = path.resolve(resolvedBase, raw);
+  const relative = path.relative(resolvedBase, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return resolved;
+}
+
 async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo[]> {
-  const resolved = path.isAbsolute(file) ? file : path.join(datadir, file);
+  const resolved = resolveSlowLogPath(file, datadir);
+  if (!resolved) {
+    throw new AppError(
+      'SLOW_LOG_PATH_REJECTED',
+      'The slow query log path is outside the server data directory, so it was not read.',
+      400,
+    );
+  }
   const stat = await fs.stat(resolved);
   const maxTail = 4 * 1024 * 1024;
   const start = Math.max(0, stat.size - maxTail);
@@ -308,7 +373,7 @@ export async function getPerformanceSnapshot(profileId: string): Promise<Perform
   const replication = await getReplication(profileId, server.capabilities.replicaStatusCommand);
 
   return {
-    metrics: computeMetrics(status),
+    metrics: computeMetrics(status, profileId),
     status,
     variables,
     processlist,
@@ -323,8 +388,15 @@ export async function getPerformanceSnapshot(profileId: string): Promise<Perform
 
 export async function killProcess(profileId: string, processId: number): Promise<void> {
   if (!Number.isInteger(processId) || processId <= 0) {
-    throw new Error('Invalid process id.');
+    throw new AppError('VALIDATION', 'Invalid process id.', 400);
   }
+  const [processlist, scope] = await Promise.all([
+    getProcessList(profileId),
+    getDatabaseScope(profileId),
+  ]);
+  // Never KILL a pid that is not visible in the current processlist, or that
+  // belongs to a database outside this connection's scope.
+  assertProcessInScope(processId, processlist, scope);
   await withConnection(profileId, async (conn) => {
     await conn.query('KILL ?', [processId]);
   });

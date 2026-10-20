@@ -2,6 +2,7 @@ import type { FieldPacket, ResultSetHeader, RowDataPacket } from 'mysql2/promise
 import type { QueryColumn, QueryResult, QueryWarning } from '../../shared/types';
 import { AppError, mapDbError } from '../errors';
 import { addHistory } from '../store/history';
+import { getStoredProfile } from '../store/profiles';
 import { getSettings } from '../store/settings';
 import { classifySql } from '../review/sql-classifier';
 import { applyQueryGuards } from './dialect';
@@ -58,8 +59,20 @@ export async function executeQuery(
     );
   }
   const classification = classified.overall;
-  await assertSqlScope(profileId, sql, options.database ?? null);
+  // Pooled connections are reused, so an unqualified statement would otherwise
+  // run against whichever database the previous request left selected.
+  const profile = await getStoredProfile(profileId);
+  const database = options.database ?? profile.database ?? null;
+  await assertSqlScope(profileId, sql, database);
   const unlocked = isWritesUnlocked(profileId);
+  if (options.revealSensitive === true && !unlocked) {
+    // Revealing masked values is a write-level action, not a read convenience.
+    throw new AppError(
+      'REVEAL_LOCKED',
+      'Unlock writes for this connection before revealing masked values.',
+      403,
+    );
+  }
   if (classification.needsUnlock && !unlocked) {
     throw new AppError(
       'WRITE_LOCKED',
@@ -70,9 +83,16 @@ export async function executeQuery(
       { classification },
     );
   }
+  if (classification.needsUnlock && !database) {
+    throw new AppError(
+      'DATABASE_REQUIRED',
+      'This statement can change data, so it needs a database. Select one for the statement or set a default database on the connection.',
+      400,
+      { classification },
+    );
+  }
 
   const settings = await getSettings();
-  const database = options.database ?? null;
   const rowLimit = Math.max(1, Math.min(options.rowLimit ?? settings.rowLimit, 10_000));
   const timeoutMs = Math.max(
     500,
@@ -83,94 +103,99 @@ export async function executeQuery(
   if (!server) server = await connectProfile(profileId);
 
   try {
-    const result = await withConnection(profileId, async (conn) => {
-      if (database) {
-        await conn.query('USE ??', [database]);
-      }
-      const guards = await applyQueryGuards(conn, server!, {
-        ...settings,
-        rowLimit,
-        queryTimeoutMs: timeoutMs,
-      });
-      try {
-        // Intentional SQL execution boundary. The statement is classified above,
-        // multi-statements are rejected, and the pool disables multipleStatements.
-        const [rawResult, fields] = await conn.query({
-          sql,
-          timeout: timeoutMs,
-          rowsAsArray: true,
-        });
-        const elapsed = performance.now() - started;
-        const resultIsRows = Array.isArray(rawResult);
-        const rows = resultIsRows ? (rawResult as unknown[][]) : [];
-        const header = resultIsRows ? null : (rawResult as ResultSetHeader);
-
-        const warnings: QueryWarning[] = [];
-        const warningStatus = Number(header?.warningStatus ?? 0);
-        if (warningStatus > 0) {
-          try {
-            const [warnRows] = await conn.query<Row[]>('SHOW WARNINGS');
-            for (const warn of warnRows) {
-              warnings.push({
-                level: String(warn.Level ?? 'Warning'),
-                code: Number(warn.Code ?? 0),
-                message: String(warn.Message ?? ''),
-              });
-            }
-          } catch {
-            // Warning details are best-effort.
-          }
+    const result = await withConnection(
+      profileId,
+      async (conn) => {
+        if (database) {
+          await conn.query('USE ??', [database]);
         }
-
-        const columns: QueryColumn[] = (fields ?? []).map((field: FieldPacket) => {
-          const extended = field as FieldPacket & {
-            orgName?: string;
-            database?: string;
-            table?: string;
-          };
-          return {
-            name: String(field.name ?? ''),
-            originalName: String(extended.orgName ?? field.name ?? ''),
-            table: extended.table ? String(extended.table) : null,
-            database: extended.database ? String(extended.database) : null,
-            typeName: typeName(Number(field.type ?? 0)),
-            typeCode: Number(field.type ?? 0),
-            flags: Number(field.flags ?? 0),
-          };
+        const guards = await applyQueryGuards(conn, server!, {
+          ...settings,
+          rowLimit,
+          queryTimeoutMs: timeoutMs,
         });
-
-        const serializedRows = rows.map((row) =>
-          row.map((cell) => serializeCell(cell, settings.cellMaxChars)),
-        );
-        const masked = maskResultRows(columns, serializedRows, {
-          enabled: settings.maskSensitiveColumns,
-          reveal: options.revealSensitive === true,
-        });
-
-        return {
-          result: {
+        try {
+          // Intentional SQL execution boundary. The statement is classified above,
+          // multi-statements are rejected, and the pool disables multipleStatements.
+          const [rawResult, fields] = await conn.query({
             sql,
-            database,
-            kind: classification.kind,
-            columns: masked.columns,
-            rows: masked.rows,
-            rowCount: masked.rows.length,
-            truncated: resultIsRows && masked.rows.length >= rowLimit,
-            affectedRows: Number(header?.affectedRows ?? 0),
-            insertId: header?.insertId != null ? String(header.insertId) : null,
-            info: String(header?.info ?? ''),
-            warnings,
-            executionMs: Math.round(elapsed),
-            bytesApprox: estimateBytes(masked.rows),
-            unlocked,
-            masked: masked.masked,
-          } satisfies QueryResult,
-          elapsed,
-        };
-      } finally {
-        await guards.cleanup();
-      }
-    });
+            timeout: timeoutMs,
+            rowsAsArray: true,
+          });
+          const elapsed = performance.now() - started;
+          const resultIsRows = Array.isArray(rawResult);
+          const rows = resultIsRows ? (rawResult as unknown[][]) : [];
+          const header = resultIsRows ? null : (rawResult as ResultSetHeader);
+
+          const warnings: QueryWarning[] = [];
+          const warningStatus = Number(header?.warningStatus ?? 0);
+          if (warningStatus > 0) {
+            try {
+              const [warnRows] = await conn.query<Row[]>('SHOW WARNINGS');
+              for (const warn of warnRows) {
+                warnings.push({
+                  level: String(warn.Level ?? 'Warning'),
+                  code: Number(warn.Code ?? 0),
+                  message: String(warn.Message ?? ''),
+                });
+              }
+            } catch {
+              // Warning details are best-effort.
+            }
+          }
+
+          const columns: QueryColumn[] = (fields ?? []).map((field: FieldPacket) => {
+            const extended = field as FieldPacket & {
+              orgName?: string;
+              database?: string;
+              table?: string;
+            };
+            return {
+              name: String(field.name ?? ''),
+              originalName: String(extended.orgName ?? field.name ?? ''),
+              table: extended.table ? String(extended.table) : null,
+              database: extended.database ? String(extended.database) : null,
+              typeName: typeName(Number(field.type ?? 0)),
+              typeCode: Number(field.type ?? 0),
+              flags: Number(field.flags ?? 0),
+            };
+          });
+
+          const serializedRows = rows.map((row) =>
+            row.map((cell) => serializeCell(cell, settings.cellMaxChars)),
+          );
+          const masked = maskResultRows(columns, serializedRows, {
+            enabled: settings.maskSensitiveColumns,
+            reveal: options.revealSensitive === true,
+          });
+
+          return {
+            result: {
+              sql,
+              database,
+              kind: classification.kind,
+              columns: masked.columns,
+              rows: masked.rows,
+              rowCount: masked.rows.length,
+              truncated: resultIsRows && masked.rows.length >= rowLimit,
+              affectedRows: Number(header?.affectedRows ?? 0),
+              insertId: header?.insertId != null ? String(header.insertId) : null,
+              info: String(header?.info ?? ''),
+              warnings,
+              executionMs: Math.round(elapsed),
+              bytesApprox: estimateBytes(masked.rows),
+              unlocked,
+              masked: masked.masked,
+            } satisfies QueryResult,
+            elapsed,
+          };
+        } finally {
+          await guards.cleanup();
+        }
+      },
+      // Statements that can open a transaction must not leak it back into the pool.
+      { rollbackOnRelease: classification.needsUnlock },
+    );
 
     if (!options.skipHistory) {
       await addHistory({
@@ -201,16 +226,4 @@ export async function executeQuery(
     }
     throw mapped;
   }
-}
-
-/** Run an internal, trusted, read-only statement and return raw rows. */
-export async function runInternalQuery<T = unknown[]>(
-  profileId: string,
-  sql: string,
-  params: unknown[] = [],
-): Promise<T> {
-  return withConnection(profileId, async (conn) => {
-    const [rows] = await conn.query(sql, params as never);
-    return rows as T;
-  });
 }

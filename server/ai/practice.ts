@@ -11,7 +11,6 @@ import type {
   PracticeTopic,
   PracticeScores,
   QueryResult,
-  ServerInfo,
 } from '../../shared/types';
 import { PRACTICE_TOPICS } from '../../shared/types';
 import { AppError } from '../errors';
@@ -26,6 +25,7 @@ import { classifySql } from '../review/sql-classifier';
 import { executeQuery } from '../db/query';
 import {
   comparePracticeResults,
+  isSamePracticeSubmission,
   practiceVerdict,
   scorePractice,
   validateReferenceSql,
@@ -33,6 +33,7 @@ import {
 import {
   addPracticeAttempt,
   getPracticeSet,
+  listPracticeAttemptsForSet,
   savePracticeSet,
 } from '../store/practice';
 import { complete, stream } from './index';
@@ -224,7 +225,6 @@ export async function generatePracticeSet(
   });
 
   let raw = '';
-  let usage = null;
   let sawDelta = false;
   const handleDelta = (text: string): void => {
     sawDelta = true;
@@ -241,7 +241,6 @@ export async function generatePracticeSet(
         { temperature: provider.temperature, maxTokens: provider.maxTokens, signal },
       );
       raw = result.text;
-      usage = result.usage;
     } else {
       const result = await complete(provider, apiKey, messages, {
         temperature: provider.temperature,
@@ -249,7 +248,6 @@ export async function generatePracticeSet(
         signal,
       });
       raw = result.text;
-      usage = result.usage;
       if (raw) handleDelta(raw);
     }
   } catch (error) {
@@ -260,7 +258,6 @@ export async function generatePracticeSet(
         signal,
       });
       raw = result.text;
-      usage = result.usage;
       if (raw) handleDelta(raw);
     } else {
       throw error;
@@ -397,6 +394,22 @@ export async function evaluatePractice(input: {
   if (!question) {
     throw new AppError('PRACTICE_QUESTION_NOT_FOUND', 'Practice question not found.', 404);
   }
+
+  const userSql = (input.userSql ?? '').trim();
+  const userAnswer = (input.userAnswer ?? '').trim();
+
+  // Resubmitting the same answer must not inflate the attempt history: return the
+  // recorded evaluation instead of grading and storing a second copy.
+  const previousAttempts = await listPracticeAttemptsForSet(input.profileId, set.id);
+  const duplicate = previousAttempts.find(
+    (attempt) =>
+      attempt.questionId === question.id &&
+      isSamePracticeSubmission(attempt, { userSql, userAnswer }),
+  );
+  if (duplicate) {
+    return { ...duplicate.evaluation, duplicate: true };
+  }
+
   await assertDatabaseAllowed(input.profileId, set.database);
   const server = getCachedServerInfo(input.profileId);
   const settings = await getSettings();
@@ -407,8 +420,6 @@ export async function evaluatePractice(input: {
     settings.aiContextChars,
   );
 
-  const userSql = (input.userSql ?? '').trim();
-  const userAnswer = (input.userAnswer ?? '').trim();
   const findings: Finding[] = [];
   const issues: string[] = [];
   let executed = false;
@@ -538,7 +549,18 @@ export async function evaluatePractice(input: {
         style: ai.style,
       }
     : null;
-  const scores = scorePractice({ findings, comparison, executed, aiScores });
+  const scores = scorePractice({
+    findings,
+    comparison,
+    executed,
+    aiScores,
+    submission: {
+      userSql,
+      userAnswer,
+      questionType: question.type,
+      referenceSql: question.referenceSql,
+    },
+  });
   const verdict = practiceVerdict(comparison, executed, scores);
 
   const deterministicSummary = !executed

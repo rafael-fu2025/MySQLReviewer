@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getCachedServerInfo, connectProfile } from '../db/manager';
+import { assertServerWideAllowed } from '../db/scope';
 import { resolveProvider } from '../store/providers';
 import { runAudit } from '../review/audit';
 import { openSse } from '../sse';
@@ -20,6 +21,9 @@ auditRouter.post(
   '/run',
   asyncHandler(async (req, res) => {
     const body = parseBody(AuditSchema, req);
+    // Audits read server-wide telemetry, so enforce the connection scope before
+    // any database work starts. Throws the standard scope error shape.
+    await assertServerWideAllowed(body.profileId);
     const server =
       getCachedServerInfo(body.profileId) ?? (await connectProfile(body.profileId));
 
