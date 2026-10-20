@@ -1,0 +1,534 @@
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, Search } from 'lucide-react';
+import { cn } from './ui';
+
+export interface ComboOption {
+  value: string;
+  label: string;
+  description?: string;
+  group?: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+  keywords?: string;
+}
+
+interface Position {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
+function useComboPopover(options: ComboOption[], query: string, maxHeight: number) {
+  const [open, setOpenState] = useState(false);
+  const [position, setPosition] = useState<Position | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const id = useId();
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter((option) =>
+      [option.label, option.description ?? '', option.group ?? '', option.keywords ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [options, query]);
+
+  const updatePosition = (): void => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    const width = Math.min(Math.max(rect.width, 250), viewportWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, viewportWidth - width - 8));
+    const below = viewportHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const openUp = below < 230 && above > below;
+    const height = Math.max(160, Math.min(maxHeight, openUp ? above : below));
+    const top = openUp ? Math.max(8, rect.top - height - 6) : rect.bottom + 6;
+    setPosition({ left, top, width, maxHeight: height });
+  };
+
+  const setOpen = (value: boolean): void => {
+    setOpenState(value);
+    if (value) updatePosition();
+    else setPosition(null);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent): void => {
+      const target = event.target as Node;
+      if (popoverRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onViewport = (): void => updatePosition();
+    document.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('resize', onViewport);
+    window.addEventListener('scroll', onViewport, true);
+    const timer = setTimeout(() => inputRef.current?.focus(), 20);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('resize', onViewport);
+      window.removeEventListener('scroll', onViewport, true);
+      clearTimeout(timer);
+    };
+    // The position is recalculated each time the popover opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return {
+    id,
+    open,
+    setOpen,
+    buttonRef,
+    popoverRef,
+    inputRef,
+    position,
+    filtered,
+  };
+}
+
+function OptionRow({
+  option,
+  selected,
+  active,
+  onSelect,
+  onHover,
+  renderOption,
+}: {
+  option: ComboOption;
+  selected: boolean;
+  active: boolean;
+  onSelect: () => void;
+  onHover: () => void;
+  renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      disabled={option.disabled}
+      className={cn('combo-option', active && 'combo-option-active', option.disabled && 'opacity-45')}
+      onMouseEnter={onHover}
+      onClick={onSelect}
+    >
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        {selected ? <Check size={13} className="text-ember" /> : null}
+      </span>
+      {option.icon ? <span className="shrink-0 text-muted">{option.icon}</span> : null}
+      <span className="min-w-0 flex-1 text-left">
+        {renderOption ? (
+          renderOption(option, selected)
+        ) : (
+          <>
+            <span className="block truncate text-[12px] text-ink-soft">{option.label}</span>
+            {option.description ? (
+              <span className="block truncate text-[9.5px] text-muted">{option.description}</span>
+            ) : null}
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
+type ComboHandle = ReturnType<typeof useComboPopover> & {
+  searchQuery: string;
+  setSearchQuery: (value: string) => void;
+};
+
+function ComboList({
+  combo,
+  options,
+  activeIndex,
+  onActiveIndex,
+  isSelected,
+  onSelect,
+  multi,
+  onDone,
+  footer,
+  renderOption,
+  emptyText,
+  searchPlaceholder,
+  clearable,
+  hasSelection,
+  onClear,
+}: {
+  combo: ComboHandle;
+  options: ComboOption[];
+  activeIndex: number;
+  onActiveIndex: (index: number) => void;
+  isSelected: (option: ComboOption) => boolean;
+  onSelect: (option: ComboOption) => void;
+  multi: boolean;
+  onDone: () => void;
+  footer?: ReactNode;
+  renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
+  emptyText: string;
+  searchPlaceholder: string;
+  clearable: boolean;
+  hasSelection: boolean;
+  onClear: () => void;
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, ComboOption[]>();
+    for (const option of options) {
+      const group = option.group ?? '';
+      const list = map.get(group) ?? [];
+      list.push(option);
+      map.set(group, list);
+    }
+    return Array.from(map.entries());
+  }, [options]);
+
+  const clampedActive = Math.max(0, Math.min(options.length - 1, activeIndex));
+
+  return (
+    <div
+      ref={combo.popoverRef}
+      className="combo-popover"
+      style={{
+        left: combo.position?.left ?? 0,
+        top: combo.position?.top ?? 0,
+        width: combo.position?.width ?? 250,
+        maxHeight: combo.position?.maxHeight ?? 320,
+      }}
+      role="listbox"
+      aria-multiselectable={multi || undefined}
+      aria-labelledby={`${combo.id}-trigger`}
+    >
+      <div className="combo-search">
+        <Search size={13} className="shrink-0 text-muted" />
+        <input
+          ref={combo.inputRef}
+          value={combo.searchQuery}
+          onChange={(event) => {
+            combo.setSearchQuery(event.target.value);
+            onActiveIndex(0);
+          }}
+          placeholder={searchPlaceholder}
+          role="searchbox"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              combo.setOpen(false);
+              return;
+            }
+            if (event.key === 'Tab') {
+              combo.setOpen(false);
+              return;
+            }
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              onActiveIndex(Math.min(options.length - 1, clampedActive + 1));
+              return;
+            }
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              onActiveIndex(Math.max(0, clampedActive - 1));
+              return;
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              const option = options[clampedActive];
+              if (option && !option.disabled) onSelect(option);
+              if (!multi) onDone();
+            }
+          }}
+        />
+      </div>
+
+      <div className="combo-options">
+        {options.length === 0 ? (
+          <div className="px-3 py-5 text-center text-[11px] text-muted">{emptyText}</div>
+        ) : (
+          groups.map(([group, items]) => (
+            <div key={group || '_default'}>
+              {group ? <div className="combo-group">{group}</div> : null}
+              {items.map((option) => {
+                const index = options.findIndex((item) => item.value === option.value);
+                return (
+                  <OptionRow
+                    key={option.value}
+                    option={option}
+                    selected={isSelected(option)}
+                    active={index === clampedActive}
+                    onHover={() => onActiveIndex(index)}
+                    onSelect={() => {
+                      if (option.disabled) return;
+                      onSelect(option);
+                      if (!multi) onDone();
+                    }}
+                    renderOption={renderOption}
+                  />
+                );
+              })}
+            </div>
+          ))
+        )}
+      </div>
+
+      {(footer || multi || (clearable && hasSelection)) && (
+        <div className="combo-footer">
+          {clearable && hasSelection ? (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onClear}>
+              Clear
+            </button>
+          ) : null}
+          {footer}
+          {multi ? (
+            <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={onDone}>
+              Done
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Combobox({
+  options,
+  value,
+  onChange,
+  placeholder = 'Select…',
+  searchPlaceholder = 'Search…',
+  emptyText = 'No options match.',
+  disabled,
+  className,
+  buttonClassName,
+  maxHeight = 320,
+  footer,
+  clearable = true,
+  renderOption,
+}: {
+  options: ComboOption[];
+  value: string | null;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  buttonClassName?: string;
+  maxHeight?: number;
+  footer?: ReactNode;
+  clearable?: boolean;
+  renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
+}) {
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const combo = useComboPopover(options, query, maxHeight);
+  const selected = options.find((option) => option.value === value) ?? null;
+
+  useEffect(() => {
+    if (!combo.open) return;
+    setQuery('');
+    setActiveIndex(0);
+  }, [combo.open]);
+
+  return (
+    <div className={cn('relative', className)}>
+      <button
+        ref={combo.buttonRef}
+        id={`${combo.id}-trigger`}
+        type="button"
+        className={cn('combo-button', buttonClassName)}
+        disabled={disabled}
+        onClick={() => combo.setOpen(!combo.open)}
+        onKeyDown={(event) => {
+          if (['ArrowDown', 'Enter', ' '].includes(event.key)) {
+            event.preventDefault();
+            combo.setOpen(true);
+          }
+          if (event.key === 'Escape') combo.setOpen(false);
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={combo.open}
+        aria-controls={combo.open ? `${combo.id}-list` : undefined}
+      >
+        {selected?.icon ? <span className="shrink-0 text-muted">{selected.icon}</span> : null}
+        <span className={cn('min-w-0 flex-1 truncate text-left', !selected && 'text-muted')}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown
+          size={13}
+          className={cn('shrink-0 text-muted transition', combo.open && 'rotate-180')}
+        />
+      </button>
+
+      {combo.open && combo.position
+        ? createPortal(
+            <div id={`${combo.id}-list`}>
+              <ComboList
+                combo={{ ...combo, searchQuery: query, setSearchQuery: setQuery }}
+                options={combo.filtered}
+                activeIndex={activeIndex}
+                onActiveIndex={setActiveIndex}
+                isSelected={(option) => option.value === value}
+                onSelect={(option) => onChange(option.value)}
+                multi={false}
+                onDone={() => combo.setOpen(false)}
+                footer={footer}
+                renderOption={renderOption}
+                emptyText={emptyText}
+                searchPlaceholder={searchPlaceholder}
+                clearable={clearable}
+                hasSelection={Boolean(selected)}
+                onClear={() => onChange('')}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+export function MultiSelect({
+  options,
+  values,
+  onChange,
+  placeholder = 'Select…',
+  searchPlaceholder = 'Search…',
+  emptyText = 'No options match.',
+  disabled,
+  className,
+  buttonClassName,
+  maxHeight = 320,
+  footer,
+  renderOption,
+  showSelectAll = false,
+  selectAllLabel = 'Select all',
+}: {
+  options: ComboOption[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  buttonClassName?: string;
+  maxHeight?: number;
+  footer?: ReactNode;
+  renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
+  showSelectAll?: boolean;
+  selectAllLabel?: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const combo = useComboPopover(options, query, maxHeight);
+  const selectedSet = new Set(values);
+  const selectedOptions = options.filter((option) => selectedSet.has(option.value));
+  const enabledOptions = options.filter((option) => !option.disabled);
+
+  useEffect(() => {
+    if (!combo.open) return;
+    setQuery('');
+    setActiveIndex(0);
+  }, [combo.open]);
+
+  const toggle = (option: ComboOption): void => {
+    if (option.disabled) return;
+    if (selectedSet.has(option.value)) {
+      onChange(values.filter((value) => value !== option.value));
+    } else {
+      onChange([...values, option.value]);
+    }
+  };
+
+  return (
+    <div className={cn('relative', className)}>
+      <button
+        ref={combo.buttonRef}
+        id={`${combo.id}-trigger`}
+        type="button"
+        className={cn('combo-button', buttonClassName)}
+        disabled={disabled}
+        onClick={() => combo.setOpen(!combo.open)}
+        onKeyDown={(event) => {
+          if (['ArrowDown', 'Enter', ' '].includes(event.key)) {
+            event.preventDefault();
+            combo.setOpen(true);
+          }
+          if (event.key === 'Escape') combo.setOpen(false);
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={combo.open}
+        aria-controls={combo.open ? `${combo.id}-list` : undefined}
+      >
+        <span className={cn('min-w-0 flex-1 truncate text-left', values.length === 0 && 'text-muted')}>
+          {values.length === 0
+            ? placeholder
+            : values.length <= 2
+              ? selectedOptions.map((option) => option.label).join(', ')
+              : `${values.length} selected`}
+        </span>
+        <ChevronDown
+          size={13}
+          className={cn('shrink-0 text-muted transition', combo.open && 'rotate-180')}
+        />
+      </button>
+
+      {combo.open && combo.position
+        ? createPortal(
+            <div id={`${combo.id}-list`}>
+              <ComboList
+                combo={{ ...combo, searchQuery: query, setSearchQuery: setQuery }}
+                options={combo.filtered}
+                activeIndex={activeIndex}
+                onActiveIndex={setActiveIndex}
+                isSelected={(option) => selectedSet.has(option.value)}
+                onSelect={toggle}
+                multi
+                onDone={() => combo.setOpen(false)}
+                footer={
+                  <>
+                    {showSelectAll ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                          onChange(
+                            values.length === enabledOptions.length
+                              ? []
+                              : enabledOptions.map((option) => option.value),
+                          )
+                        }
+                      >
+                        {values.length === enabledOptions.length ? 'Clear all' : selectAllLabel}
+                      </button>
+                    ) : null}
+                    {footer}
+                  </>
+                }
+                renderOption={renderOption}
+                emptyText={emptyText}
+                searchPlaceholder={searchPlaceholder}
+                clearable
+                hasSelection={values.length > 0}
+                onClear={() => onChange([])}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}

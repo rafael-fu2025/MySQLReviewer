@@ -1,0 +1,1372 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261020T094203471Z-7620-e99d0650c264",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "bash-discovery",
+      "target": "server/review/scoring.ts",
+      "reason": "bash_discovery_truncated: changed-file discovery exceeded 80 files"
+    },
+    {
+      "stage": "candidate-select",
+      "target": "server/db/introspection.ts",
+      "reason": "candidate_limit_exceeded: 88 changed reviewable file(s) were not scanned because the limit is 20"
+    },
+    {
+      "stage": "scan",
+      "target": "vite.config.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "vitest.config.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "shared/types.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/config.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/errors.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/json-store.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/crypto.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/settings.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/profiles.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/providers.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/history.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/snippets.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/store/reports.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/review/tokenizer.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/review/sql-classifier.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/db/manager.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/db/serialize.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/db/dialect.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "scan",
+      "target": "server/db/query.ts",
+      "reason": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT"
+    },
+    {
+      "stage": "supply-chain-check",
+      "target": ".",
+      "reason": "stop_budget_exhausted: focused supply-chain check was not run before the gate budget"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 107,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 107
+    },
+    "change_tracking": {
+      "touched_observed": 107,
+      "touched_retained": 107,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 80,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": true
+    },
+    "candidates": {
+      "eligible_files": 108,
+      "selected_files": 20,
+      "limit": 20,
+      "truncated": true
+    },
+    "scanning": {
+      "required_files": 19,
+      "scanned_files": 0,
+      "skipped_files": 0,
+      "failed_files": 19,
+      "project_checks_required": 1,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "bash_discovery_truncated": 1,
+      "candidate_limit_exceeded": 1,
+      "scanner_failed": 19,
+      "stop_budget_exhausted": 1,
+      "project_check_failed": 22
+    },
+    "reasons": [
+      {
+        "code": "bash_discovery_truncated",
+        "stage": "bash-discovery",
+        "target": "server/review/scoring.ts",
+        "detail": "changed-file discovery exceeded 80 files",
+        "affects_completion": true
+      },
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "server/db/introspection.ts",
+        "detail": "88 changed reviewable file(s) were not scanned because the limit is 20",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "vitest.config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "shared/types.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/errors.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/json-store.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/crypto.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/settings.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/profiles.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/providers.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/history.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/snippets.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/reports.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/review/tokenizer.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/review/sql-classifier.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/manager.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/serialize.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/dialect.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/query.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "stop_budget_exhausted",
+        "stage": "supply-chain-check",
+        "target": ".",
+        "detail": "focused supply-chain check was not run before the gate budget",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "bash-discovery",
+        "target": "server/review/scoring.ts",
+        "detail": "bash_discovery_truncated: changed-file discovery exceeded 80 files",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "server/db/introspection.ts",
+        "detail": "candidate_limit_exceeded: 88 changed reviewable file(s) were not scanned because the limit is 20",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "vitest.config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "shared/types.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/errors.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/json-store.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/crypto.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/settings.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/profiles.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/providers.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/history.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/snippets.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/reports.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/review/tokenizer.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/review/sql-classifier.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/manager.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/serialize.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/dialect.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/query.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "supply-chain-check",
+        "target": ".",
+        "detail": "stop_budget_exhausted: focused supply-chain check was not run before the gate budget",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-10-20T09:42:03.471Z",
+  "session_id": "session_ea1f1ee02b830b8f379b598c78470f30",
+  "target": ".",
+  "revision": null,
+  "rules_version": "unavailable",
+  "diff_hash": "a55d39d0b68bff74cdc79c487ee339f1fc077ced9d0b4c07368e6bf4851a80bc",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 20,
+    "changed_files": [
+      {
+        "file": "package.json",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 55
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "68b2b9d4c39dc023ebdd905ef9fb0e3829c0228e4259028a948deb33be434d5c"
+      },
+      {
+        "file": "server/config.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 68
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "35a24f953627540271d4372024bcdfa9e96ff929d91a701bc0e1413c10fb28b8"
+      },
+      {
+        "file": "server/db/dialect.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 168
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "785817558f03137ad7bea6bc96570be518f4b1fb083bb381db848c57d81cb8d7"
+      },
+      {
+        "file": "server/db/manager.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 243
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8cd325e3cdac24bfda00b2f23a138475facf447f299509aadf1fedc3c9505d2b"
+      },
+      {
+        "file": "server/db/query.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 193
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "5fa2c860e01d84417aeeeb37d626ca0ec21f599108e1178e7209b3e32ffc5ee3"
+      },
+      {
+        "file": "server/db/serialize.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 73
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "340e3bdb3c2f3afcae4d3f3006185b0b66d0979e1db834b838cf980b56996ab3"
+      },
+      {
+        "file": "server/errors.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 115
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "677481d52b199b589d4e884719b19331a1cb2573245a00f5f81d0cc46cefebba"
+      },
+      {
+        "file": "server/review/sql-classifier.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 327
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "ddbba04123f36a6268dfc10f741592aa05b8c50ee3635e92e04a6ffdd206ef61"
+      },
+      {
+        "file": "server/review/tokenizer.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 311
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "ad2f26ef203336fb14c9832d8908d54177a3acf6a5dc1228017be893baf9fbcb"
+      },
+      {
+        "file": "server/store/crypto.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 61
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "1ab4cbee02ae94383d4154e3cc57ae6b24f08b0b00ebe0c2d3b9dbb6244af548"
+      },
+      {
+        "file": "server/store/history.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 63
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "bebe04579dedfd8a727213b3af26c26fbaaa62febebce489438f6330e7b74658"
+      },
+      {
+        "file": "server/store/json-store.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 98
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "131b57149b90a292dbb6e6d2f3a0f7280505bc158391f9d727e3c38239fa5350"
+      },
+      {
+        "file": "server/store/profiles.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 266
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "16aab8e25b09ea804218119e7180f5ecc6d7b6f9c9a00e6a94993eba8d1ee89b"
+      },
+      {
+        "file": "server/store/providers.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 347
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "6f81b4b5852170fccc1168ff72318629a7774f101eec8e95e04d3f624f04df22"
+      },
+      {
+        "file": "server/store/reports.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 84
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "ff30ce9f9f213a74a9ec2a98debe1853799cc80e8d845ddf243e721bb906aa82"
+      },
+      {
+        "file": "server/store/settings.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 51
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "0a082ccfc17db54b303a245a60cb4d2802b8b338f207b00cbff51684f9a3c20a"
+      },
+      {
+        "file": "server/store/snippets.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 86
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "1100bd4bf0e5db37af19031125962e51dfa879354cec255611ac4d1cee75edfa"
+      },
+      {
+        "file": "shared/types.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 1099
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "e85a06b9f70f35b3f88b58495af26448385e14822fd2c46114d41aa954093c2b"
+      },
+      {
+        "file": "vite.config.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 32
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "95148ae70dbf279114ed84e0876f1a7ae6edf264004c6843d8fe0a7aee3d065d"
+      },
+      {
+        "file": "vitest.config.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 20
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8211032b5d7b4c15580cea34022c18b133cd055055e4eccacfed0acf59d979b1"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-10-20T09:42:00.692Z",
+    "completed_at": "2026-10-20T09:42:03.471Z",
+    "duration_ms": 2779,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 2779,
+    "peakMemoryBytes": 97439744,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 0,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [
+    {
+      "finding_id": "mimosa-e85614463d856612e799e2e4",
+      "file": "server/db/dialect.ts",
+      "line": 15,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T08:42:40.191Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-317c8ea08d662811486daea4",
+      "file": "server/db/dialect.ts",
+      "line": 136,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T08:42:40.192Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-b952b10662bba1936b82c6da",
+      "file": "server/db/dialect.ts",
+      "line": 145,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T08:42:40.192Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-aa92e759d5355090645b01f6",
+      "file": "server/db/dialect.ts",
+      "line": 153,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T08:42:40.192Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-e85614463d856612e799e2e4",
+      "file": "server/db/dialect.ts",
+      "line": 7,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T08:42:55.892Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-e85614463d856612e799e2e4",
+      "file": "server/db/dialect.ts",
+      "line": 7,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "candidate_before_evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "post_change_evidence_hash_at_previous_location": "9fcd61a55af1105e90ec0bce8f0ada6888359b44cad394379269eed66ae6a856",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-e85614463d856612e799e2e4",
+      "file": "server/db/dialect.ts",
+      "line": 7,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "candidate_before_evidence_hash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "post_change_evidence_hash_at_previous_location": "9fcd61a55af1105e90ec0bce8f0ada6888359b44cad394379269eed66ae6a856",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-317c8ea08d662811486daea4",
+      "file": "server/db/dialect.ts",
+      "line": 136,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "candidate_before_evidence_hash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "post_change_evidence_hash_at_previous_location": "95bc545467a5a96b40c53da9a6a5b1ebb940f20153e972e442bfa2c73cb3eb0d",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-317c8ea08d662811486daea4",
+      "file": "server/db/dialect.ts",
+      "line": 136,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "candidate_before_evidence_hash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "post_change_evidence_hash_at_previous_location": "95bc545467a5a96b40c53da9a6a5b1ebb940f20153e972e442bfa2c73cb3eb0d",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-b952b10662bba1936b82c6da",
+      "file": "server/db/dialect.ts",
+      "line": 145,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "candidate_before_evidence_hash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "post_change_evidence_hash_at_previous_location": "2d73616c4eba91d8f5cb182f89e64cba62c31b48164e438d40fd1c25bb52393b",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-b952b10662bba1936b82c6da",
+      "file": "server/db/dialect.ts",
+      "line": 145,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "candidate_before_evidence_hash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "post_change_evidence_hash_at_previous_location": "2d73616c4eba91d8f5cb182f89e64cba62c31b48164e438d40fd1c25bb52393b",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-aa92e759d5355090645b01f6",
+      "file": "server/db/dialect.ts",
+      "line": 153,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "candidate_before_evidence_hash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "post_change_evidence_hash_at_previous_location": "03d9aba6351173e5f8c479f3e786247afca28bd814dd42e6477fa51b48c9fe36",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-aa92e759d5355090645b01f6",
+      "file": "server/db/dialect.ts",
+      "line": 153,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T08:43:31.913Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "candidate_before_evidence_hash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "post_change_evidence_hash_at_previous_location": "03d9aba6351173e5f8c479f3e786247afca28bd814dd42e6477fa51b48c9fe36",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 301,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:08:46.633Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-f837a8ca886ef6d23f1424dc",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 332,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:08:46.634Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 304,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:09:12.632Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-f837a8ca886ef6d23f1424dc",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 335,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:09:12.632Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 280,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:09:35.623Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-f837a8ca886ef6d23f1424dc",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 311,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:09:35.624Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 280,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T09:10:12.045Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "candidate_before_evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 280,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T09:10:12.045Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "candidate_before_evidence_hash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-f837a8ca886ef6d23f1424dc",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 311,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T09:10:12.045Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "candidate_before_evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-f837a8ca886ef6d23f1424dc",
+      "file": "src/components/CommandPalette.tsx",
+      "line": 311,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T09:10:12.045Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "candidate_before_evidence_hash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-46bd9f9c51d6f4cb6559ad47",
+      "file": "src/pages/WorkspacePage.tsx",
+      "line": 898,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:13:33.003Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "runtime_oracle": false
+      }
+    },
+    {
+      "finding_id": "mimosa-46bd9f9c51d6f4cb6559ad47",
+      "file": "src/pages/WorkspacePage.tsx",
+      "line": 898,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "fixed_candidate",
+      "decision": "repair_observed",
+      "at": "2026-10-20T09:13:56.283Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "candidate_before_evidence_hash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-46bd9f9c51d6f4cb6559ad47",
+      "file": "src/pages/WorkspacePage.tsx",
+      "line": 898,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "static_verified",
+      "decision": "static_rescan_passed",
+      "at": "2026-10-20T09:13:56.283Z",
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "candidate_before_evidence_hash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "post_change_evidence_hash_at_previous_location": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "runtime_oracle": false,
+        "verification": {
+          "method": "mimosa-posttool-static-rescan",
+          "finding_absent": true,
+          "runtime_oracle": false
+        }
+      }
+    },
+    {
+      "finding_id": "mimosa-38ba93f4e3ef33f42c4c85e7",
+      "file": "src/pages/WorkspacePage.tsx",
+      "line": 884,
+      "rule_id": "security",
+      "severity": "high",
+      "category": "SQL 注入",
+      "status": "blocked",
+      "decision": "deny",
+      "at": "2026-10-20T09:14:44.601Z",
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "source": "semgrep",
+        "evidence_hash": "a0f2ffc4ef051e853c0180f743aaac65b951a1f7772649cd709551871ad07c00",
+        "runtime_oracle": false
+      }
+    }
+  ],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-session_ea1f1ee02b830b8f379b598c78470f30-20261020T094203471Z-7620-e99d0650c264.json",
+    "latest_report": ".mimosa/reports/task-review-session_ea1f1ee02b830b8f379b598c78470f30.json",
+    "history_summary": ".mimosa/history/run-20261020T094203471Z-7620-e99d0650c264.json"
+  }
+}

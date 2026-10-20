@@ -1,0 +1,1312 @@
+/**
+ * Shared contracts between the Express API and the React client.
+ * Keep this file free of Node/browser-only imports.
+ */
+
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type FindingCategory =
+  | 'correctness'
+  | 'performance'
+  | 'security'
+  | 'schema'
+  | 'config'
+  | 'style'
+  | 'maintainability';
+export type FindingSource = 'rule' | 'explain' | 'ai';
+
+export interface FindingObject {
+  database?: string;
+  table?: string;
+  column?: string;
+  index?: string;
+  user?: string;
+  host?: string;
+}
+
+export interface Finding {
+  id: string;
+  ruleId: string;
+  title: string;
+  severity: Severity;
+  category: FindingCategory;
+  message: string;
+  recommendation: string;
+  evidence?: string;
+  line?: number | null;
+  column?: number | null;
+  object?: FindingObject;
+  docs?: string;
+  source: FindingSource;
+  confidence?: 'high' | 'medium' | 'low';
+}
+
+export interface ScoreResult {
+  score: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  counts: Record<Severity, number>;
+  deductions: Record<FindingCategory, number>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Connections                                                         */
+/* ------------------------------------------------------------------ */
+
+export interface SslConfig {
+  enabled: boolean;
+  rejectUnauthorized?: boolean;
+  ca?: string;
+  cert?: string;
+  key?: string;
+}
+
+export interface ConnectionInput {
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  password?: string;
+  database?: string;
+  socketPath?: string;
+  ssl?: SslConfig;
+  rememberPassword?: boolean;
+  color?: string;
+  databaseScope?: 'all' | 'selected';
+  allowedDatabases?: string[];
+  allowServerWideInsights?: boolean;
+}
+
+export interface ConnectionProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  database?: string | null;
+  socketPath?: string | null;
+  ssl?: SslConfig | null;
+  rememberPassword: boolean;
+  hasPassword: boolean;
+  passwordSource: 'saved' | 'session' | 'none';
+  color?: string | null;
+  databaseScope: 'all' | 'selected';
+  allowedDatabases: string[];
+  allowServerWideInsights: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string | null;
+}
+
+export type SqlFlavor = 'mysql' | 'mariadb';
+
+export interface ServerCapabilities {
+  cte: boolean;
+  windowFunctions: boolean;
+  json: boolean;
+  checkConstraints: boolean;
+  roles: boolean;
+  explainAnalyze: boolean;
+  analyzeFormatJson: boolean;
+  performanceSchema: boolean;
+  sysSchema: boolean;
+  replicaStatusCommand: 'SHOW REPLICA STATUS' | 'SHOW SLAVE STATUS';
+  mysql8: boolean;
+}
+
+export interface ServerInfo {
+  flavor: SqlFlavor;
+  version: string;
+  versionComment: string;
+  uptimeSeconds: number;
+  sqlMode: string;
+  currentDatabase: string | null;
+  capabilities: ServerCapabilities;
+}
+
+export interface TestConnectionResult {
+  ok: boolean;
+  latencyMs: number;
+  server: ServerInfo | null;
+  database: string | null;
+  databases?: DatabaseInfo[];
+  error?: string;
+}
+
+export interface CreateDatabaseInput {
+  name: string;
+  charset: string;
+  collation: string;
+  addToScope?: boolean;
+}
+
+export interface CreateDatabaseResult {
+  database: DatabaseInfo;
+  scopeUpdated: boolean;
+  grantSql: string | null;
+}
+
+export interface CharsetInfo {
+  charset: string;
+  collations: { name: string; isDefault: boolean }[];
+}
+
+export interface GrantSqlRequest {
+  profileId?: string;
+  user: string;
+  host?: string;
+  databases: string[];
+  privileges?: string[];
+}
+
+export interface GrantSqlResult {
+  sql: string;
+  warnings: string[];
+}
+
+export interface UnlockResult {
+  unlocked: boolean;
+  until: string | null;
+  ttlSeconds: number;
+}
+
+export interface ConnectResult {
+  server: ServerInfo;
+  databases: DatabaseInfo[];
+  unlock: UnlockResult;
+}
+
+/* ------------------------------------------------------------------ */
+/* Database objects                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface DatabaseInfo {
+  name: string;
+  isSystem: boolean;
+  tableCount: number;
+  viewCount: number;
+  sizeBytes: number;
+  collation: string | null;
+}
+
+export interface TableSummary {
+  database: string;
+  name: string;
+  type: 'BASE TABLE' | 'VIEW' | 'SYSTEM VIEW';
+  engine: string | null;
+  rowsEstimate: number;
+  dataBytes: number;
+  indexBytes: number;
+  dataFreeBytes: number;
+  collation: string | null;
+  comment: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ColumnInfo {
+  name: string;
+  position: number;
+  dataType: string;
+  columnType: string;
+  nullable: boolean;
+  defaultValue: string | null;
+  extra: string;
+  key: string;
+  comment: string;
+  charset: string | null;
+  collation: string | null;
+  generationExpression?: string | null;
+}
+
+export interface IndexColumn {
+  name: string;
+  subPart: number | null;
+  collation: string | null;
+}
+
+export interface IndexInfo {
+  name: string;
+  unique: boolean;
+  type: string;
+  columns: IndexColumn[];
+  cardinality: number | null;
+  comment: string;
+  redundantOf?: string | null;
+  duplicateOf?: string | null;
+}
+
+export interface ForeignKeyInfo {
+  name: string;
+  columns: string[];
+  referencedDatabase: string;
+  referencedTable: string;
+  referencedColumns: string[];
+  onUpdate: string;
+  onDelete: string;
+}
+
+export interface TriggerInfo {
+  name: string;
+  timing: string;
+  event: string;
+  table: string;
+  statement: string;
+  definer: string;
+  created: string | null;
+  sqlMode: string;
+}
+
+export interface RoutineInfo {
+  name: string;
+  type: 'FUNCTION' | 'PROCEDURE';
+  definer: string;
+  created: string | null;
+  modified: string | null;
+  securityType: string;
+  comment: string;
+  returnType?: string | null;
+  parameters?: string | null;
+  body?: string | null;
+}
+
+export interface ViewInfo {
+  name: string;
+  definer: string;
+  securityType: string;
+  checkOption: string;
+  updatable: boolean;
+  definition: string;
+}
+
+export interface EventInfo {
+  name: string;
+  definer: string;
+  status: string;
+  eventType: string;
+  executeAt: string | null;
+  intervalValue: string | null;
+  intervalField: string | null;
+  starts: string | null;
+  ends: string | null;
+  onCompletion: string;
+  comment: string;
+}
+
+export interface PartitionInfo {
+  name: string;
+  method: string;
+  expression: string | null;
+  description: string | null;
+  tableRows: number;
+  dataBytes: number;
+  indexBytes: number;
+}
+
+export interface CheckConstraintInfo {
+  name: string;
+  clause: string;
+}
+
+export interface TableDetail {
+  summary: TableSummary;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  foreignKeys: ForeignKeyInfo[];
+  referencedBy: ForeignKeyInfo[];
+  triggers: TriggerInfo[];
+  checks: CheckConstraintInfo[];
+  partitions: PartitionInfo[];
+  createSql: string | null;
+}
+
+export interface DatabaseObjects {
+  tables: TableSummary[];
+  views: ViewInfo[];
+  routines: RoutineInfo[];
+  triggers: TriggerInfo[];
+  events: EventInfo[];
+}
+
+export interface SchemaTable {
+  database: string;
+  name: string;
+  type: 'BASE TABLE' | 'VIEW';
+  engine: string | null;
+  rowsEstimate: number;
+  dataBytes: number;
+  indexBytes: number;
+  dataFreeBytes: number;
+  collation: string | null;
+  charset: string | null;
+  comment: string;
+  columns: ColumnInfo[];
+  indexes: IndexInfo[];
+  foreignKeys: ForeignKeyInfo[];
+}
+
+export interface SchemaSnapshot {
+  database: string;
+  tables: SchemaTable[];
+  fetchedAt: string;
+}
+
+export interface SchemaListItem {
+  name: string;
+  columns: string[];
+}
+
+export interface SchemaSummary {
+  database: string;
+  tables: SchemaListItem[];
+  fetchedAt: string;
+}
+
+export interface TableDataRequest {
+  limit?: number;
+  offset?: number;
+  orderBy?: string | null;
+  orderDir?: 'asc' | 'desc';
+  filters?: TableDataFilter[];
+  revealSensitive?: boolean;
+}
+
+export interface TableDataFilter {
+  column: string;
+  operator:
+    | '='
+    | '!='
+    | '>'
+    | '>='
+    | '<'
+    | '<='
+    | 'LIKE'
+    | 'NOT LIKE'
+    | 'IS NULL'
+    | 'IS NOT NULL';
+  value?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Query execution                                                     */
+/* ------------------------------------------------------------------ */
+
+export type StatementKind = 'read' | 'write' | 'ddl' | 'admin' | 'unknown';
+
+export interface StatementClassification {
+  kind: StatementKind;
+  readOnly: boolean;
+  destructive: boolean;
+  needsUnlock: boolean;
+  lockRead: boolean;
+  executesQuery: boolean;
+  reason?: string;
+}
+
+export interface ClassificationInfo extends StatementClassification {
+  summary: string;
+}
+
+export interface BinaryCell {
+  __type: 'binary';
+  length: number;
+  previewHex: string;
+  truncated: boolean;
+}
+
+export type CellValue =
+  | string
+  | number
+  | boolean
+  | null
+  | BinaryCell
+  | { [key: string]: unknown }
+  | unknown[];
+
+export interface QueryColumn {
+  name: string;
+  originalName: string;
+  table: string | null;
+  database: string | null;
+  typeName: string;
+  typeCode: number;
+  flags: number;
+  nullable?: boolean;
+  sensitive?: boolean;
+}
+
+export interface QueryWarning {
+  level: string;
+  code: number;
+  message: string;
+}
+
+export interface QueryResult {
+  sql: string;
+  database: string | null;
+  kind: StatementKind;
+  columns: QueryColumn[];
+  rows: CellValue[][];
+  rowCount: number;
+  truncated: boolean;
+  affectedRows: number;
+  insertId: string | null;
+  info: string;
+  warnings: QueryWarning[];
+  executionMs: number;
+  bytesApprox: number;
+  unlocked: boolean;
+  masked: boolean;
+}
+
+export interface QueryErrorPayload {
+  code: string;
+  message: string;
+  sqlState?: string;
+  errno?: number;
+  details?: unknown;
+  classification?: StatementClassification;
+}
+
+/* ------------------------------------------------------------------ */
+/* EXPLAIN                                                             */
+/* ------------------------------------------------------------------ */
+
+export interface ExplainNode {
+  id: string;
+  label: string;
+  table: string | null;
+  database: string | null;
+  accessType: string | null;
+  key: string | null;
+  possibleKeys: string[];
+  rows: number | null;
+  filtered: number | null;
+  cost: number | null;
+  extra: string[];
+  children: ExplainNode[];
+  runtimeRows?: number | null;
+  runtimeFiltered?: number | null;
+  runtimeMs?: number | null;
+}
+
+export interface IndexSuggestion {
+  database: string;
+  table: string;
+  columns: string[];
+  reason: string;
+  statement: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface ExplainResult {
+  sql: string;
+  analyzed: boolean;
+  format: 'json' | 'text';
+  nodes: ExplainNode[];
+  insights: Finding[];
+  suggestions: IndexSuggestion[];
+  raw: unknown;
+  text?: string;
+  totalCost: number | null;
+  executionMs: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Review                                                              */
+/* ------------------------------------------------------------------ */
+
+export interface ReviewTableContext {
+  database: string;
+  table: string;
+  engine: string | null;
+  rowsEstimate: number;
+  columns: {
+    name: string;
+    type: string;
+    nullable: boolean;
+    key: string;
+    extra: string;
+    defaultValue: string | null;
+  }[];
+  indexes: { name: string; unique: boolean; columns: string[] }[];
+  foreignKeys: {
+    name: string;
+    columns: string[];
+    referencedTable: string;
+    referencedColumns: string[];
+  }[];
+}
+
+export interface ReviewContextInfo {
+  database: string | null;
+  tables: ReviewTableContext[];
+  truncated: boolean;
+  charCount: number;
+  estimatedTokens: number;
+}
+
+export interface StaticReviewResult {
+  sql: string;
+  statements: { sql: string; kind: StatementKind; line: number }[];
+  findings: Finding[];
+  score: ScoreResult;
+  context: ReviewContextInfo;
+  explain: ExplainResult | null;
+  suggestions: IndexSuggestion[];
+  warnings: string[];
+}
+
+export interface ReviewRequest {
+  profileId: string;
+  database?: string | null;
+  sql: string;
+  includeSchema?: boolean;
+  includeExplain?: boolean;
+  analyze?: boolean;
+}
+
+export interface AiReviewRequest {
+  profileId?: string | null;
+  database?: string | null;
+  sql: string;
+  providerId: string;
+  model?: string;
+  includeSchema?: boolean;
+  includeExplain?: boolean;
+  analyze?: boolean;
+  explain?: ExplainResult | null;
+  findings?: Finding[];
+}
+
+export interface AiRewrite {
+  sql: string;
+  explanation: string;
+}
+
+export interface AiReview {
+  providerId: string;
+  providerName: string;
+  model: string;
+  verdict: 'pass' | 'warn' | 'fail' | 'unknown';
+  score: number | null;
+  summary: string;
+  findings: Finding[];
+  rewrite: AiRewrite | null;
+  markdown: string;
+  usage: AiUsage | null;
+  durationMs: number;
+}
+
+export interface AiUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface AiChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface AiChatRequest {
+  providerId: string;
+  model?: string;
+  messages: AiChatMessage[];
+  context?: {
+    sql?: string;
+    database?: string | null;
+    profileId?: string | null;
+    includeSchema?: boolean;
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Audit                                                               */
+/* ------------------------------------------------------------------ */
+
+export type AuditStepStatus = 'pending' | 'running' | 'done' | 'skipped' | 'error';
+
+export interface AuditStep {
+  key: string;
+  label: string;
+  status: AuditStepStatus;
+  detail?: string;
+  durationMs?: number;
+}
+
+export type CoverageStatus = 'ran' | 'skipped' | 'denied' | 'unsupported' | 'error';
+
+export interface CoverageItem {
+  check: string;
+  status: CoverageStatus;
+  reason?: string;
+  count?: number | null;
+}
+
+export interface FindingGroup {
+  ruleId: string;
+  title: string;
+  severity: Severity;
+  category: FindingCategory;
+  count: number;
+  instances: Finding[];
+  docs?: string;
+}
+
+export interface AuditStats {
+  databases: number;
+  tables: number;
+  views: number;
+  routines: number;
+  triggers: number;
+  events: number;
+  columns: number;
+  indexes: number;
+  totalRowsEstimate: number;
+  totalBytes: number;
+}
+
+export interface AuditEnvironment {
+  [key: string]: string | number | boolean | null;
+}
+
+export interface AuditReport {
+  id: string;
+  kind: 'audit';
+  title: string;
+  createdAt: string;
+  profile: { id: string; name: string; host: string; port: number; user: string };
+  databaseScope: string[];
+  server: ServerInfo | null;
+  score: ScoreResult;
+  findingsTotal: number;
+  groups: FindingGroup[];
+  coverage: CoverageItem[];
+  environment: AuditEnvironment;
+  stats: AuditStats;
+  ai: AiReview | null;
+  durationMs: number;
+  steps: AuditStep[];
+}
+
+export interface AuditRequest {
+  profileId: string;
+  databases: string[];
+  includeAi?: boolean;
+  providerId?: string;
+  model?: string;
+}
+
+export interface AuditEvent {
+  type: 'step' | 'progress' | 'ai-delta' | 'report' | 'error';
+  step?: AuditStep;
+  percent?: number;
+  message?: string;
+  delta?: string;
+  report?: AuditReport;
+  error?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Security                                                            */
+/* ------------------------------------------------------------------ */
+
+export interface DbUser {
+  user: string;
+  host: string;
+  plugin: string;
+  passwordSet: boolean;
+  superPriv: boolean;
+  filePriv: boolean;
+  processPriv: boolean;
+  grantPriv: boolean;
+  shutdownPriv: boolean;
+  createUserPriv: boolean;
+  reloadPriv: boolean;
+}
+
+export interface GrantInfo {
+  user: string;
+  host: string;
+  grants: string[];
+}
+
+export interface SecurityConfigSnapshot {
+  localInfile: string | null;
+  secureFilePriv: string | null;
+  bindAddress: string | null;
+  sqlMode: string | null;
+  skipNameResolve: string | null;
+}
+
+export interface SecurityAuditResult {
+  users: DbUser[];
+  findings: Finding[];
+  config: SecurityConfigSnapshot;
+  coverage: CoverageItem[];
+  generatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Performance                                                         */
+/* ------------------------------------------------------------------ */
+
+export interface PerformanceMetrics {
+  uptimeSeconds: number;
+  qps: number;
+  threadsConnected: number;
+  threadsRunning: number;
+  maxUsedConnections: number;
+  abortedConnects: number;
+  abortedClients: number;
+  slowQueries: number;
+  selectScan: number;
+  selectFullJoin: number;
+  tmpDiskTables: number;
+  tmpTables: number;
+  bufferPoolHitRatio: number | null;
+  tableLocksWaited: number;
+  innodbDeadlocks: number;
+  bytesReceived: number;
+  bytesSent: number;
+  openTables: number;
+  queries: number;
+}
+
+export interface ProcessInfo {
+  id: number;
+  user: string;
+  host: string;
+  db: string | null;
+  command: string;
+  timeSeconds: number;
+  state: string | null;
+  info: string | null;
+}
+
+export interface SlowQueryInfo {
+  digest: string;
+  digestText: string;
+  schemaName: string | null;
+  count: number;
+  avgLatencyMs: number;
+  maxLatencyMs: number;
+  rowsExamined: number;
+  rowsSent: number;
+  firstSeen: string | null;
+  lastSeen: string | null;
+}
+
+export interface ReplicationStatus {
+  configured: boolean;
+  ioRunning: string | null;
+  sqlRunning: string | null;
+  lagSeconds: number | null;
+}
+
+export interface PerformanceSnapshot {
+  metrics: PerformanceMetrics;
+  status: Record<string, string>;
+  variables: Record<string, string>;
+  processlist: ProcessInfo[];
+  slowQueries: SlowQueryInfo[];
+  slowQuerySource: 'performance_schema' | 'slow_log' | 'none';
+  slowQueryAdvice: string | null;
+  replication: ReplicationStatus;
+  topTables: { database: string; table: string; rowsEstimate: number; totalBytes: number }[];
+  generatedAt: string;
+}
+
+export interface VariableInfo {
+  name: string;
+  value: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* AI providers                                                        */
+/* ------------------------------------------------------------------ */
+
+export type AiProviderType = 'openai' | 'anthropic' | 'google';
+
+export interface AiProvider {
+  id: string;
+  name: string;
+  type: AiProviderType;
+  baseUrl: string;
+  chatPath: string;
+  modelsPath: string;
+  model: string;
+  models: string[];
+  hasApiKey: boolean;
+  apiKeyHint: string | null;
+  authHeader: string;
+  authPrefix: string;
+  headers: Record<string, string>;
+  extraBody: Record<string, unknown>;
+  temperature: number;
+  maxTokens: number;
+  streaming: boolean;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiProviderInput {
+  name: string;
+  type: AiProviderType;
+  baseUrl: string;
+  chatPath?: string;
+  modelsPath?: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  authHeader?: string;
+  authPrefix?: string;
+  headers?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
+  temperature?: number;
+  maxTokens?: number;
+  streaming?: boolean;
+  isDefault?: boolean;
+}
+
+export interface AiProviderTestResult {
+  ok: boolean;
+  latencyMs: number;
+  message: string;
+  models: string[];
+  detectedModel: string | null;
+}
+
+export interface AiProviderPreset {
+  id: string;
+  label: string;
+  description: string;
+  type: AiProviderType;
+  baseUrl: string;
+  chatPath: string;
+  modelsPath: string;
+  model: string;
+  authHeader: string;
+  authPrefix: string;
+  needsKey: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* SQL Lab (practice challenges)                                       */
+/* ------------------------------------------------------------------ */
+
+export type PracticeTaskType = 'write-query' | 'fix-query' | 'review-query' | 'concept';
+export type PracticeDifficulty = 'easy' | 'medium' | 'hard';
+export type PracticeTopic =
+  | 'select'
+  | 'joins'
+  | 'aggregation'
+  | 'subqueries'
+  | 'cte'
+  | 'window'
+  | 'set-ops'
+  | 'dml'
+  | 'ddl'
+  | 'indexes'
+  | 'transactions'
+  | 'design'
+  | 'security';
+
+export interface PracticeQuestion {
+  id: string;
+  type: PracticeTaskType;
+  title: string;
+  scenario: string;
+  difficulty: PracticeDifficulty;
+  topics: PracticeTopic[];
+  schemaTables: string[];
+  brokenSql: string | null;
+  referenceSql: string | null;
+  expectedResult: string | null;
+  orderMatters: boolean;
+  hints: string[];
+  estimatedMinutes: number;
+  execute: boolean;
+}
+
+export interface PracticeSet {
+  id: string;
+  profileId: string;
+  createdAt: string;
+  database: string;
+  providerId: string;
+  model: string;
+  summary: string;
+  questions: PracticeQuestion[];
+}
+
+export interface PracticeGenerateRequest {
+  profileId: string;
+  database: string;
+  tables?: string[];
+  topics: PracticeTopic[];
+  difficulty: PracticeDifficulty | 'mixed';
+  count: number;
+  providerId: string;
+  model?: string;
+  includeSampleData?: boolean;
+}
+
+export interface PracticeComparison {
+  matched: boolean;
+  reason: string;
+  ordered: boolean;
+  userRowCount: number | null;
+  referenceRowCount: number | null;
+  columnCountUser: number | null;
+  columnCountReference: number | null;
+  missingRows: unknown[][];
+  extraRows: unknown[][];
+  matchedRows: number;
+  unmatchedRows: number;
+  truncated: boolean;
+}
+
+export interface PracticeScores {
+  correctness: number;
+  performance: number;
+  style: number;
+  overall: number;
+}
+
+export interface PracticeEvaluation {
+  questionId: string;
+  executed: boolean;
+  verdict: 'correct' | 'close' | 'incorrect' | 'not-executed';
+  scores: PracticeScores;
+  summary: string;
+  strengths: string[];
+  issues: string[];
+  nextHint: string;
+  comparison: PracticeComparison | null;
+  findings: Finding[];
+  explain: ExplainResult | null;
+  aiFeedback: string | null;
+  referenceSql: string | null;
+  userSql: string | null;
+  userAnswer: string | null;
+  userResult: QueryResult | null;
+  referenceResult: QueryResult | null;
+}
+
+export interface PracticeEvaluateRequest {
+  profileId: string;
+  setId: string;
+  questionId: string;
+  userSql?: string;
+  userAnswer?: string;
+  providerId?: string;
+  model?: string;
+  includeAi?: boolean;
+}
+
+export interface PracticeAttempt {
+  id: string;
+  profileId: string;
+  setId: string;
+  questionId: string;
+  database: string;
+  topics: PracticeTopic[];
+  difficulty: PracticeDifficulty;
+  userSql: string;
+  userAnswer: string;
+  evaluation: PracticeEvaluation;
+  createdAt: string;
+}
+
+export interface PracticeProgressTopic {
+  topic: PracticeTopic;
+  attempts: number;
+  averageScore: number;
+  bestScore: number;
+}
+
+export interface PracticeProgress {
+  totalAttempts: number;
+  averageScore: number;
+  topics: PracticeProgressTopic[];
+  recent: PracticeAttempt[];
+  recommendedTopics: PracticeTopic[];
+}
+
+export interface PracticeGenerateResult {
+  set: PracticeSet;
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings, history, snippets, reports                                */
+/* ------------------------------------------------------------------ */
+
+export type ThemePreference = 'dark' | 'light' | 'system';
+
+export interface AppSettings {
+  theme: ThemePreference;
+  rowLimit: number;
+  queryTimeoutMs: number;
+  cellMaxChars: number;
+  liveLint: boolean;
+  includeSchemaByDefault: boolean;
+  aiContextChars: number;
+  defaultAiProviderId: string | null;
+  historyLimit: number;
+  showHints: boolean;
+  maskSensitiveColumns: boolean;
+}
+
+export interface HistoryEntry {
+  id: string;
+  profileId: string;
+  database: string | null;
+  sql: string;
+  kind: StatementKind;
+  success: boolean;
+  executionMs: number;
+  rowCount: number | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface Snippet {
+  id: string;
+  title: string;
+  sql: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReportSummary {
+  id: string;
+  kind: 'audit' | 'review';
+  title: string;
+  createdAt: string;
+  score: number;
+  grade: string;
+  findingsTotal: number;
+  databaseScope: string[];
+  hasAi: boolean;
+}
+
+export interface DetectedXampp {
+  path: string;
+  port: number | null;
+  version?: string | null;
+}
+
+export interface BootstrapInfo {
+  appName: string;
+  version: string;
+  token: string;
+  platform: string;
+  nodeVersion: string;
+  dataDir: string;
+  clientBuilt: boolean;
+  detectedXampp: DetectedXampp | null;
+  profiles: ConnectionProfile[];
+  providers: AiProvider[];
+  settings: AppSettings;
+  activeProfileId: string | null;
+}
+
+export interface StoredReviewReport {
+  id: string;
+  kind: 'review';
+  title: string;
+  createdAt: string;
+  profile: { id: string; name: string; host: string; port: number; user: string } | null;
+  databaseScope: string[];
+  sql: string;
+  review: StaticReviewResult;
+  ai: AiReview | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
+
+export const APP_NAME = 'MyLens';
+export const APP_VERSION = '1.1.0';
+
+export const SYSTEM_SCHEMAS = ['mysql', 'information_schema', 'performance_schema', 'sys'];
+
+export const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
+
+export const SEVERITY_LABELS: Record<Severity, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  info: 'Info',
+};
+
+export const CATEGORY_LABELS: Record<FindingCategory, string> = {
+  correctness: 'Correctness',
+  performance: 'Performance',
+  security: 'Security',
+  schema: 'Schema',
+  config: 'Configuration',
+  style: 'Style',
+  maintainability: 'Maintainability',
+};
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
+  rowLimit: 1000,
+  queryTimeoutMs: 30_000,
+  cellMaxChars: 16_384,
+  liveLint: true,
+  includeSchemaByDefault: true,
+  aiContextChars: 24_000,
+  defaultAiProviderId: null,
+  historyLimit: 500,
+  showHints: true,
+  maskSensitiveColumns: true,
+};
+
+export const PRACTICE_TOPICS: { id: PracticeTopic; label: string }[] = [
+  { id: 'select', label: 'SELECT & filtering' },
+  { id: 'joins', label: 'Joins' },
+  { id: 'aggregation', label: 'Aggregation' },
+  { id: 'subqueries', label: 'Subqueries' },
+  { id: 'cte', label: 'CTEs' },
+  { id: 'window', label: 'Window functions' },
+  { id: 'set-ops', label: 'Set operations' },
+  { id: 'dml', label: 'DML' },
+  { id: 'ddl', label: 'DDL' },
+  { id: 'indexes', label: 'Indexes & EXPLAIN' },
+  { id: 'transactions', label: 'Transactions' },
+  { id: 'design', label: 'Schema design' },
+  { id: 'security', label: 'Security' },
+];
+
+export const PRACTICE_DIFFICULTIES: { id: PracticeDifficulty | 'mixed'; label: string }[] = [
+  { id: 'mixed', label: 'Mixed' },
+  { id: 'easy', label: 'Easy' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'hard', label: 'Hard' },
+];
+
+export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    description: 'Official OpenAI API',
+    type: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'gpt-4.1-mini',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: true,
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    description: 'Many models through one OpenAI-compatible endpoint',
+    type: 'openai',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'anthropic/claude-sonnet-4',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: true,
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    description: 'DeepSeek OpenAI-compatible API',
+    type: 'openai',
+    baseUrl: 'https://api.deepseek.com/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'deepseek-chat',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: true,
+  },
+  {
+    id: 'groq',
+    label: 'Groq',
+    description: 'Fast OpenAI-compatible inference',
+    type: 'openai',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'llama-3.3-70b-versatile',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: true,
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama (local)',
+    description: 'Local models served by Ollama',
+    type: 'openai',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'qwen2.5-coder:7b',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: false,
+  },
+  {
+    id: 'lmstudio',
+    label: 'LM Studio (local)',
+    description: 'Local OpenAI-compatible server',
+    type: 'openai',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: 'local-model',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: false,
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    description: 'Claude models via the native Messages API',
+    type: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    chatPath: '/v1/messages',
+    modelsPath: '/v1/models',
+    model: 'claude-sonnet-4-20250514',
+    authHeader: 'x-api-key',
+    authPrefix: '',
+    needsKey: true,
+  },
+  {
+    id: 'google',
+    label: 'Google Gemini',
+    description: 'Gemini models via the native API',
+    type: 'google',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    chatPath: '',
+    modelsPath: '/models',
+    model: 'gemini-2.5-flash',
+    authHeader: '',
+    authPrefix: '',
+    needsKey: true,
+  },
+  {
+    id: 'custom',
+    label: 'Custom endpoint',
+    description: 'Any OpenAI-compatible server, gateway, or proxy',
+    type: 'openai',
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    chatPath: '/chat/completions',
+    modelsPath: '/models',
+    model: '',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer ',
+    needsKey: false,
+  },
+];

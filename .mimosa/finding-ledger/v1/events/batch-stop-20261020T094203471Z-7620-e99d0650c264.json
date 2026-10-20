@@ -1,0 +1,813 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261020T094203471Z-7620-e99d0650c264",
+  "runId": "20261020T094203471Z-7620-e99d0650c264",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "bash_discovery_truncated",
+        "stage": "bash-discovery",
+        "target": "server/review/scoring.ts",
+        "detail": "changed-file discovery exceeded 80 files",
+        "affectsCompletion": true
+      },
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "server/db/introspection.ts",
+        "detail": "88 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "vitest.config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "shared/types.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/config.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/errors.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/json-store.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/crypto.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/settings.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/profiles.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/providers.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/history.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/snippets.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/store/reports.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/review/tokenizer.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/review/sql-classifier.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/manager.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/serialize.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/dialect.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/db/query.ts",
+        "detail": "spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "stop_budget_exhausted",
+        "stage": "supply-chain-check",
+        "target": ".",
+        "detail": "focused supply-chain check was not run before the gate budget",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "bash-discovery",
+        "target": "server/review/scoring.ts",
+        "detail": "bash_discovery_truncated: changed-file discovery exceeded 80 files",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "server/db/introspection.ts",
+        "detail": "candidate_limit_exceeded: 88 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "vitest.config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "shared/types.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/config.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/errors.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/json-store.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/crypto.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/settings.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/profiles.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/providers.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/history.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/snippets.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/store/reports.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/review/tokenizer.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/review/sql-classifier.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/manager.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/serialize.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/dialect.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/db/query.ts",
+        "detail": "scanner_failed: spawnSync C:\\Program Files\\nodejs\\node.exe ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "supply-chain-check",
+        "target": ".",
+        "detail": "stop_budget_exhausted: focused supply-chain check was not run before the gate budget",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "a55d39d0b68bff74cdc79c487ee339f1fc077ced9d0b4c07368e6bf4851a80bc",
+  "rulesVersion": "unavailable",
+  "sessionHash": "ace514aa467609fbcf3338ba6295440c7d8a9a8fc3438203a4f858a81eaa1a30",
+  "reportRef": ".mimosa/reports/task-review-session_ea1f1ee02b830b8f379b598c78470f30-20261020T094203471Z-7620-e99d0650c264.json",
+  "events": [
+    {
+      "eventId": "hook-9f7d1de44d9b3f91eb647bea7524c5f7",
+      "findingId": "mimosa-e85614463d856612e799e2e4",
+      "type": "finding_blocked",
+      "at": "2026-10-20T08:42:40.191Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 15,
+      "endLine": 15,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-b63737dfc13603874db059ffd8ca72a7",
+      "findingId": "mimosa-317c8ea08d662811486daea4",
+      "type": "finding_blocked",
+      "at": "2026-10-20T08:42:40.192Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 136,
+      "endLine": 136,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-552a4672cfca1bc6e47dced0df15a92d",
+      "findingId": "mimosa-b952b10662bba1936b82c6da",
+      "type": "finding_blocked",
+      "at": "2026-10-20T08:42:40.192Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 145,
+      "endLine": 145,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205"
+      },
+      "sequence": 2
+    },
+    {
+      "eventId": "hook-fdb3d5411d125845f2dc72bbcc78fd5e",
+      "findingId": "mimosa-aa92e759d5355090645b01f6",
+      "type": "finding_blocked",
+      "at": "2026-10-20T08:42:40.192Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 153,
+      "endLine": 153,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4"
+      },
+      "sequence": 3
+    },
+    {
+      "eventId": "hook-de8543783ee1230b6ecefbb98168edb2",
+      "findingId": "mimosa-e85614463d856612e799e2e4",
+      "type": "finding_blocked",
+      "at": "2026-10-20T08:42:55.892Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 7,
+      "endLine": 7,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a"
+      },
+      "sequence": 4
+    },
+    {
+      "eventId": "hook-0098a862b585e6ae1b1cbcf9f069feeb",
+      "findingId": "mimosa-e85614463d856612e799e2e4",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T08:43:31.913Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 7,
+      "endLine": 7,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "3dc8291e0a8aa6ca2bdeeec407d2a3851383556a1ecd738bcbc6dc4ad378629a"
+      },
+      "sequence": 5
+    },
+    {
+      "eventId": "hook-2f56584663351103db562bf0277a9523",
+      "findingId": "mimosa-317c8ea08d662811486daea4",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T08:43:31.913Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 136,
+      "endLine": 136,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "fc04965c8e1d28b95d2b06c9d5b066c292cde09cd949afb69cfa8b31bdfcaa67"
+      },
+      "sequence": 6
+    },
+    {
+      "eventId": "hook-b8f00aa7eaed1db6ff5b454705d0fb2c",
+      "findingId": "mimosa-b952b10662bba1936b82c6da",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T08:43:31.913Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 145,
+      "endLine": 145,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "704eeb0e30547416b2b03ef6d0695b941ea1b099b7ac070cfceea8f379511205"
+      },
+      "sequence": 7
+    },
+    {
+      "eventId": "hook-f778e77a6bcc80bbcd30a8eedc8b962e",
+      "findingId": "mimosa-aa92e759d5355090645b01f6",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T08:43:31.913Z",
+      "identity": {
+        "projectRelativeFile": "server/db/dialect.ts",
+        "ruleId": "security",
+        "codeEvidenceHash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 153,
+      "endLine": 153,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "4319249efbb95a3463db47d0b15319d6a30afc6e062da7ce88ddad41fe8b3bb4"
+      },
+      "sequence": 8
+    },
+    {
+      "eventId": "hook-861e67d0cf1e5675bb02e94c31233ee8",
+      "findingId": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:08:46.633Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 301,
+      "endLine": 301,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5"
+      },
+      "sequence": 9
+    },
+    {
+      "eventId": "hook-a4333424ee9185eceb248adbe91fae88",
+      "findingId": "mimosa-f837a8ca886ef6d23f1424dc",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:08:46.634Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 332,
+      "endLine": 332,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3"
+      },
+      "sequence": 10
+    },
+    {
+      "eventId": "hook-4b6bf9bbd3be837b9591ecf3adfd895e",
+      "findingId": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:09:12.632Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 304,
+      "endLine": 304,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5"
+      },
+      "sequence": 11
+    },
+    {
+      "eventId": "hook-257422f3660576ec541c01a3be451828",
+      "findingId": "mimosa-f837a8ca886ef6d23f1424dc",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:09:12.632Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 335,
+      "endLine": 335,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3"
+      },
+      "sequence": 12
+    },
+    {
+      "eventId": "hook-54580b96db958ecfd7e408b1cdd72a0b",
+      "findingId": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:09:35.623Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 280,
+      "endLine": 280,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5"
+      },
+      "sequence": 13
+    },
+    {
+      "eventId": "hook-cfe708845256c6dee7936c4f48df416f",
+      "findingId": "mimosa-f837a8ca886ef6d23f1424dc",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:09:35.624Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 311,
+      "endLine": 311,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3"
+      },
+      "sequence": 14
+    },
+    {
+      "eventId": "hook-8aef742d0fdccd82f5786d267aaac01b",
+      "findingId": "mimosa-eed8e44abbdc9d03aa5f52a6",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T09:10:12.045Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 280,
+      "endLine": 280,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "2f6f17de550238f4cbac7582470eb34fae52d958283d87a27a0ae3a1177cfac5"
+      },
+      "sequence": 15
+    },
+    {
+      "eventId": "hook-3ea22d01649535a7278e6f0cf93f6e5a",
+      "findingId": "mimosa-f837a8ca886ef6d23f1424dc",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T09:10:12.045Z",
+      "identity": {
+        "projectRelativeFile": "src/components/CommandPalette.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 311,
+      "endLine": 311,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "a94ed9bd9044f03699bb08f5fdb1f7ed9c2a3c6469e3cc281dc44047d2b551b3"
+      },
+      "sequence": 16
+    },
+    {
+      "eventId": "hook-c5cdc198eb1186d5d41d43fb1cccefee",
+      "findingId": "mimosa-46bd9f9c51d6f4cb6559ad47",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:13:33.003Z",
+      "identity": {
+        "projectRelativeFile": "src/pages/WorkspacePage.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 898,
+      "endLine": 898,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19"
+      },
+      "sequence": 17
+    },
+    {
+      "eventId": "hook-1a2926473e021c136f79410c0729e41e",
+      "findingId": "mimosa-46bd9f9c51d6f4cb6559ad47",
+      "type": "static_fix_verified",
+      "at": "2026-10-20T09:13:56.283Z",
+      "identity": {
+        "projectRelativeFile": "src/pages/WorkspacePage.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 898,
+      "endLine": 898,
+      "reasonCode": "static_rescan_passed",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "static_scan",
+        "boundary": "observed",
+        "producer": "deterministic",
+        "evidenceHash": "7d9a91fd647dcb68f7da097b0f8f8bd96b23726b944f37480b6be718a7bb8e19"
+      },
+      "sequence": 18
+    },
+    {
+      "eventId": "hook-ec771997b3fe8af3c086f46519045b7f",
+      "findingId": "mimosa-38ba93f4e3ef33f42c4c85e7",
+      "type": "finding_blocked",
+      "at": "2026-10-20T09:14:44.601Z",
+      "identity": {
+        "projectRelativeFile": "src/pages/WorkspacePage.tsx",
+        "ruleId": "security",
+        "codeEvidenceHash": "a0f2ffc4ef051e853c0180f743aaac65b951a1f7772649cd709551871ad07c00",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 884,
+      "endLine": 884,
+      "reasonCode": "deny",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "a0f2ffc4ef051e853c0180f743aaac65b951a1f7772649cd709551871ad07c00"
+      },
+      "sequence": 19
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-10-20T09:42:04.136Z"
+}
