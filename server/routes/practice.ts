@@ -49,7 +49,7 @@ const GenerateSchema = z.object({
   tables: z.array(z.string().max(200)).max(50).optional(),
   topics: TopicsSchema.min(1).max(13),
   difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
-  count: z.coerce.number().int().min(1).max(10),
+  count: z.coerce.number().int().min(1).max(25),
   providerId: z.string().min(1).max(200),
   model: z.string().max(200).optional(),
   includeSampleData: z.boolean().optional(),

@@ -78,6 +78,9 @@ interface PracticeDraft {
 
 const EMPTY_ANSWER: AnswerState = { sql: '', answer: '', evaluation: null };
 
+/** Offered challenge counts; the server caps a request at 25. */
+const CHALLENGE_COUNTS = [5, 10, 15, 20, 25];
+
 const DRAFT_PREFIX = 'mylens.practice.draft';
 const SCHEMA_PANEL_KEY = 'mylens.practice.schemaPanel';
 
@@ -199,6 +202,8 @@ export function PracticePage() {
   const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const selectedDatabase = useAppStore((state) => state.selectedDatabase);
+  const databases = useAppStore((state) => state.databases);
+  const setDatabase = useAppStore((state) => state.setDatabase);
   const schema = useAppStore((state) => state.schema);
   const refreshSchema = useAppStore((state) => state.refreshSchema);
   const providers = useAppStore((state) => state.providers);
@@ -418,6 +423,20 @@ export function PracticePage() {
     setHintsShown(0);
     setRunResult(null);
     setRunError(null);
+    // Grading is pinned to the set's database, so the top bar and the schema
+    // panel have to follow it. A set owned by another profile is never allowed
+    // to move the selection (ownership is enforced by the server too).
+    if (next && next.profileId === activeProfileId && next.database !== selectedDatabase) {
+      if (databases.some((database) => database.name === next.database)) {
+        // setDatabase also refreshes the schema and objects for that database.
+        setDatabase(next.database);
+      } else {
+        toast(
+          `The database "${next.database}" is no longer available on this connection. The challenge set stays open, but the database was not switched.`,
+          'warn',
+        );
+      }
+    }
     if (next) void loadAnswers(next.id);
   };
 
@@ -801,12 +820,14 @@ export function PracticePage() {
                   />
                 </Field>
                 <Field label="Challenges">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={count}
-                    onChange={(event) => setCount(Number(event.target.value))}
+                  <Combobox
+                    options={CHALLENGE_COUNTS.map((value) => ({
+                      value: String(value),
+                      label: String(value),
+                    }))}
+                    value={String(count)}
+                    onChange={(value) => setCount(Number(value))}
+                    clearable={false}
                   />
                 </Field>
               </div>
