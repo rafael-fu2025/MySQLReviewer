@@ -28,17 +28,18 @@ import { cn } from '@/lib/utils';
 import { useNow } from '@/lib/hooks';
 import { Combobox } from './Combobox';
 import { CommandPalette } from './CommandPalette';
+import { BottomNav } from './BottomNav';
 import { Tooltip } from './Tooltip';
 
 const NAV = [
-  { to: '/workspace', label: 'Workspace', icon: Terminal },
-  { to: '/database', label: 'Database', icon: Database },
-  { to: '/practice', label: 'SQL Lab', icon: FlaskConical },
-  { to: '/performance', label: 'Performance', icon: Activity },
-  { to: '/security', label: 'Security', icon: ShieldCheck },
-  { to: '/audit', label: 'Audit', icon: ScanSearch },
-  { to: '/reports', label: 'Reports', icon: FileText },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/workspace', label: 'Workspace', icon: Terminal, primary: true },
+  { to: '/database', label: 'Database', icon: Database, primary: true },
+  { to: '/practice', label: 'SQL Lab', icon: FlaskConical, primary: true },
+  { to: '/performance', label: 'Performance', icon: Activity, primary: false },
+  { to: '/security', label: 'Security', icon: ShieldCheck, primary: false },
+  { to: '/audit', label: 'Audit', icon: ScanSearch, primary: true },
+  { to: '/reports', label: 'Reports', icon: FileText, primary: false },
+  { to: '/settings', label: 'Settings', icon: Settings, primary: false },
 ];
 
 const PAGE_META: Record<string, { title: string; sub: string }> = {
@@ -126,6 +127,8 @@ export function AppShell() {
   const navItems = NAV.filter(
     (item) => !(hideServerWide && (item.to === '/performance' || item.to === '/security')),
   );
+  const primaryNav = navItems.filter((item) => item.primary);
+  const overflowNav = navItems.filter((item) => !item.primary);
   const defaultProvider = providers.find((provider) => provider.isDefault);
   const meta =
     PAGE_META[location.pathname] ??
@@ -409,6 +412,15 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      <BottomNav
+        items={primaryNav}
+        overflow={overflowNav}
+        aiLabel={defaultProvider ? defaultProvider.name : 'Configure AI'}
+        aiActive={Boolean(defaultProvider)}
+        theme={theme}
+        onToggleTheme={() => void setTheme(theme === 'light' ? 'dark' : 'light')}
+      />
 
       <CommandPalette />
     </div>

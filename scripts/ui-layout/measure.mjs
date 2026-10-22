@@ -123,6 +123,34 @@ async function main() {
     rows.push({ width, parsed });
   }
 
+  // The phone navigation is measured in isolation so the other sections do
+  // not push the shell down the page.
+  const navRows = [];
+  for (const width of WIDTHS) {
+    await send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height: HEIGHT,
+      deviceScaleFactor: 1,
+      mobile: width < 768,
+    });
+    await send('Page.navigate', { url: `${HARNESS}?variant=nav` });
+    await sleep(900);
+    const result = await send('Runtime.evaluate', {
+      expression:
+        "document.getElementById('report') ? document.getElementById('report').textContent : 'NO_REPORT'",
+      returnByValue: true,
+    });
+    let parsed;
+    try {
+      parsed = JSON.parse(result.result?.value ?? 'NO_REPORT');
+    } catch {
+      continue;
+    }
+    const nav = parsed.find((r) => r.shell === 'nav');
+    if (nav) navRows.push({ width, parsed: [nav] });
+  }
+  rows.push(...navRows);
+
   console.log(
     'width | variant | main  | topbarScroll | clipped | overflow | title | crush | clipped control',
   );
@@ -132,6 +160,16 @@ async function main() {
       if (r.detailWidth !== undefined) {
         console.log(
           `${String(width).padEnd(5)} | ${r.shell.padEnd(7)} | aside=${String(r.asideWidth).padEnd(6)} detail=${String(r.detailWidth).padEnd(6)} crush=${r.detailCrush}`,
+        );
+        continue;
+      }
+      if (r.shell === 'nav') {
+        if (!r.isolated) continue; // the combined page is not a valid sample
+        console.log(
+          `${String(width).padEnd(5)} | ${r.shell.padEnd(7)} | visible=${String(r.barVisible).padEnd(5)} bar=${String(r.barHeight).padStart(3)}px items=${r.itemCount} minItem=${r.minItemWidth}x${r.minItemHeight}`,
+        );
+        console.log(
+          `      |         | shell=${r.appShell.h} main=${r.main.h}(pad ${r.mainPadBottom}) topbar=${r.topbar.h} content=${r.content.h} contentBottom=${r.contentBottom} bar@${r.barTop} overlap=${r.contentOverlapsBar}`,
         );
         continue;
       }

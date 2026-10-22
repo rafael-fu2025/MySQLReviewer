@@ -2511,20 +2511,19 @@ a:hover {
 /* ---------------------------------------------------------------- */
 
 /*
- * Below 640px the shell keeps its icon rail but the topbar wraps: the
- * database picker moves to a second row so the title, lock badge, refresh
- * and command buttons are never clipped.
+ * Below 640px the icon rail is replaced by a bottom navigation bar: the rail
+ * would eat a seventh of the viewport and sit out of thumb reach. The topbar
+ * also wraps, so the database picker moves to a second row and the title,
+ * lock badge, refresh and command buttons are never clipped.
  */
 @media (max-width: 640px) {
   .sidebar {
-    width: 56px;
-    flex-basis: 56px;
-    padding: 14px 8px;
+    display: none;
   }
-  .brand-mark {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
+  .main {
+    /* Leave room for the fixed bottom bar so it never covers content. The
+       bar is 61px tall, so this keeps a few pixels of clearance. */
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
   }
   .topbar {
     height: auto;
@@ -2539,4 +2538,116 @@ a:hover {
   .page {
     gap: 14px;
   }
+}
+
+/* ---------------------------------------------------------------- */
+/* Phone navigation                                                 */
+/* ---------------------------------------------------------------- */
+
+.bottom-nav {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 2px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in oklab, var(--color-panel) 94%, transparent);
+    border-top: 1px solid var(--color-line-soft);
+    backdrop-filter: blur(14px);
+  }
+}
+
+.bottom-nav-item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 620;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.bottom-nav-item.active {
+  color: var(--color-ember);
+  background: color-mix(in oklab, var(--color-ember) 12%, transparent);
+}
+.bottom-nav-item:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Bottom sheet                                                     */
+/* ---------------------------------------------------------------- */
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid var(--color-line-soft);
+}
+.sheet-title {
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+.sheet-body {
+  padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+  overflow: auto;
+}
+.sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-size: 13.5px;
+  font-weight: 560;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.sheet-item:hover,
+.sheet-item.active {
+  background: var(--color-panel-3);
+  color: var(--color-ink);
+}
+.sheet-item:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+}
+.sheet-divider {
+  height: 1px;
+  margin: 8px 12px;
+  background: var(--color-line-soft);
 }

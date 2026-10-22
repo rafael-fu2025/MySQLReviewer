@@ -202,9 +202,27 @@
       body[data-variant='old'] #new,
       body[data-variant='old'] #db,
       body[data-variant='old'] #db-old,
+      body[data-variant='old'] #nav,
       body[data-variant='new'] #old,
       body[data-variant='new'] #db,
-      body[data-variant='new'] #db-old {
+      body[data-variant='new'] #db-old,
+      body[data-variant='new'] #nav,
+      body[data-variant='nav'] #old,
+      body[data-variant='nav'] #new,
+      body[data-variant='nav'] #db,
+      body[data-variant='nav'] #db-old,
+      body[data-variant='nav'] #report,
+      body[data-variant='nav'] hr {
+        display: none;
+      }
+      /* The bar on its own, without the sheet overlay dimming the page. */
+      body[data-variant='navbar'] #old,
+      body[data-variant='navbar'] #new,
+      body[data-variant='navbar'] #db,
+      body[data-variant='navbar'] #db-old,
+      body[data-variant='navbar'] #report,
+      body[data-variant='navbar'] hr,
+      body[data-variant='navbar'] .modal-backdrop {
         display: none;
       }
     </style>
@@ -213,6 +231,65 @@
       id="report"
       style="padding: 12px; font: 12px monospace; color: #e8eef8; background: #0d1118"
     ></pre>
+
+    <div id="nav">
+      <div class="app-shell">
+        <main class="main">
+          <header class="topbar">
+            <div class="min-w-0 flex-1">
+              <div class="topbar-title">Workspace</div>
+              <div class="topbar-sub truncate">
+                Write, run, explain, and review SQL with server-side safety guards.
+              </div>
+            </div>
+            <div
+              class="relative order-last w-full basis-full md:order-none md:w-[190px] md:basis-auto xl:w-[230px]"
+            >
+              <button class="combo-button py-1.5 text-[11.5px]">shop_local</button>
+            </div>
+            <button class="badge cursor-pointer text-muted">
+              <span class="hidden md:inline">Read-only</span>
+            </button>
+            <button class="icon-btn">R</button>
+            <button class="btn btn-secondary btn-sm">
+              <span>C</span><span class="hidden md:inline">Commands</span>
+              <span class="hidden md:inline-flex"><span class="kbd">Ctrl K</span></span>
+            </button>
+          </header>
+          <div class="content">
+            <div class="page"><div class="card">page content</div></div>
+          </div>
+        </main>
+        <nav class="bottom-nav" aria-label="Primary">
+          <a class="bottom-nav-item active" href="#"><span>W</span><span>Workspace</span></a>
+          <a class="bottom-nav-item" href="#"><span>D</span><span>Database</span></a>
+          <a class="bottom-nav-item" href="#"><span>L</span><span>SQL Lab</span></a>
+          <a class="bottom-nav-item" href="#"><span>A</span><span>Audit</span></a>
+          <button class="bottom-nav-item" type="button"><span>M</span><span>More</span></button>
+        </nav>
+      </div>
+      <div class="modal-backdrop" style="align-items: flex-end; padding: 0">
+        <div class="modal" style="max-width: 560px; border-radius: 18px 18px 0 0; max-height: 78vh">
+          <div class="sheet-head">
+            <div class="sheet-title">More</div>
+            <button class="icon-btn" type="button">X</button>
+          </div>
+          <div class="sheet-body">
+            <a class="sheet-item" href="#"><span>P</span><span>Performance</span></a>
+            <a class="sheet-item" href="#"><span>S</span><span>Security</span></a>
+            <a class="sheet-item" href="#"><span>R</span><span>Reports</span></a>
+            <a class="sheet-item" href="#"><span>S</span><span>Settings</span></a>
+            <div class="sheet-divider"></div>
+            <button class="sheet-item" type="button">
+              <span>A</span><span>Configure AI</span>
+            </button>
+            <button class="sheet-item" type="button">
+              <span>☀</span><span>Switch to light theme</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script>
       const params = new URLSearchParams(location.search);
@@ -283,7 +360,45 @@
         }
         return out;
       }
-      const results = [measure('old'), measure('new'), measureDb()];
+      function measureNav() {
+        // Phone navigation: bottom bar reachability and content clearance.
+        const shell = document.getElementById('nav');
+        const bar = shell.querySelector('.bottom-nav');
+        const items = Array.from(bar.querySelectorAll('.bottom-nav-item'));
+        const content = shell.querySelector('.content');
+        const barBox = bar.getBoundingClientRect();
+        const contentBox = content.getBoundingClientRect();
+        const widths = items.map((i) => i.getBoundingClientRect().width);
+        const heights = items.map((i) => i.getBoundingClientRect().height);
+        const shellEl = shell.querySelector('.app-shell');
+        const mainEl = shell.querySelector('.main');
+        const topEl = shell.querySelector('.topbar');
+        const box = (el) => {
+          const b = el.getBoundingClientRect();
+          return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height) };
+        };
+        return {
+          shell: 'nav',
+          isolated: window.location.search.includes('variant=nav'),
+          viewport: window.innerWidth + 'x' + window.innerHeight,
+          barVisible: getComputedStyle(bar).display !== 'none',
+          barHeight: Math.round(barBox.height),
+          itemCount: items.length,
+          minItemWidth: Math.round(Math.min(...widths)),
+          minItemHeight: Math.round(Math.min(...heights)),
+          appShell: box(shellEl),
+          main: box(mainEl),
+          mainPadBottom: getComputedStyle(mainEl).paddingBottom,
+          topbar: box(topEl),
+          content: box(content),
+          bar: box(bar),
+          contentBottom: Math.round(contentBox.bottom),
+          barTop: Math.round(barBox.top),
+          contentOverlapsBar:
+            getComputedStyle(bar).display !== 'none' && contentBox.bottom > barBox.top + 1,
+        };
+      }
+      const results = [measure('old'), measure('new'), measureDb(), measureNav()];
       document.getElementById('report').textContent = JSON.stringify(results, null, 2);
       document.title = 'REPORT:' + JSON.stringify(results);
     </script>

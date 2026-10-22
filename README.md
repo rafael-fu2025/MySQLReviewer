@@ -177,7 +177,7 @@ SQL Lab uses the selected provider in two places: generating challenges from the
 
 ## Interface
 
-- **Responsive from 360px up.** The shell keeps its icon rail on narrow screens; the topbar wraps the database picker onto its own row so the page title and every control stay reachable, and the database explorer stacks its object tree above the table detail.
+- **Responsive from 360px up.** On phones the icon rail is replaced by a bottom navigation bar with 48px touch targets, with the less common sections behind a “More” sheet. The topbar wraps the database picker onto its own row so the page title and every control stay reachable, and the database explorer stacks its object tree above the table detail.
 - **Contrast.** Every color token passes WCAG AA against every surface in both the dark and the light theme.
 - **Keyboard and screen readers.** Dialogs trap focus, close on Escape, restore focus on exit, and cap their height so the body scrolls. The editor/results splitter is a `separator` with pointer, arrow-key, Home/End, and PageUp/PageDown support.
 - **Motion.** Animations are suppressed when the OS requests reduced motion; the spinner and progress indicator keep running because they report live state.
