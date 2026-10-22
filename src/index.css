@@ -1,8 +1,20 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+ * Everything below this line is unlayered CSS. Tailwind v4 emits its
+ * utilities in `@layer utilities`, and unlayered rules beat layered ones
+ * regardless of specificity — so a property set here (padding, color, width)
+ * always wins over a Tailwind utility passed as a `className` override.
+ *
+ * That is why shared components such as `.input` and `.badge` cannot be
+ * restyled with `p-*` / `text-*` from a call site. Where an override is
+ * needed, either set it on the element itself or use the dedicated variant
+ * class (`.card-pad`, `.btn-primary`, `.modal.wide`, ...).
+ */
 
 @theme {
-  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
 
   --color-canvas: #080a0f;
   --color-panel: #0d1118;
@@ -37,7 +49,7 @@
   --cm-selection: color-mix(in oklab, #93c5fd 30%, transparent);
 }
 
-[data-theme="light"] {
+[data-theme='light'] {
   color-scheme: light;
   --cm-keyword: #b84e06;
   --cm-string: #0f7a5c;
@@ -57,14 +69,14 @@
   --color-line-soft: #ece8de;
   --color-ink: #151a22;
   --color-ink-soft: #354050;
-  --color-muted: #6b7280;
-  --color-ember: #d9630b;
-  --color-ember-2: #b84e06;
-  --color-mint: #0f9d79;
+  --color-muted: #5b6370;
+  --color-ember: #a84705;
+  --color-ember-2: #8f3c04;
+  --color-mint: #087456;
   --color-mint-soft: #d9f3ea;
-  --color-danger: #d92d3c;
-  --color-warn: #b7791f;
-  --color-info: #2563eb;
+  --color-danger: #c62737;
+  --color-warn: #885b0c;
+  --color-info: #2158d4;
   --color-violet: #7c3aed;
 }
 
@@ -90,7 +102,7 @@ body {
 }
 
 body::before {
-  content: "";
+  content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
@@ -99,18 +111,26 @@ body::before {
     radial-gradient(ellipse 65% 50% at 95% 0%, rgba(45, 212, 167, 0.07), transparent 60%),
     linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 52px 52px, 52px 52px;
+  background-size:
+    100% 100%,
+    100% 100%,
+    52px 52px,
+    52px 52px;
   mask-image: linear-gradient(to bottom, black, black 60%, transparent 100%);
   z-index: 0;
 }
 
-[data-theme="light"] body::before {
+[data-theme='light'] body::before {
   background-image:
     radial-gradient(ellipse 80% 55% at 12% -10%, rgba(217, 99, 11, 0.08), transparent 60%),
     radial-gradient(ellipse 65% 50% at 95% 0%, rgba(15, 157, 121, 0.06), transparent 60%),
     linear-gradient(to right, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(0, 0, 0, 0.035) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 52px 52px, 52px 52px;
+  background-size:
+    100% 100%,
+    100% 100%,
+    52px 52px,
+    52px 52px;
 }
 
 #root {
@@ -190,6 +210,12 @@ a:hover {
   align-items: center;
   gap: 11px;
   padding: 2px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.brand:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
 }
 
 .brand-mark {
@@ -202,7 +228,9 @@ a:hover {
   background:
     radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.18), transparent 45%),
     linear-gradient(145deg, #ff9a57, #e56512);
-  box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.35), 0 10px 24px -12px rgba(255, 138, 61, 0.8);
+  box-shadow:
+    0 0 0 1px rgba(255, 138, 61, 0.35),
+    0 10px 24px -12px rgba(255, 138, 61, 0.8);
   color: #1a0d04;
   flex: 0 0 auto;
 }
@@ -246,15 +274,26 @@ a:hover {
   font-size: 13.5px;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease;
   white-space: nowrap;
 }
 .nav-item:hover {
   background: color-mix(in oklab, var(--color-panel-2) 80%, transparent);
   color: var(--color-ink-soft);
 }
+.nav-item:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+}
 .nav-item.active {
-  background: linear-gradient(90deg, color-mix(in oklab, var(--color-ember) 18%, transparent), transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-ember) 18%, transparent),
+    transparent
+  );
   color: var(--color-ink);
   border-color: color-mix(in oklab, var(--color-ember) 20%, transparent);
 }
@@ -269,15 +308,28 @@ a:hover {
 }
 
 .connection-card {
+  display: block;
+  width: 100%;
   margin: 0 2px;
   padding: 11px;
   border-radius: 12px;
   border: 1px solid var(--color-line-soft);
-  background: linear-gradient(160deg, color-mix(in oklab, var(--color-panel-2) 90%, transparent), color-mix(in oklab, var(--color-panel) 85%, transparent));
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-panel-2) 90%, transparent),
+    color-mix(in oklab, var(--color-panel) 85%, transparent)
+  );
   cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 .connection-card:hover {
   border-color: color-mix(in oklab, var(--color-ember) 28%, var(--color-line));
+}
+.connection-card:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
 }
 .connection-name {
   display: flex;
@@ -417,7 +469,11 @@ a:hover {
 /* ---------------------------------------------------------------- */
 
 .card {
-  background: linear-gradient(165deg, color-mix(in oklab, var(--color-panel) 92%, transparent), color-mix(in oklab, var(--color-panel-2) 72%, transparent));
+  background: linear-gradient(
+    165deg,
+    color-mix(in oklab, var(--color-panel) 92%, transparent),
+    color-mix(in oklab, var(--color-panel-2) 72%, transparent)
+  );
   border: 1px solid var(--color-line);
   border-radius: 14px;
   box-shadow: 0 16px 40px -30px rgba(0, 0, 0, 0.8);
@@ -434,7 +490,10 @@ a:hover {
 }
 
 .hover-card {
-  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
 }
 .hover-card:hover {
   border-color: color-mix(in oklab, var(--color-ember) 34%, var(--color-line));
@@ -501,11 +560,20 @@ a:hover {
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
   user-select: none;
 }
 .btn:active {
   transform: translateY(1px);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
 }
 .btn:disabled {
   opacity: 0.48;
@@ -558,8 +626,8 @@ a:hover {
   border-radius: 10px;
 }
 .icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border-radius: 8px;
   display: inline-grid;
@@ -575,6 +643,10 @@ a:hover {
   color: var(--color-ink);
   border-color: var(--color-line);
 }
+.icon-btn:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
+}
 
 .input,
 .select,
@@ -587,7 +659,10 @@ a:hover {
   font-size: 13px;
   color: var(--color-ink);
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 .input::placeholder,
 .textarea::placeholder {
@@ -614,10 +689,15 @@ a:hover {
 .select {
   appearance: none;
   padding-right: 30px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
     linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
-  background-position: calc(100% - 15px) calc(50% - 2px), calc(100% - 10px) calc(50% - 2px);
-  background-size: 5px 5px, 5px 5px;
+  background-position:
+    calc(100% - 15px) calc(50% - 2px),
+    calc(100% - 10px) calc(50% - 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
   background-repeat: no-repeat;
   cursor: pointer;
 }
@@ -669,7 +749,7 @@ a:hover {
   border-color: var(--color-ember);
 }
 .checkbox input:checked::after {
-  content: "";
+  content: '';
   width: 8px;
   height: 5px;
   border-left: 2px solid #1c0e05;
@@ -685,11 +765,13 @@ a:hover {
   border: 1px solid var(--color-line);
   background: var(--color-panel-3);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
   flex: 0 0 auto;
 }
 .switch::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 2px;
   left: 2px;
@@ -697,7 +779,9 @@ a:hover {
   height: 15px;
   border-radius: 999px;
   background: var(--color-muted);
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 .switch.on {
   background: color-mix(in oklab, var(--color-ember) 25%, var(--color-panel));
@@ -728,7 +812,7 @@ a:hover {
 }
 .badge-mono {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.04em;
 }
 .badge-ember {
@@ -783,17 +867,17 @@ a:hover {
   background: color-mix(in oklab, var(--color-info) 8%, var(--color-panel));
 }
 
-[data-theme="light"] .sev-critical,
-[data-theme="light"] .sev-high {
+[data-theme='light'] .sev-critical,
+[data-theme='light'] .sev-high {
   color: #b91c2c;
 }
-[data-theme="light"] .sev-medium {
+[data-theme='light'] .sev-medium {
   color: #9a6209;
 }
-[data-theme="light"] .sev-low {
+[data-theme='light'] .sev-low {
   color: #087f62;
 }
-[data-theme="light"] .sev-info {
+[data-theme='light'] .sev-info {
   color: #1d4ed8;
 }
 
@@ -833,7 +917,7 @@ a:hover {
   color: var(--color-ink);
 }
 .tab.active::after {
-  content: "";
+  content: '';
   position: absolute;
   left: 10px;
   right: 10px;
@@ -844,7 +928,7 @@ a:hover {
 }
 .tab .tab-count {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   padding: 1px 5px;
   border-radius: 999px;
   background: var(--color-panel-3);
@@ -988,8 +1072,15 @@ a:hover {
   background: var(--color-line-soft);
   position: relative;
   transition: background 0.15s ease;
+  /* Stop the browser from scrolling or zooming while the split is dragged. */
+  touch-action: none;
 }
 .splitter:hover {
+  background: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
+}
+.splitter:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
   background: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
 }
 
@@ -1046,7 +1137,7 @@ a:hover {
 }
 .data-table th .col-type {
   display: block;
-  font-size: 8.5px;
+  font-size: 10px;
   color: var(--color-muted);
   font-weight: 500;
   margin-top: 1px;
@@ -1095,7 +1186,7 @@ a:hover {
   color: #dbe4f0;
   max-height: 480px;
 }
-[data-theme="light"] .code-block {
+[data-theme='light'] .code-block {
   background: #12151c;
 }
 .code-block.wrap {
@@ -1199,7 +1290,7 @@ a:hover {
 .score-ring .score-grade {
   position: absolute;
   bottom: 12%;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.16em;
   color: var(--color-muted);
   font-weight: 700;
@@ -1272,14 +1363,19 @@ a:hover {
   border: 1px solid var(--color-line);
   background:
     radial-gradient(ellipse 70% 90% at 85% 0%, rgba(255, 138, 61, 0.16), transparent 60%),
-    linear-gradient(150deg, color-mix(in oklab, var(--color-panel) 90%, transparent), color-mix(in oklab, var(--color-panel-2) 70%, transparent));
+    linear-gradient(
+      150deg,
+      color-mix(in oklab, var(--color-panel) 90%, transparent),
+      color-mix(in oklab, var(--color-panel-2) 70%, transparent)
+    );
   padding: 30px;
 }
 .hero-panel::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
   mask-image: radial-gradient(ellipse at 70% 0%, black, transparent 65%);
@@ -1355,7 +1451,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 7px;
+  padding: 7px 9px;
   border-radius: 7px;
   font-size: 12px;
   color: var(--color-ink-soft);
@@ -1379,7 +1475,7 @@ a:hover {
 .tree-item .tree-rows {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   color: var(--color-muted);
 }
 
@@ -1517,7 +1613,12 @@ a:hover {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--color-panel-2) 25%, var(--color-panel-3) 37%, var(--color-panel-2) 63%);
+  background: linear-gradient(
+    90deg,
+    var(--color-panel-2) 25%,
+    var(--color-panel-3) 37%,
+    var(--color-panel-2) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
   border-radius: 8px;
@@ -1535,7 +1636,7 @@ a:hover {
   background: var(--color-panel-3);
   color: var(--color-muted);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   line-height: 1;
 }
 
@@ -1775,7 +1876,9 @@ a:hover {
   font-size: 12px;
   color: var(--color-ink);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .combo-button:hover:not(:disabled) {
   border-color: color-mix(in oklab, var(--color-muted) 45%, var(--color-line));
@@ -1828,7 +1931,7 @@ a:hover {
 }
 .combo-group {
   padding: 6px 8px 3px;
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2012,11 +2115,14 @@ a:hover {
   background: color-mix(in oklab, var(--color-panel-2) 55%, transparent);
   color: var(--color-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 .schema-rail-stat span {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   color: var(--color-muted);
 }
@@ -2055,7 +2161,9 @@ a:hover {
   font-weight: 560;
   line-height: 1.35;
   letter-spacing: 0.01em;
-  box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(0, 0, 0, 0.24);
+  box-shadow:
+    0 12px 28px -16px rgba(0, 0, 0, 0.9),
+    0 2px 8px rgba(0, 0, 0, 0.24);
   pointer-events: none;
   animation: tip-in 0.12s ease both;
 }
@@ -2285,7 +2393,10 @@ a:hover {
   font-size: 10.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 .practice-nav-box:hover {
   border-color: var(--color-line);
@@ -2315,7 +2426,7 @@ a:hover {
   gap: 6px 10px;
   border-top: 1px solid var(--color-line-soft);
   padding-top: 8px;
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--color-muted);
 }
 .practice-nav-legend > span {
@@ -2362,5 +2473,70 @@ a:hover {
   }
   .practice-toolbar-title {
     font-size: 17px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Motion preferences                                              */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Respect the OS "reduce motion" setting. Decorative animation is removed
+ * rather than shortened so nothing moves unexpectedly; the progress and
+ * spinner animations still run, because they communicate live state.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .fade-in,
+  .modal,
+  .modal-backdrop {
+    animation: none !important;
+  }
+  .spin,
+  .shimmer {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Small screens                                                   */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Below 640px the shell keeps its icon rail but the topbar wraps: the
+ * database picker moves to a second row so the title, lock badge, refresh
+ * and command buttons are never clipped.
+ */
+@media (max-width: 640px) {
+  .sidebar {
+    width: 56px;
+    flex-basis: 56px;
+    padding: 14px 8px;
+  }
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .topbar {
+    height: auto;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 8px 12px;
+  }
+  .content {
+    padding: 14px 12px 28px;
+  }
+  .page {
+    gap: 14px;
   }
 }

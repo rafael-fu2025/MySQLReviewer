@@ -12,13 +12,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import type { CellValue, QueryResult } from '@shared/types';
-import {
-  copyText,
-  downloadCsv,
-  downloadJson,
-  formatDuration,
-  formatNumber,
-} from '@/lib/format';
+import { copyText, downloadCsv, downloadJson, formatDuration, formatNumber } from '@/lib/format';
 import { useAppStore } from '@/store/app-store';
 import { Badge, Button, ConfirmDialog, EmptyState } from './ui';
 
@@ -97,25 +91,26 @@ const ResultRow = memo(function ResultRow({
   );
 });
 
-function ResultsGridBase({
-  result,
-  onReveal,
-}: {
-  result: QueryResult;
-  onReveal?: () => void;
-}) {
+function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?: () => void }) {
   const toast = useAppStore((state) => state.toast);
   const [page, setPage] = useState(0);
   const [revealOpen, setRevealOpen] = useState(false);
   const pageSize = 100;
 
+  // A new result always starts on the first page. Adjusting the state while
+  // rendering keeps the grid from briefly showing the previous page of the
+  // new result and avoids the extra render pass an effect would cause.
+  const [lastResult, setLastResult] = useState(result);
+  if (result !== lastResult) {
+    setLastResult(result);
+    setPage(0);
+  }
+
   // The grid is memoized on `result` alone; keep the callback fresh via a ref.
   const onRevealRef = useRef(onReveal);
-  onRevealRef.current = onReveal;
-
   useEffect(() => {
-    setPage(0);
-  }, [result]);
+    onRevealRef.current = onReveal;
+  });
 
   const totalPages = Math.max(1, Math.ceil(result.rows.length / pageSize));
   const rows = useMemo(
@@ -205,7 +200,10 @@ function ResultsGridBase({
                 2,
               );
               const ok = await copyText(text);
-              toast(ok ? 'Result copied to clipboard.' : 'Could not copy the result.', ok ? 'success' : 'error');
+              toast(
+                ok ? 'Result copied to clipboard.' : 'Could not copy the result.',
+                ok ? 'success' : 'error',
+              );
             }}
           >
             Copy
@@ -215,8 +213,8 @@ function ResultsGridBase({
 
       {result.truncated ? (
         <div className="border-b border-warn/20 bg-warn/5 px-3 py-2 text-[11px] text-warn">
-          The result reached the configured row cap ({formatNumber(result.rowCount)} rows).
-          Add a LIMIT, narrow the predicate, or raise the cap in Settings.
+          The result reached the configured row cap ({formatNumber(result.rowCount)} rows). Add a
+          LIMIT, narrow the predicate, or raise the cap in Settings.
         </div>
       ) : null}
 
@@ -256,11 +254,12 @@ function ResultsGridBase({
               <tr>
                 <th style={{ width: 46 }}>#</th>
                 {result.columns.map((column, index) => (
-                  <th key={`${column.name}-${index}`} title={`${column.table ?? ''} ${column.name}`}>
+                  <th
+                    key={`${column.name}-${index}`}
+                    title={`${column.table ?? ''} ${column.name}`}
+                  >
                     <span className="inline-flex items-center gap-1">
-                      {column.sensitive ? (
-                        <Lock size={9} className="text-warn" />
-                      ) : null}
+                      {column.sensitive ? <Lock size={9} className="text-warn" /> : null}
                       {column.name}
                     </span>
                     <span className="col-type">{column.typeName}</span>
@@ -332,6 +331,5 @@ function ResultsGridBase({
 export const ResultsGrid = memo(
   ResultsGridBase,
   (previous, next) =>
-    previous.result === next.result &&
-    Boolean(previous.onReveal) === Boolean(next.onReveal),
+    previous.result === next.result && Boolean(previous.onReveal) === Boolean(next.onReveal),
 );

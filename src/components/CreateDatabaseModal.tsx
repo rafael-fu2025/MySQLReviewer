@@ -1,26 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Database, KeyRound, Unlock } from 'lucide-react';
-import type {
-  CharsetInfo,
-  ConnectionProfile,
-  CreateDatabaseResult,
-} from '@shared/types';
+import type { CharsetInfo, ConnectionProfile, CreateDatabaseResult } from '@shared/types';
 import { dbApi } from '@/lib/db-api';
 import { useAppStore } from '@/store/app-store';
 import { ApiError } from '@/lib/api';
 import { UnlockDialog } from './UnlockDialog';
 import { Combobox } from './Combobox';
-import {
-  Badge,
-  Button,
-  Checkbox,
-  CopyButton,
-  Field,
-  Input,
-  Modal,
-  Spinner,
-  cn,
-} from './ui';
+import { Badge, Button, Checkbox, CopyButton, Field, Input, Modal, Spinner } from './ui';
+import { cn } from '@/lib/utils';
 
 const IDENTIFIER = /^[A-Za-z0-9_]{1,64}$/;
 
@@ -47,12 +34,30 @@ export function CreateDatabaseModal({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateDatabaseResult | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now());
+
+  // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
+  // so the flag flips exactly when the unlock window closes, instead of
+  // reading the time while rendering.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!unlockedUntil) return;
+    const remaining = unlockedUntil - Date.now();
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [unlockedUntil]);
+
+  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
 
   const scoped = profile.databaseScope === 'selected';
 
-  useEffect(() => {
-    if (!open) return;
+  // Opening the modal (or switching connection) starts a fresh form. The
+  // reset is applied while rendering, the way React recommends for state that
+  // is derived from a prop, so the form never shows the previous values and
+  // no effect has to cascade a render.
+  const formKey = `${open}:${profile.id}`;
+  const [lastFormKey, setLastFormKey] = useState(formKey);
+  if (formKey !== lastFormKey) {
+    setLastFormKey(formKey);
     setName('');
     setCharset('utf8mb4');
     setCollation('utf8mb4_general_ci');
@@ -60,12 +65,15 @@ export function CreateDatabaseModal({
     setError(null);
     setResult(null);
     setLoadingCharsets(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
     dbApi
       .listCharsets(profile.id)
       .then((items) => {
         setCharsets(items);
-        const preferred =
-          items.find((item) => item.charset === 'utf8mb4') ?? items[0] ?? null;
+        const preferred = items.find((item) => item.charset === 'utf8mb4') ?? items[0] ?? null;
         if (preferred) {
           setCharset(preferred.charset);
           const defaultCollation =
@@ -79,7 +87,6 @@ export function CreateDatabaseModal({
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => setLoadingCharsets(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile.id]);
 
   const collations = useMemo(
@@ -178,14 +185,10 @@ export function CreateDatabaseModal({
             <div className="callout mint flex items-start gap-2">
               <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
               <div>
-                <div className="font-semibold text-ink">
-                  {result.database.name} was created.
-                </div>
+                <div className="font-semibold text-ink">{result.database.name} was created.</div>
                 <div className="mt-1 text-[11px] text-muted">
                   Charset {charset} · collation {result.database.collation ?? collation}
-                  {result.scopeUpdated
-                    ? ' · added to this profile’s allowed databases'
-                    : ''}
+                  {result.scopeUpdated ? ' · added to this profile’s allowed databases' : ''}
                 </div>
               </div>
             </div>
@@ -193,9 +196,7 @@ export function CreateDatabaseModal({
               <div className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <KeyRound size={13} className="text-ember" />
-                  <span className="text-[12px] font-semibold">
-                    Least-privilege GRANT SQL
-                  </span>
+                  <span className="text-[12px] font-semibold">Least-privilege GRANT SQL</span>
                   <Badge tone="warn" className="ml-auto">
                     review only · not executed
                   </Badge>
@@ -205,8 +206,8 @@ export function CreateDatabaseModal({
                   {result.grantSql}
                 </pre>
                 <div className="mt-2 text-[10px] leading-4 text-muted">
-                  Replace the password placeholder and run this with an administrative
-                  account if you want a dedicated user restricted to this database.
+                  Replace the password placeholder and run this with an administrative account if
+                  you want a dedicated user restricted to this database.
                 </div>
               </div>
             ) : null}
@@ -217,8 +218,7 @@ export function CreateDatabaseModal({
               <div className="callout danger flex flex-wrap items-center gap-2">
                 <Unlock size={14} className="text-danger" />
                 <span className="flex-1">
-                  Writes are locked. Creating a database is a DDL statement and needs an
-                  unlock.
+                  Writes are locked. Creating a database is a DDL statement and needs an unlock.
                 </span>
                 <Button
                   variant="danger"
@@ -283,14 +283,12 @@ export function CreateDatabaseModal({
             ) : null}
 
             <div className="text-[10.5px] leading-4 text-muted">
-              Creating a database is one DDL statement. MySQL commits it immediately, so
-              an accidental name cannot be rolled back. The database will be empty; use
-              the SQL editor to add tables.
+              Creating a database is one DDL statement. MySQL commits it immediately, so an
+              accidental name cannot be rolled back. The database will be empty; use the SQL editor
+              to add tables.
             </div>
 
-            {error ? (
-              <div className={cn('callout danger text-[11.5px]')}>{error}</div>
-            ) : null}
+            {error ? <div className={cn('callout danger text-[11.5px]')}>{error}</div> : null}
           </div>
         )}
       </Modal>

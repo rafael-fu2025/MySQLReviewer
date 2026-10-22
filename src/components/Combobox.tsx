@@ -1,14 +1,7 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search } from 'lucide-react';
-import { cn } from './ui';
+import { cn } from '@/lib/utils';
 
 export interface ComboOption {
   value: string;
@@ -27,24 +20,33 @@ interface Position {
   maxHeight: number;
 }
 
-function useComboPopover(options: ComboOption[], query: string, maxHeight: number) {
+/**
+ * The popover's DOM nodes.
+ *
+ * These are kept out of the state object below: the React compiler treats any
+ * object that holds refs as ref-like and then rejects every property access
+ * on it during render.
+ */
+interface ComboRefs {
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  popoverRef: RefObject<HTMLDivElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
+}
+
+interface ComboState {
+  id: string;
+  open: boolean;
+  position: Position | null;
+  setOpen: (value: boolean) => void;
+}
+
+function useComboPopover(maxHeight: number): { combo: ComboState; refs: ComboRefs } {
   const [open, setOpenState] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const id = useId();
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return options;
-    return options.filter((option) =>
-      [option.label, option.description ?? '', option.group ?? '', option.keywords ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [options, query]);
 
   const updatePosition = (): void => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -91,15 +93,52 @@ function useComboPopover(options: ComboOption[], query: string, maxHeight: numbe
   }, [open]);
 
   return {
-    id,
-    open,
-    setOpen,
-    buttonRef,
-    popoverRef,
-    inputRef,
-    position,
-    filtered,
+    combo: { id, open, position, setOpen },
+    refs: { buttonRef, popoverRef, inputRef },
   };
+}
+
+/**
+ * Holds the search text and the highlighted option, and filters the options.
+ *
+ * The search box is reset when the popover opens. That adjusts state during
+ * render rather than in an effect, so the list is already correct on the
+ * frame it appears.
+ */
+function useComboSearch(
+  options: ComboOption[],
+  open: boolean,
+): {
+  query: string;
+  setQuery: (value: string) => void;
+  activeIndex: number;
+  setActiveIndex: (index: number) => void;
+  filtered: ComboOption[];
+} {
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [wasOpen, setWasOpen] = useState(open);
+
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setQuery('');
+      setActiveIndex(0);
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter((option) =>
+      [option.label, option.description ?? '', option.group ?? '', option.keywords ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [options, query]);
+
+  return { query, setQuery, activeIndex, setActiveIndex, filtered };
 }
 
 function OptionRow({
@@ -123,7 +162,11 @@ function OptionRow({
       role="option"
       aria-selected={selected}
       disabled={option.disabled}
-      className={cn('combo-option', active && 'combo-option-active', option.disabled && 'opacity-45')}
+      className={cn(
+        'combo-option',
+        active && 'combo-option-active',
+        option.disabled && 'opacity-45',
+      )}
       onMouseEnter={onHover}
       onClick={onSelect}
     >
@@ -138,7 +181,7 @@ function OptionRow({
           <>
             <span className="block truncate text-[12px] text-ink-soft">{option.label}</span>
             {option.description ? (
-              <span className="block truncate text-[9.5px] text-muted">{option.description}</span>
+              <span className="block truncate text-[10px] text-muted">{option.description}</span>
             ) : null}
           </>
         )}
@@ -147,13 +190,14 @@ function OptionRow({
   );
 }
 
-type ComboHandle = ReturnType<typeof useComboPopover> & {
-  searchQuery: string;
-  setSearchQuery: (value: string) => void;
-};
-
 function ComboList({
-  combo,
+  id,
+  position,
+  popoverRef,
+  inputRef,
+  searchQuery,
+  onSearchQuery,
+  onClose,
   options,
   activeIndex,
   onActiveIndex,
@@ -169,7 +213,13 @@ function ComboList({
   hasSelection,
   onClear,
 }: {
-  combo: ComboHandle;
+  id: string;
+  position: Position | null;
+  popoverRef: RefObject<HTMLDivElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
+  searchQuery: string;
+  onSearchQuery: (value: string) => void;
+  onClose: () => void;
   options: ComboOption[];
   activeIndex: number;
   onActiveIndex: (index: number) => void;
@@ -200,25 +250,25 @@ function ComboList({
 
   return (
     <div
-      ref={combo.popoverRef}
+      ref={popoverRef}
       className="combo-popover"
       style={{
-        left: combo.position?.left ?? 0,
-        top: combo.position?.top ?? 0,
-        width: combo.position?.width ?? 250,
-        maxHeight: combo.position?.maxHeight ?? 320,
+        left: position?.left ?? 0,
+        top: position?.top ?? 0,
+        width: position?.width ?? 250,
+        maxHeight: position?.maxHeight ?? 320,
       }}
       role="listbox"
       aria-multiselectable={multi || undefined}
-      aria-labelledby={`${combo.id}-trigger`}
+      aria-labelledby={`${id}-trigger`}
     >
       <div className="combo-search">
         <Search size={13} className="shrink-0 text-muted" />
         <input
-          ref={combo.inputRef}
-          value={combo.searchQuery}
+          ref={inputRef}
+          value={searchQuery}
           onChange={(event) => {
-            combo.setSearchQuery(event.target.value);
+            onSearchQuery(event.target.value);
             onActiveIndex(0);
           }}
           placeholder={searchPlaceholder}
@@ -226,11 +276,11 @@ function ComboList({
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault();
-              combo.setOpen(false);
+              onClose();
               return;
             }
             if (event.key === 'Tab') {
-              combo.setOpen(false);
+              onClose();
               return;
             }
             if (event.key === 'ArrowDown') {
@@ -331,21 +381,18 @@ export function Combobox({
   clearable?: boolean;
   renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
 }) {
-  const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
-  const combo = useComboPopover(options, query, maxHeight);
+  const { combo, refs } = useComboPopover(maxHeight);
+  const { buttonRef } = refs;
+  const { query, setQuery, activeIndex, setActiveIndex, filtered } = useComboSearch(
+    options,
+    combo.open,
+  );
   const selected = options.find((option) => option.value === value) ?? null;
-
-  useEffect(() => {
-    if (!combo.open) return;
-    setQuery('');
-    setActiveIndex(0);
-  }, [combo.open]);
 
   return (
     <div className={cn('relative', className)}>
       <button
-        ref={combo.buttonRef}
+        ref={buttonRef}
         id={`${combo.id}-trigger`}
         type="button"
         className={cn('combo-button', buttonClassName)}
@@ -376,8 +423,14 @@ export function Combobox({
         ? createPortal(
             <div id={`${combo.id}-list`}>
               <ComboList
-                combo={{ ...combo, searchQuery: query, setSearchQuery: setQuery }}
-                options={combo.filtered}
+                id={combo.id}
+                position={combo.position}
+                popoverRef={refs.popoverRef}
+                inputRef={refs.inputRef}
+                searchQuery={query}
+                onSearchQuery={setQuery}
+                onClose={() => combo.setOpen(false)}
+                options={filtered}
                 activeIndex={activeIndex}
                 onActiveIndex={setActiveIndex}
                 isSelected={(option) => option.value === value}
@@ -431,18 +484,15 @@ export function MultiSelect({
   showSelectAll?: boolean;
   selectAllLabel?: string;
 }) {
-  const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
-  const combo = useComboPopover(options, query, maxHeight);
+  const { combo, refs } = useComboPopover(maxHeight);
+  const { buttonRef } = refs;
+  const { query, setQuery, activeIndex, setActiveIndex, filtered } = useComboSearch(
+    options,
+    combo.open,
+  );
   const selectedSet = new Set(values);
   const selectedOptions = options.filter((option) => selectedSet.has(option.value));
   const enabledOptions = options.filter((option) => !option.disabled);
-
-  useEffect(() => {
-    if (!combo.open) return;
-    setQuery('');
-    setActiveIndex(0);
-  }, [combo.open]);
 
   const toggle = (option: ComboOption): void => {
     if (option.disabled) return;
@@ -456,7 +506,7 @@ export function MultiSelect({
   return (
     <div className={cn('relative', className)}>
       <button
-        ref={combo.buttonRef}
+        ref={buttonRef}
         id={`${combo.id}-trigger`}
         type="button"
         className={cn('combo-button', buttonClassName)}
@@ -473,7 +523,9 @@ export function MultiSelect({
         aria-expanded={combo.open}
         aria-controls={combo.open ? `${combo.id}-list` : undefined}
       >
-        <span className={cn('min-w-0 flex-1 truncate text-left', values.length === 0 && 'text-muted')}>
+        <span
+          className={cn('min-w-0 flex-1 truncate text-left', values.length === 0 && 'text-muted')}
+        >
           {values.length === 0
             ? placeholder
             : values.length <= 2
@@ -490,8 +542,14 @@ export function MultiSelect({
         ? createPortal(
             <div id={`${combo.id}-list`}>
               <ComboList
-                combo={{ ...combo, searchQuery: query, setSearchQuery: setQuery }}
-                options={combo.filtered}
+                id={combo.id}
+                position={combo.position}
+                popoverRef={refs.popoverRef}
+                inputRef={refs.inputRef}
+                searchQuery={query}
+                onSearchQuery={setQuery}
+                onClose={() => combo.setOpen(false)}
+                options={filtered}
                 activeIndex={activeIndex}
                 onActiveIndex={setActiveIndex}
                 isSelected={(option) => selectedSet.has(option.value)}

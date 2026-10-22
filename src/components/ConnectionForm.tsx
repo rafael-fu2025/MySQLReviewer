@@ -7,16 +7,8 @@ import type {
   TestConnectionResult,
 } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
-import {
-  Button,
-  Checkbox,
-  CopyButton,
-  Field,
-  IconButton,
-  Input,
-  Spinner,
-  cn,
-} from './ui';
+import { Button, Checkbox, CopyButton, Field, IconButton, Input, Spinner } from './ui';
+import { cn } from '@/lib/utils';
 import { MultiSelect } from './Combobox';
 
 interface FormState {
@@ -77,7 +69,10 @@ function validatePort(value: string): { port?: number; error?: string } {
   return { port };
 }
 
-function validateFields(form: FormState): { errors: Partial<Record<FieldKey, string>>; port?: number } {
+function validateFields(form: FormState): {
+  errors: Partial<Record<FieldKey, string>>;
+  port?: number;
+} {
   const errors: Partial<Record<FieldKey, string>> = {};
   if (!form.name.trim()) errors.name = 'Enter a name for this connection.';
   if (!form.host.trim()) errors.host = 'Enter a host name or IP address.';
@@ -147,11 +142,7 @@ export function ConnectionForm({
     host: form.host.trim(),
     port,
     user: form.user.trim(),
-    ...(form.clearPassword
-      ? { password: '' }
-      : form.password
-        ? { password: form.password }
-        : {}),
+    ...(form.clearPassword ? { password: '' } : form.password ? { password: form.password } : {}),
     database: form.database.trim() || undefined,
     socketPath: form.socketPath.trim() || undefined,
     ssl: ssl(),
@@ -183,9 +174,7 @@ export function ConnectionForm({
       const result = await api.post<TestConnectionResult>('/api/connections/test', {
         ...payload,
         includeDatabases: true,
-        ...(profile && !form.password && !form.clearPassword
-          ? { profileId: profile.id }
-          : {}),
+        ...(profile && !form.password && !form.clearPassword ? { profileId: profile.id } : {}),
       });
       setTest(result);
       if (result.ok && result.databases) {
@@ -250,16 +239,18 @@ export function ConnectionForm({
     }
   };
 
-  const databaseOptions = (testDatabases.length > 0
-    ? testDatabases
-    : form.allowedDatabases.map((name) => ({
-        name,
-        isSystem: false,
-        tableCount: 0,
-        viewCount: 0,
-        sizeBytes: 0,
-        collation: null,
-      })))
+  const databaseOptions = (
+    testDatabases.length > 0
+      ? testDatabases
+      : form.allowedDatabases.map((name) => ({
+          name,
+          isSystem: false,
+          tableCount: 0,
+          viewCount: 0,
+          sizeBytes: 0,
+          collation: null,
+        }))
+  )
     .filter((database) => !database.isSystem)
     .map((database) => ({
       value: database.name,
@@ -267,7 +258,7 @@ export function ConnectionForm({
       description:
         database.tableCount > 0
           ? `${database.tableCount} tables`
-          : database.collation ?? undefined,
+          : (database.collation ?? undefined),
       group: 'Databases',
     }));
 
@@ -350,7 +341,10 @@ export function ConnectionForm({
               : 'The password is encrypted at rest when remembered.'}
           </span>
         </div>
-        <Field label="Default database" hint="Optional. The workspace database selector still works.">
+        <Field
+          label="Default database"
+          hint="Optional. The workspace database selector still works."
+        >
           <Input
             value={form.database}
             onChange={(event) => set('database', event.target.value)}
@@ -387,10 +381,7 @@ export function ConnectionForm({
           <div className="ml-auto flex gap-1">
             <button
               type="button"
-              className={cn(
-                'badge cursor-pointer',
-                form.databaseScope === 'all' && 'badge-ember',
-              )}
+              className={cn('badge cursor-pointer', form.databaseScope === 'all' && 'badge-ember')}
               onClick={() =>
                 setForm((current) => ({
                   ...current,
@@ -412,9 +403,7 @@ export function ConnectionForm({
                   ...current,
                   databaseScope: 'selected',
                   allowServerWideInsights:
-                    current.databaseScope === 'selected'
-                      ? current.allowServerWideInsights
-                      : false,
+                    current.databaseScope === 'selected' ? current.allowServerWideInsights : false,
                 }))
               }
             >
@@ -435,8 +424,8 @@ export function ConnectionForm({
             />
             {testDatabases.length === 0 ? (
               <div className="text-[10px] text-muted">
-                Test the connection to load the server’s databases. The saved selection
-                remains editable.
+                Test the connection to load the server’s databases. The saved selection remains
+                editable.
               </div>
             ) : null}
             <Checkbox
@@ -445,8 +434,8 @@ export function ConnectionForm({
               onChange={(value) => set('allowServerWideInsights', value)}
             />
             <div className="text-[10px] leading-4 text-muted">
-              The profile allowlist is a workflow guardrail. A restricted MySQL user and
-              grants are the real security boundary.
+              The profile allowlist is a workflow guardrail. A restricted MySQL user and grants are
+              the real security boundary.
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -563,12 +552,7 @@ export function ConnectionForm({
       ) : null}
 
       {test ? (
-        <div
-          className={cn(
-            'callout flex items-start gap-2',
-            test.ok ? 'mint' : 'danger',
-          )}
-        >
+        <div className={cn('callout flex items-start gap-2', test.ok ? 'mint' : 'danger')}>
           {test.ok ? (
             <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
           ) : (

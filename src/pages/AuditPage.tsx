@@ -11,11 +11,7 @@ import {
   Square,
   XCircle,
 } from 'lucide-react';
-import type {
-  AuditReport,
-  AuditStep,
-  ReportSummary,
-} from '@shared/types';
+import type { AuditReport, AuditStep, ReportSummary } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import { postSse } from '@/lib/sse';
@@ -35,8 +31,8 @@ import {
   ProgressBar,
   Spinner,
   StatCard,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 export function AuditPage() {
   const navigate = useNavigate();
@@ -81,32 +77,47 @@ export function AuditPage() {
     return userDatabases.filter((database) => database.name.toLowerCase().includes(needle));
   }, [search, userDatabases]);
 
-  useEffect(() => {
-    if (selected.size > 0 || !selectedDatabase) return;
-    if (userDatabases.some((database) => database.name === selectedDatabase)) {
+  // The selected database is picked up automatically while nothing is selected.
+  // The state is adjusted while rendering so the auto-selection lands in the
+  // same commit as the database change.
+  const [autoSelectInputs, setAutoSelectInputs] = useState<{
+    database: string | null;
+    users: typeof userDatabases;
+  } | null>(null);
+  if (
+    autoSelectInputs?.database !== selectedDatabase ||
+    autoSelectInputs?.users !== userDatabases
+  ) {
+    setAutoSelectInputs({ database: selectedDatabase, users: userDatabases });
+    if (
+      selected.size === 0 &&
+      selectedDatabase &&
+      userDatabases.some((database) => database.name === selectedDatabase)
+    ) {
       setSelected(new Set([selectedDatabase]));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDatabase, userDatabases]);
+  }
 
-  useEffect(() => {
-    if (providerId || providers.length === 0) return;
+  // Adopt the default provider as soon as the provider list is available.
+  if (!providerId && providers.length > 0) {
     const first = providers.find((provider) => provider.isDefault) ?? providers[0];
     setProviderId(first.id);
     setModel(first.model);
-  }, [providerId, providers]);
+  }
 
-  const loadPast = async (): Promise<void> => {
-    try {
-      const reports = await api.get<ReportSummary[]>('/api/reports?kind=audit');
-      setPast(reports.slice(0, 8));
-    } catch {
-      // The report list is supplementary.
-    }
+  const loadPast = (): void => {
+    api
+      .get<ReportSummary[]>('/api/reports?kind=audit')
+      .then((reports) => {
+        setPast(reports.slice(0, 8));
+      })
+      .catch(() => {
+        // The report list is supplementary.
+      });
   };
 
   useEffect(() => {
-    void loadPast();
+    loadPast();
   }, []);
 
   const toggleDatabase = (name: string): void => {
@@ -129,8 +140,7 @@ export function AuditPage() {
       toast('Select at least one database to audit.', 'warn');
       return;
     }
-    const provider =
-      providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
+    const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
     if (includeAi && !provider) {
       toast('Add an AI provider or disable the AI summary.', 'warn');
       return;
@@ -180,7 +190,7 @@ export function AuditPage() {
                 setProgress(100);
                 setMessage('Audit complete.');
                 setRunning(false);
-                void loadPast();
+                loadPast();
               }
             } else if (event === 'error') {
               const payload = data as { message?: string };
@@ -236,12 +246,7 @@ export function AuditPage() {
             <Badge tone="neutral">
               <Database size={10} /> {selected.size} selected · {totalTables} tables
             </Badge>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<RefreshCw size={12} />}
-              onClick={() => void loadPast()}
-            >
+            <Button variant="ghost" size="sm" icon={<RefreshCw size={12} />} onClick={loadPast}>
               Past audits
             </Button>
           </>
@@ -297,7 +302,7 @@ export function AuditPage() {
                 <span className="text-ink-soft">{step.label}</span>
                 {step.detail ? <span className="text-muted">— {step.detail}</span> : null}
                 {step.durationMs != null ? (
-                  <span className="ml-auto font-mono text-[9.5px] text-muted">
+                  <span className="ml-auto font-mono text-[10px] text-muted">
                     {formatDuration(step.durationMs)}
                   </span>
                 ) : null}
@@ -386,7 +391,7 @@ export function AuditPage() {
                       <span className="block truncate text-[12px] font-semibold text-ink">
                         {database.name}
                       </span>
-                      <span className="block font-mono text-[9.5px] text-muted">
+                      <span className="block font-mono text-[10px] text-muted">
                         {database.tableCount} tables · {database.viewCount} views ·{' '}
                         {formatBytes(database.sizeBytes)}
                       </span>
@@ -431,9 +436,7 @@ export function AuditPage() {
                               }))}
                               value={providerId}
                               onChange={(value) => {
-                                const next = providers.find(
-                                  (item) => item.id === value,
-                                );
+                                const next = providers.find((item) => item.id === value);
                                 setProviderId(value);
                                 if (next) setModel(next.model);
                               }}
@@ -506,14 +509,12 @@ export function AuditPage() {
                           <span className="block truncate text-[11px] text-ink-soft">
                             {item.title}
                           </span>
-                          <span className="block text-[9.5px] text-muted">
+                          <span className="block text-[10px] text-muted">
                             {formatDate(item.createdAt)} · {item.findingsTotal} findings
                           </span>
                         </span>
                         <Badge
-                          tone={
-                            item.score >= 80 ? 'mint' : item.score >= 60 ? 'warn' : 'danger'
-                          }
+                          tone={item.score >= 80 ? 'mint' : item.score >= 60 ? 'warn' : 'danger'}
                         >
                           {item.score} {item.grade}
                         </Badge>

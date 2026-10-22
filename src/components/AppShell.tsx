@@ -23,7 +23,9 @@ import { useAppStore } from '@/store/app-store';
 import { useUiStore } from '@/store/ui-store';
 import { APP_VERSION } from '@shared/types';
 import { formatBytes } from '@/lib/format';
-import { cn, Badge, Button, IconButton, Kbd, Spinner, useNow } from './ui';
+import { Badge, Button, IconButton, Kbd, Spinner } from './ui';
+import { cn } from '@/lib/utils';
+import { useNow } from '@/lib/hooks';
 import { Combobox } from './Combobox';
 import { CommandPalette } from './CommandPalette';
 import { Tooltip } from './Tooltip';
@@ -81,9 +83,7 @@ function formatCountdown(ms: number): string {
 
 function useIsNarrow(): boolean {
   const [narrow, setNarrow] = useState(() =>
-    typeof window === 'undefined'
-      ? false
-      : window.matchMedia('(max-width: 900px)').matches,
+    typeof window === 'undefined' ? false : window.matchMedia('(max-width: 900px)').matches,
   );
   useEffect(() => {
     const media = window.matchMedia('(max-width: 900px)');
@@ -124,8 +124,7 @@ export function AppShell() {
   const scoped = activeProfile?.databaseScope === 'selected';
   const hideServerWide = Boolean(scoped && !activeProfile?.allowServerWideInsights);
   const navItems = NAV.filter(
-    (item) =>
-      !(hideServerWide && (item.to === '/performance' || item.to === '/security')),
+    (item) => !(hideServerWide && (item.to === '/performance' || item.to === '/security')),
   );
   const defaultProvider = providers.find((provider) => provider.isDefault);
   const meta =
@@ -179,7 +178,18 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <aside className={cn('sidebar', sidebarCollapsed && 'sidebar-collapsed')}>
-        <div className="brand" onClick={() => navigate('/workspace')} style={{ cursor: 'pointer' }}>
+        <div
+          className="brand"
+          role="button"
+          tabIndex={0}
+          onClick={() => navigate('/workspace')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              navigate('/workspace');
+            }
+          }}
+        >
           <div className="brand-mark">
             <Terminal size={19} />
           </div>
@@ -215,7 +225,18 @@ export function AppShell() {
           block
           disabled={!compactSidebar}
         >
-          <div className="connection-card" onClick={() => navigate('/connect')}>
+          <div
+            className="connection-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/connect')}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                navigate('/connect');
+              }
+            }}
+          >
             <div className="connection-name">
               <span className="connection-glyph">
                 <Database size={13} />
@@ -275,7 +296,9 @@ export function AppShell() {
                 {defaultProvider ? defaultProvider.name : 'Configure AI'}
               </span>
               {defaultProvider ? (
-                <span className="nav-badge">{defaultProvider.model.split('/').pop()?.slice(0, 10)}</span>
+                <span className="nav-badge">
+                  {defaultProvider.model.split('/').pop()?.slice(0, 10)}
+                </span>
               ) : null}
             </button>
           </Tooltip>
@@ -311,7 +334,7 @@ export function AppShell() {
               if (value) setDatabase(value);
             }}
             placeholder="Select database…"
-            className="w-[230px]"
+            className="order-last w-full basis-full md:order-none md:w-[190px] md:basis-auto xl:w-[230px]"
             buttonClassName="py-1.5 text-[11.5px]"
             clearable={false}
             maxHeight={360}
@@ -325,10 +348,7 @@ export function AppShell() {
 
           <button
             type="button"
-            className={cn(
-              'badge cursor-pointer',
-              unlocked ? 'sev-medium' : 'text-muted',
-            )}
+            className={cn('badge cursor-pointer', unlocked ? 'sev-medium' : 'text-muted')}
             onClick={() => {
               if (unlocked) void lockWrites();
             }}
@@ -339,7 +359,9 @@ export function AppShell() {
             }
           >
             {unlocked ? <Unlock size={11} /> : <Lock size={11} />}
-            {unlocked ? `Unlocked ${formatCountdown(remaining)}` : 'Read-only'}
+            <span className="hidden md:inline">
+              {unlocked ? `Unlocked ${formatCountdown(remaining)}` : 'Read-only'}
+            </span>
           </button>
 
           <IconButton label="Refresh schema" onClick={() => void refreshAll()}>
@@ -352,8 +374,10 @@ export function AppShell() {
             onClick={() => setPaletteOpen(true)}
           >
             <Command size={13} />
-            <span className="hidden sm:inline">Commands</span>
-            <Kbd>Ctrl K</Kbd>
+            <span className="hidden md:inline">Commands</span>
+            <span className="hidden md:inline-flex">
+              <Kbd>Ctrl K</Kbd>
+            </span>
           </button>
         </header>
 
@@ -365,7 +389,8 @@ export function AppShell() {
                 Writes are unlocked for {formatCountdown(remaining)}.
               </span>
               <span className="text-muted">
-                DML, DDL, and admin statements can now run. Destructive statements still ask for confirmation.
+                DML, DDL, and admin statements can now run. Destructive statements still ask for
+                confirmation.
               </span>
               <Button
                 variant="danger"

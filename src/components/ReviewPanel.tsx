@@ -29,8 +29,8 @@ import {
   ScoreRing,
   Spinner,
   Tabs,
-  cn,
 } from './ui';
+import { cn } from '@/lib/utils';
 import { Combobox } from './Combobox';
 
 function verdictTone(verdict: AiReview['verdict']): 'mint' | 'warn' | 'danger' | 'neutral' {
@@ -111,16 +111,21 @@ export function ReviewPanel({
   const chatAbortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!providerId && initialProvider) {
-      setProviderId(initialProvider.id);
-      setModel(initialProvider.model);
-    }
-  }, [initialProvider, providerId]);
+  // Adopt the default provider as soon as the provider list is available. The
+  // state is adjusted while rendering so the panel never renders an empty
+  // provider selection first.
+  if (!providerId && initialProvider) {
+    setProviderId(initialProvider.id);
+    setModel(initialProvider.model);
+  }
 
-  useEffect(() => {
+  // A fresh AI review takes over the tab. Adjusting the state while rendering
+  // switches tabs in the same commit instead of a second render from an effect.
+  const [lastAi, setLastAi] = useState<AiReview | null>(null);
+  if (ai !== lastAi) {
+    setLastAi(ai);
     if (ai) setTab('ai');
-  }, [ai]);
+  }
 
   useEffect(() => {
     return () => {
@@ -176,10 +181,7 @@ export function ReviewPanel({
               const payload = data as { text?: string };
               const answer = payload.text?.trim() || accumulated;
               if (answer) {
-                setChatMessages((current) => [
-                  ...current,
-                  { role: 'assistant', content: answer },
-                ]);
+                setChatMessages((current) => [...current, { role: 'assistant', content: answer }]);
               }
               setChatDraft('');
               setChatStreaming(false);
@@ -239,12 +241,8 @@ export function ReviewPanel({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[13px] font-bold">Deterministic review</span>
-            <Badge tone="neutral">
-              {countLabel(review.findings.length, 'finding')}
-            </Badge>
-            {review.context.database ? (
-              <Badge tone="ember">{review.context.database}</Badge>
-            ) : null}
+            <Badge tone="neutral">{countLabel(review.findings.length, 'finding')}</Badge>
+            {review.context.database ? <Badge tone="ember">{review.context.database}</Badge> : null}
             {review.context.truncated ? <Badge tone="warn">context truncated</Badge> : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -260,16 +258,14 @@ export function ReviewPanel({
           <div className="mt-2 flex flex-wrap items-center gap-3 text-[10.5px] text-muted">
             <span>{countLabel(review.context.tables.length, 'table')} in context</span>
             <span>~{review.context.estimatedTokens.toLocaleString()} tokens</span>
-            {review.explain ? (
-              <span>{review.explain.insights.length} plan insights</span>
-            ) : null}
+            {review.explain ? <span>{review.explain.insights.length} plan insights</span> : null}
           </div>
           {review.context.tables.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {review.context.tables.map((table) => (
                 <span
                   key={`${table.database}.${table.table}`}
-                  className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 font-mono text-[9.5px] text-muted"
+                  className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-muted"
                 >
                   {table.table}
                   <span className="text-muted/60"> · {table.columns.length} cols</span>
@@ -294,7 +290,12 @@ export function ReviewPanel({
       <Tabs
         items={[
           { id: 'findings', label: 'Rules', count: findingCount },
-          { id: 'ai', label: 'AI review', icon: <Sparkles size={12} />, count: aiFindings.length || undefined },
+          {
+            id: 'ai',
+            label: 'AI review',
+            icon: <Sparkles size={12} />,
+            count: aiFindings.length || undefined,
+          },
         ]}
         value={tab}
         onChange={setTab}
@@ -349,8 +350,8 @@ export function ReviewPanel({
             <div className="callout info flex flex-wrap items-center gap-2">
               <Sparkles size={14} />
               <span className="flex-1">
-                Add an AI provider to get a second opinion, rewrite suggestions, and a
-                structured deep review.
+                Add an AI provider to get a second opinion, rewrite suggestions, and a structured
+                deep review.
               </span>
               <Button size="sm" variant="secondary" onClick={onConfigureAi}>
                 Configure AI
@@ -429,8 +430,8 @@ export function ReviewPanel({
               </div>
               {analyze ? (
                 <div className="text-[10.5px] text-warn">
-                  ANALYZE executes the statement on the server. Read-only SELECTs are safe;
-                  writes require an unlock.
+                  ANALYZE executes the statement on the server. Read-only SELECTs are safe; writes
+                  require an unlock.
                 </div>
               ) : null}
             </div>
@@ -447,9 +448,7 @@ export function ReviewPanel({
             <div className="card p-3">
               <div className="flex items-center gap-2 text-[11px] text-muted">
                 <Spinner size={13} />
-                <span>
-                  {aiStreaming ? 'Streaming the review…' : 'Waiting for the provider…'}
-                </span>
+                <span>{aiStreaming ? 'Streaming the review…' : 'Waiting for the provider…'}</span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -479,7 +478,7 @@ export function ReviewPanel({
                   {ai.providerName} · {ai.model} · {formatDuration(ai.durationMs)}
                 </span>
                 {ai.usage ? (
-                  <span className="ml-auto font-mono text-[9.5px] text-muted">
+                  <span className="ml-auto font-mono text-[10px] text-muted">
                     {ai.usage.inputTokens ?? '?'} in · {ai.usage.outputTokens ?? '?'} out
                   </span>
                 ) : null}
@@ -494,11 +493,7 @@ export function ReviewPanel({
                 <div className="flex flex-col gap-2">
                   <div className="section-title">AI findings</div>
                   {ai.findings.map((finding) => (
-                    <FindingCard
-                      key={finding.id}
-                      finding={finding}
-                      onJumpToLine={onJumpToLine}
-                    />
+                    <FindingCard key={finding.id} finding={finding} onJumpToLine={onJumpToLine} />
                   ))}
                 </div>
               ) : null}
@@ -547,7 +542,10 @@ export function ReviewPanel({
                       .writeText(ai.markdown || ai.summary)
                       .then(() => true)
                       .catch(() => false);
-                    toast(ok ? 'AI review copied.' : 'Could not copy the review.', ok ? 'success' : 'error');
+                    toast(
+                      ok ? 'AI review copied.' : 'Could not copy the review.',
+                      ok ? 'success' : 'error',
+                    );
                   }}
                 >
                   Copy review
@@ -589,9 +587,8 @@ export function ReviewPanel({
               <div className="mt-2 flex max-h-[340px] flex-col gap-2 overflow-auto pr-1">
                 {chatMessages.length === 0 && !chatDraft ? (
                   <div className="rounded-xl border border-line-soft bg-panel-2/40 px-3 py-4 text-[11.5px] text-muted">
-                    Ask why a rule fired, how an index would change the plan, or whether a
-                    rewrite is safe. The current SQL and referenced schema are included as
-                    context.
+                    Ask why a rule fired, how an index would change the plan, or whether a rewrite
+                    is safe. The current SQL and referenced schema are included as context.
                   </div>
                 ) : null}
                 {chatMessages.map((message, index) => (
@@ -666,7 +663,7 @@ export function ReviewPanel({
                   </Button>
                 )}
               </div>
-              <div className="mt-1 text-[9.5px] text-muted">
+              <div className="mt-1 text-[10px] text-muted">
                 Follow-up chat sends the conversation, SQL, and schema context to the selected
                 provider. Local providers keep it on this machine.
               </div>

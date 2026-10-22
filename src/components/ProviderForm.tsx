@@ -3,17 +3,8 @@ import { CheckCircle2, Sparkles, XCircle } from 'lucide-react';
 import type { AiProvider, AiProviderInput, AiProviderPreset } from '@shared/types';
 import { AI_PROVIDER_PRESETS } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
-import {
-  Badge,
-  Button,
-  Checkbox,
-  Field,
-  Input,
-  Spinner,
-  Switch,
-  Textarea,
-  cn,
-} from './ui';
+import { Badge, Button, Checkbox, Field, Input, Spinner, Switch, Textarea } from './ui';
+import { cn } from '@/lib/utils';
 import { Combobox } from './Combobox';
 
 interface FormState {
@@ -106,9 +97,8 @@ export function ProviderForm({
   };
 
   const buildPayload = (): AiProviderInput => {
-    let headers: Record<string, string> = {};
     const parsedHeaders = parseObject(form.headersJson, 'Headers');
-    headers = Object.fromEntries(
+    const headers: Record<string, string> = Object.fromEntries(
       Object.entries(parsedHeaders).map(([key, value]) => [key, String(value)]),
     );
     const extraBody = parseObject(form.extraBodyJson, 'Extra body');
@@ -193,7 +183,7 @@ export function ProviderForm({
               onClick={() => setForm((current) => applyPreset(preset, current))}
             >
               <div className="text-[11.5px] font-semibold text-ink">{preset.label}</div>
-              <div className="mt-0.5 line-clamp-2 text-[9.5px] leading-4 text-muted">
+              <div className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-muted">
                 {preset.description}
               </div>
             </button>
@@ -378,9 +368,7 @@ export function ProviderForm({
                 {testResult.models.length > 8 ? '…' : ''}
               </span>
             ) : null}
-            {testResult.ok ? (
-              <Badge tone="mint">{testResult.latencyMs} ms</Badge>
-            ) : null}
+            {testResult.ok ? <Badge tone="mint">{testResult.latencyMs} ms</Badge> : null}
           </div>
         </div>
       ) : null}

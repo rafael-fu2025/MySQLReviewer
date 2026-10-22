@@ -11,24 +11,11 @@ import {
 } from 'lucide-react';
 import type { AuditReport } from '@shared/types';
 import { downloadReport } from '@/lib/api';
-import {
-  formatBytes,
-  formatDate,
-  formatDuration,
-  formatNumber,
-  statusTone,
-} from '@/lib/format';
+import { formatBytes, formatDate, formatDuration, formatNumber, statusTone } from '@/lib/format';
 import { GroupedFindings } from './Findings';
 import { Markdown } from './Markdown';
-import {
-  Badge,
-  Button,
-  Card,
-  CopyButton,
-  ScoreRing,
-  StatCard,
-  cn,
-} from './ui';
+import { Badge, Button, Card, CopyButton, ScoreRing, StatCard } from './ui';
+import { cn } from '@/lib/utils';
 
 export function AuditReportView({ report }: { report: AuditReport }) {
   const [exporting, setExporting] = useState<string | null>(null);
@@ -62,8 +49,8 @@ export function AuditReportView({ report }: { report: AuditReport }) {
             </div>
             <h2 className="mt-2 text-[20px] font-extrabold tracking-tight">{report.title}</h2>
             <div className="mt-1 text-[11.5px] text-muted">
-              {report.profile.name} · {report.profile.user}@{report.profile.host}:{report.profile.port} ·{' '}
-              {formatDuration(report.durationMs)}
+              {report.profile.name} · {report.profile.user}@{report.profile.host}:
+              {report.profile.port} · {formatDuration(report.durationMs)}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {(['critical', 'high', 'medium', 'low', 'info'] as const)
@@ -80,7 +67,9 @@ export function AuditReportView({ report }: { report: AuditReport }) {
             <Button
               variant="secondary"
               size="sm"
-              icon={exporting === 'md' ? <Loader2 size={12} className="spin" /> : <FileText size={12} />}
+              icon={
+                exporting === 'md' ? <Loader2 size={12} className="spin" /> : <FileText size={12} />
+              }
               onClick={() => void exportFormat('md')}
               disabled={Boolean(exporting)}
             >
@@ -89,7 +78,9 @@ export function AuditReportView({ report }: { report: AuditReport }) {
             <Button
               variant="secondary"
               size="sm"
-              icon={exporting === 'html' ? <Loader2 size={12} className="spin" /> : <Globe2 size={12} />}
+              icon={
+                exporting === 'html' ? <Loader2 size={12} className="spin" /> : <Globe2 size={12} />
+              }
               onClick={() => void exportFormat('html')}
               disabled={Boolean(exporting)}
             >
@@ -98,7 +89,13 @@ export function AuditReportView({ report }: { report: AuditReport }) {
             <Button
               variant="ghost"
               size="sm"
-              icon={exporting === 'json' ? <Loader2 size={12} className="spin" /> : <FileJson size={12} />}
+              icon={
+                exporting === 'json' ? (
+                  <Loader2 size={12} className="spin" />
+                ) : (
+                  <FileJson size={12} />
+                )
+              }
               onClick={() => void exportFormat('json')}
               disabled={Boolean(exporting)}
             >
@@ -109,12 +106,24 @@ export function AuditReportView({ report }: { report: AuditReport }) {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-        <StatCard label="Databases" value={report.stats.databases} sub={report.databaseScope.join(', ')} />
-        <StatCard label="Tables" value={formatNumber(report.stats.tables)} icon={<Table2 size={13} />} />
+        <StatCard
+          label="Databases"
+          value={report.stats.databases}
+          sub={report.databaseScope.join(', ')}
+        />
+        <StatCard
+          label="Tables"
+          value={formatNumber(report.stats.tables)}
+          icon={<Table2 size={13} />}
+        />
         <StatCard label="Columns" value={formatNumber(report.stats.columns)} />
         <StatCard label="Indexes" value={formatNumber(report.stats.indexes)} />
         <StatCard label="Triggers" value={formatNumber(report.stats.triggers)} />
-        <StatCard label="On-disk size" value={formatBytes(report.stats.totalBytes)} sub="estimated" />
+        <StatCard
+          label="On-disk size"
+          value={formatBytes(report.stats.totalBytes)}
+          sub="estimated"
+        />
       </div>
 
       {report.ai?.markdown ? (
@@ -215,7 +224,7 @@ export function AuditReportView({ report }: { report: AuditReport }) {
                 <span className="text-ink-soft">{step.label}</span>
                 {step.detail ? <span className="text-muted">— {step.detail}</span> : null}
                 {step.durationMs != null ? (
-                  <span className="ml-auto font-mono text-[9.5px] text-muted">
+                  <span className="ml-auto font-mono text-[10px] text-muted">
                     {formatDuration(step.durationMs)}
                   </span>
                 ) : null}

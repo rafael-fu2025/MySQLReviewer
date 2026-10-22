@@ -36,7 +36,7 @@ export interface ApiErrorBody {
 }
 
 export async function parseApiError(response: Response): Promise<ApiError> {
-  let payload: ApiErrorBody | null = null;
+  let payload: ApiErrorBody | null;
   try {
     payload = (await response.json()) as ApiErrorBody;
   } catch {
@@ -144,7 +144,8 @@ export const api = {
     request<T>('POST', path, body ?? {}, options),
   put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>('PUT', path, body ?? {}, options),
-  del: <T>(path: string, options?: RequestOptions) => request<T>('DELETE', path, undefined, options),
+  del: <T>(path: string, options?: RequestOptions) =>
+    request<T>('DELETE', path, undefined, options),
 };
 
 export function downloadBlob(filename: string, blob: Blob): void {
@@ -166,10 +167,7 @@ export function downloadText(
   downloadBlob(filename, new Blob([content], { type: mime }));
 }
 
-export async function downloadReport(
-  id: string,
-  format: 'md' | 'html' | 'json',
-): Promise<void> {
+export async function downloadReport(id: string, format: 'md' | 'html' | 'json'): Promise<void> {
   const response = await fetch(`/api/reports/${encodeURIComponent(id)}/export?format=${format}`, {
     headers: apiToken ? { 'x-mylens-token': apiToken } : {},
   });

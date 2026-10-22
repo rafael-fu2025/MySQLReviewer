@@ -1,9 +1,9 @@
 import React, {
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -18,12 +18,10 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import clsx from 'clsx';
-import type { Finding, Severity } from '@shared/types';
+import type { Severity } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { copyText } from '@/lib/format';
-
-export const cn = clsx;
+import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
 /* Buttons                                                             */
@@ -95,11 +93,7 @@ export function IconButton({
 /* Surfaces                                                            */
 /* ------------------------------------------------------------------ */
 
-export function Card({
-  className,
-  children,
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function Card({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={cn('card', className)} {...rest}>
       {children}
@@ -247,10 +241,7 @@ export function Field({
   );
 }
 
-export function Input({
-  className,
-  ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...rest }: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn('input', className)} {...rest} />;
 }
 
@@ -348,22 +339,48 @@ export function Modal({
   children,
   footer,
   size = 'default',
+  ariaLabel,
+  header,
+  bodyClassName,
+  footerClassName,
+  backdropStyle,
+  panelStyle,
 }: {
   open: boolean;
   onClose: () => void;
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   size?: 'narrow' | 'default' | 'wide';
+  /** Accessible name of the dialog. Use it when no visible title is rendered. */
+  ariaLabel?: string;
+  /** Replaces the default head (title, subtitle and close button). */
+  header?: ReactNode;
+  /** Class name of the body element. Replaces the default `modal-body`. */
+  bodyClassName?: string;
+  /** Class name of the footer element. Replaces the default `modal-foot`. */
+  footerClassName?: string;
+  /** Inline styles for the backdrop element. */
+  backdropStyle?: CSSProperties;
+  /** Inline styles for the dialog panel element. */
+  panelStyle?: CSSProperties;
 }) {
   const dialogId = useId();
   const titleId = `${dialogId}-title`;
   const subtitleId = `${dialogId}-subtitle`;
+  const hasHeader = header !== undefined && header !== null;
+  const hasTitle = title !== undefined && title !== null;
+  const labelledBy = !hasHeader && hasTitle && !ariaLabel ? titleId : undefined;
+  const accessibleLabel = ariaLabel || (labelledBy ? undefined : 'Dialog');
   const modalRef = useRef<HTMLDivElement | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  // Keep the latest handler without writing to a ref during render.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -419,6 +436,7 @@ export function Modal({
   return createPortal(
     <div
       className="modal-backdrop"
+      style={backdropStyle}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -427,28 +445,34 @@ export function Modal({
         ref={modalRef}
         tabIndex={-1}
         className={cn('modal', size === 'wide' && 'wide', size === 'narrow' && 'narrow')}
+        style={panelStyle}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={subtitle ? subtitleId : undefined}
+        aria-labelledby={labelledBy}
+        aria-label={accessibleLabel}
+        aria-describedby={!hasHeader && subtitle ? subtitleId : undefined}
       >
-        <div className="modal-head">
-          <div>
-            <div className="modal-title" id={titleId}>
-              {title}
-            </div>
-            {subtitle ? (
-              <div className="modal-sub" id={subtitleId}>
-                {subtitle}
+        {hasHeader ? (
+          header
+        ) : (
+          <div className="modal-head">
+            <div>
+              <div className="modal-title" id={titleId}>
+                {title}
               </div>
-            ) : null}
+              {subtitle ? (
+                <div className="modal-sub" id={subtitleId}>
+                  {subtitle}
+                </div>
+              ) : null}
+            </div>
+            <IconButton label="Close" onClick={onClose}>
+              <X size={16} />
+            </IconButton>
           </div>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={16} />
-          </IconButton>
-        </div>
-        <div className="modal-body">{children}</div>
-        {footer ? <div className="modal-foot">{footer}</div> : null}
+        )}
+        <div className={bodyClassName ?? 'modal-body'}>{children}</div>
+        {footer ? <div className={footerClassName ?? 'modal-foot'}>{footer}</div> : null}
       </div>
     </div>,
     document.body,
@@ -485,11 +509,7 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant={danger ? 'danger' : 'primary'}
-            onClick={onConfirm}
-            loading={loading}
-          >
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>
             {confirmLabel}
           </Button>
         </>
@@ -621,12 +641,7 @@ export function Skeleton({
   height?: number;
   className?: string;
 }) {
-  return (
-    <div
-      className={cn('skeleton', className)}
-      style={{ width: width ?? '100%', height }}
-    />
-  );
+  return <div className={cn('skeleton', className)} style={{ width: width ?? '100%', height }} />;
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
@@ -709,13 +724,7 @@ export function ScoreRing({
   const value = score ?? 0;
   const offset = circumference * (1 - value / 100);
   const color =
-    score == null
-      ? '#8896aa'
-      : score >= 80
-        ? '#2dd4a7'
-        : score >= 60
-          ? '#f5b544'
-          : '#ff5c6c';
+    score == null ? '#8896aa' : score >= 80 ? '#2dd4a7' : score >= 60 ? '#f5b544' : '#ff5c6c';
 
   return (
     <div className="score-ring" style={{ width: size, height: size }}>
@@ -787,62 +796,6 @@ export function ToastViewport() {
   );
 }
 
-export function severityCounts(findings: Finding[]): Record<Severity, number> {
-  const counts: Record<Severity, number> = {
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    info: 0,
-  };
-  for (const finding of findings) counts[finding.severity] += 1;
-  return counts;
-}
-
-export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const listener = (): void => setMatches(media.matches);
-    media.addEventListener('change', listener);
-    setMatches(media.matches);
-    return () => media.removeEventListener('change', listener);
-  }, [query]);
-  return matches;
-}
-
-export function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
-export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
-
-export function countByTone(severity: Severity): BadgeTone {
-  switch (severity) {
-    case 'critical':
-    case 'high':
-      return 'danger';
-    case 'medium':
-      return 'warn';
-    case 'low':
-      return 'mint';
-    default:
-      return 'info';
-  }
-}
-
 export function LoadingBlock({ lines = 3 }: { lines?: number }) {
   return (
     <div className="flex flex-col gap-2">
@@ -850,14 +803,5 @@ export function LoadingBlock({ lines = 3 }: { lines?: number }) {
         <Skeleton key={index} width={`${90 - index * 12}%`} height={12} />
       ))}
     </div>
-  );
-}
-
-export function useCopyAction(): (text: string) => Promise<void> {
-  return useMemo(
-    () => async (text: string) => {
-      await copyText(text);
-    },
-    [],
   );
 }

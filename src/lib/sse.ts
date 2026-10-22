@@ -138,7 +138,7 @@ export async function postSse(
     }
     if (dataLines.length === 0) return;
     const raw = dataLines.join('\n');
-    let data: unknown = raw;
+    let data: unknown;
     try {
       data = JSON.parse(raw) as unknown;
     } catch {

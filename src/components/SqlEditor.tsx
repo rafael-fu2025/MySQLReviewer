@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { MySQL, sql } from '@codemirror/lang-sql';
 import { EditorState, Prec } from '@codemirror/state';
@@ -13,7 +13,11 @@ const highlight = HighlightStyle.define([
   { tag: tags.keyword, color: 'var(--cm-keyword)', fontWeight: '600' },
   { tag: [tags.string, tags.special(tags.string)], color: 'var(--cm-string)' },
   { tag: [tags.number, tags.bool, tags.null], color: 'var(--cm-number)' },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--cm-comment)', fontStyle: 'italic' },
+  {
+    tag: [tags.comment, tags.lineComment, tags.blockComment],
+    color: 'var(--cm-comment)',
+    fontStyle: 'italic',
+  },
   { tag: [tags.variableName, tags.name], color: 'var(--cm-variable)' },
   { tag: tags.function(tags.variableName), color: 'var(--cm-function)' },
   { tag: [tags.operator, tags.punctuation], color: 'var(--cm-operator)' },
@@ -68,6 +72,39 @@ const editorTheme = EditorView.theme(
   { dark: true },
 );
 
+type EditorHandlers = {
+  onChange: (value: string) => void;
+  onRun: () => void;
+  onRunSelection: () => void;
+  onReview: () => void;
+};
+
+/**
+ * Holds the newest editor handlers.
+ *
+ * CodeMirror reconfigures every extension whenever the `extensions` array
+ * changes identity, so the key bindings are built once and still have to
+ * reach the latest props. A ref cannot carry them here: React's compiler
+ * rejects a render-phase closure that reads a ref when it is handed to
+ * `keymap.of`, and the extension has to be built while rendering. The cell is
+ * filled in an effect, so it is never written during render either.
+ */
+class HandlerCell {
+  private handlers: EditorHandlers;
+
+  constructor(initial: EditorHandlers) {
+    this.handlers = initial;
+  }
+
+  set(next: EditorHandlers): void {
+    this.handlers = next;
+  }
+
+  get(): EditorHandlers {
+    return this.handlers;
+  }
+}
+
 function severityFor(severity: string): Diagnostic['severity'] {
   if (severity === 'critical' || severity === 'high') return 'error';
   if (severity === 'medium') return 'warning';
@@ -104,13 +141,19 @@ export function SqlEditor({
 }) {
   // CodeMirror reconfigures every extension whenever `extensions` or `onChange`
   // changes identity, so both must stay stable across renders. Callbacks are
-  // routed through a ref to always invoke the latest props without rebuilding.
-  const handlersRef = useRef({ onChange, onRun, onRunSelection, onReview });
-  handlersRef.current = { onChange, onRun, onRunSelection, onReview };
+  // routed through a cell to always invoke the latest props without rebuilding.
+  const [handlers] = useState(() => new HandlerCell({ onChange, onRun, onRunSelection, onReview }));
 
-  const handleChange = useCallback((next: string): void => {
-    handlersRef.current.onChange(next);
-  }, []);
+  useEffect(() => {
+    handlers.set({ onChange, onRun, onRunSelection, onReview });
+  });
+
+  const handleChange = useCallback(
+    (next: string): void => {
+      handlers.get().onChange(next);
+    },
+    [handlers],
+  );
 
   const sqlExtension = useMemo(() => {
     const schemaObject: Record<string, string[]> = {};
@@ -144,10 +187,7 @@ export function SqlEditor({
               if (!finding.line) continue;
               if (finding.line < 1 || finding.line > view.state.doc.lines) continue;
               const line = view.state.doc.line(finding.line);
-              const to = Math.min(
-                view.state.doc.length,
-                Math.max(line.from + 1, line.to),
-              );
+              const to = Math.min(view.state.doc.length, Math.max(line.from + 1, line.to));
               diagnostics.push({
                 from: line.from,
                 to,
@@ -174,7 +214,7 @@ export function SqlEditor({
             key: 'Mod-Enter',
             preventDefault: true,
             run: () => {
-              handlersRef.current.onRun();
+              handlers.get().onRun();
               return true;
             },
           },
@@ -182,7 +222,7 @@ export function SqlEditor({
             key: 'Shift-Mod-Enter',
             preventDefault: true,
             run: () => {
-              handlersRef.current.onRunSelection();
+              handlers.get().onRunSelection();
               return true;
             },
           },
@@ -190,23 +230,17 @@ export function SqlEditor({
             key: 'Shift-Mod-r',
             preventDefault: true,
             run: () => {
-              handlersRef.current.onReview();
+              handlers.get().onReview();
               return true;
             },
           },
         ]),
       ),
-    [],
+    [handlers],
   );
 
   const extensions = useMemo(
-    () => [
-      sqlExtension,
-      highlightExtension,
-      tabSizeExtension,
-      ...lintExtensions,
-      keymapExtension,
-    ],
+    () => [sqlExtension, highlightExtension, tabSizeExtension, ...lintExtensions, keymapExtension],
     [keymapExtension, lintExtensions, sqlExtension],
   );
 

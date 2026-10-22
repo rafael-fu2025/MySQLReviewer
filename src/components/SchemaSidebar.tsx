@@ -77,8 +77,9 @@ export function SchemaSidebar({
   const [openViews, setOpenViews] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pinnedObjects, setPinnedObjects] = useState<DatabaseObjects | null>(null);
-  const [pinnedLoading, setPinnedLoading] = useState(false);
   const [pinnedError, setPinnedError] = useState<string | null>(null);
+  // The connection + database pair the pinned objects were fetched for.
+  const [pinnedSettledKey, setPinnedSettledKey] = useState<string | null>(null);
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
   const [columns, setColumns] = useState<Record<string, ColumnState>>({});
 
@@ -88,39 +89,48 @@ export function SchemaSidebar({
   // `objects` for the selected database keeps the two views in sync.
   const usesPinnedFetch = pinnedDatabase !== null && pinnedDatabase !== selectedDatabase;
   const objects = usesPinnedFetch ? pinnedObjects : storeObjects;
+  // The pinned fetch belongs to one connection + database pair.
+  const pinnedKey =
+    usesPinnedFetch && pinnedDatabase && profileId ? `${profileId}\u0000${pinnedDatabase}` : null;
+
+  // Never show the previous database's objects while the new one loads. The
+  // reset happens while rendering so the stale tree is never painted.
+  const [pinnedKeyState, setPinnedKeyState] = useState<string | null>(null);
+  if (pinnedKeyState !== pinnedKey) {
+    setPinnedKeyState(pinnedKey);
+    setPinnedObjects(null);
+    setPinnedError(null);
+  }
+  // Loading is derived: it lasts until the pinned fetch for this key settles.
+  const pinnedLoading = pinnedKey !== null && pinnedSettledKey !== pinnedKey;
 
   useEffect(() => {
-    if (!usesPinnedFetch || !pinnedDatabase || !profileId) {
-      setPinnedObjects(null);
-      setPinnedError(null);
-      setPinnedLoading(false);
-      return;
-    }
+    if (!pinnedKey || !pinnedDatabase || !profileId) return;
     let cancelled = false;
-    // Never show the previous database's objects while the new one loads.
-    setPinnedObjects(null);
-    setPinnedLoading(true);
-    setPinnedError(null);
     loadObjects(profileId, pinnedDatabase)
       .then((next) => {
-        if (!cancelled) setPinnedObjects(next);
+        if (cancelled) return;
+        setPinnedObjects(next);
+        setPinnedError(null);
+        setPinnedSettledKey(pinnedKey);
       })
       .catch((error) => {
-        if (!cancelled) setPinnedError(errorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) setPinnedLoading(false);
+        if (cancelled) return;
+        setPinnedError(errorMessage(error));
+        setPinnedSettledKey(pinnedKey);
       });
     return () => {
       cancelled = true;
     };
-  }, [pinnedDatabase, profileId, usesPinnedFetch]);
+  }, [pinnedKey, pinnedDatabase, profileId]);
 
   // Column caches belong to one database; drop them when the tree retargets.
-  useEffect(() => {
+  const [cachedDatabase, setCachedDatabase] = useState(activeDatabase);
+  if (cachedDatabase !== activeDatabase) {
+    setCachedDatabase(activeDatabase);
     setExpandedTables({});
     setColumns({});
-  }, [activeDatabase]);
+  }
 
   const filteredTables = useMemo(() => {
     const tables = objects?.tables ?? [];
@@ -206,14 +216,14 @@ export function SchemaSidebar({
         onClick={() => onInsert(quoteIdentifier(column.name))}
       >
         {column.key === 'PRI' ? (
-          <span className="shrink-0 rounded bg-ember/15 px-1 text-[8px] font-bold text-ember">
+          <span className="shrink-0 rounded bg-ember/15 px-1 text-[10px] font-bold text-ember">
             PK
           </span>
         ) : (
           <span className="w-[18px] shrink-0" />
         )}
         <span className="truncate text-ink-soft">{column.name}</span>
-        <span className="ml-auto shrink-0 font-mono text-[9px] text-muted">{column.dataType}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{column.dataType}</span>
       </button>
     ));
   };
@@ -336,7 +346,7 @@ export function SchemaSidebar({
                             {onPreviewTable ? (
                               <button
                                 type="button"
-                                className="shrink-0 rounded px-1 py-0.5 text-[9px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
+                                className="shrink-0 rounded px-1 py-0.5 text-[10px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
                                 title={`Preview 5 rows of ${table.name}`}
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -465,7 +475,7 @@ export function SchemaSidebar({
                     }
                     title={`${routine.type} ${routine.name}`}
                   >
-                    <span className="text-[9px] font-bold text-ember">
+                    <span className="text-[10px] font-bold text-ember">
                       {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
                     </span>
                     <span>{routine.name}</span>
@@ -495,7 +505,7 @@ export function SchemaSidebar({
             </span>
             {usesPinnedFetch ? <Badge tone="ember">pinned</Badge> : null}
           </div>
-          <div className="truncate text-[9.5px] text-muted">{summary}</div>
+          <div className="truncate text-[10px] text-muted">{summary}</div>
         </div>
         <Tooltip label="Refresh objects" side="bottom">
           <IconButton label="Refresh objects" nativeTitle={false} onClick={() => void refresh()}>

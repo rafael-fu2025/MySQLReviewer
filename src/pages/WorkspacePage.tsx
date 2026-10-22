@@ -21,12 +21,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import type {
-  AiReview,
-  HistoryEntry,
-  Snippet,
-  StatementClassification,
-} from '@shared/types';
+import type { AiReview, HistoryEntry, Snippet, StatementClassification } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { useWorkspaceStore, type QueryTab } from '@/store/workspace-store';
 import { useUiStore } from '@/store/ui-store';
@@ -34,7 +29,7 @@ import { ApiError } from '@/lib/api';
 import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { onWorkspace, type WorkspaceAction } from '@/lib/events';
-import { formatDuration, formatRelative, sqlPreview } from '@/lib/format';
+import { formatDuration, sqlPreview } from '@/lib/format';
 import { SqlEditor } from '@/components/SqlEditor';
 import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { ResultsGrid } from '@/components/ResultsGrid';
@@ -42,15 +37,28 @@ import { ExplainPanel } from '@/components/ExplainPanel';
 import { ReviewPanel } from '@/components/ReviewPanel';
 import { UnlockDialog } from '@/components/UnlockDialog';
 import { WorkspaceModals } from '@/components/WorkspaceModals';
-import {
-  Badge,
-  Button,
-  EmptyState,
-  IconButton,
-  Spinner,
-  Tabs,
-  cn,
-} from '@/components/ui';
+import { Badge, Button, EmptyState, IconButton, Spinner, Tabs } from '@/components/ui';
+import { cn } from '@/lib/utils';
+
+/** Editor/results split bounds, mirrored from the ui store clamp. */
+const SPLITTER_MIN = 20;
+const SPLITTER_MAX = 78;
+
+/**
+ * "last run" label for the status bar. The statement started `executionMs`
+ * ago, so the label only depends on the duration the server reported — the
+ * clock is never read while rendering.
+ */
+function lastRunLabel(executionMs: number): string {
+  const seconds = Math.floor(executionMs / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 function MessagesPanel({ tab }: { tab: QueryTab }) {
   const result = tab.result;
@@ -88,11 +96,15 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
           <div className="stat">
             <div className="stat-label">Affected</div>
             <div className="stat-value">{result.affectedRows.toLocaleString()}</div>
-            <div className="stat-sub">{result.insertId ? `insert id ${result.insertId}` : 'rows changed'}</div>
+            <div className="stat-sub">
+              {result.insertId ? `insert id ${result.insertId}` : 'rows changed'}
+            </div>
           </div>
           <div className="stat">
             <div className="stat-label">Payload</div>
-            <div className="stat-value text-[15px]">{(result.bytesApprox / 1024).toFixed(1)} KB</div>
+            <div className="stat-value text-[15px]">
+              {(result.bytesApprox / 1024).toFixed(1)} KB
+            </div>
             <div className="stat-sub">serialized result</div>
           </div>
         </div>
@@ -174,12 +186,20 @@ export function WorkspacePage() {
   /** Latest run sequence per tab, so a superseded response cannot patch state. */
   const runSeqRef = useRef<Map<string, number>>(new Map());
   const editorAreaRef = useRef<HTMLDivElement>(null);
+  /** Active splitter drag, captured on pointer down so moves stay relative to the grab point. */
+  const splitterDragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    startPct: number;
+    areaHeight: number;
+  } | null>(null);
   const revealNextRef = useRef(false);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
-  const [unlockClassification, setUnlockClassification] =
-    useState<StatementClassification | null>(null);
+  const [unlockClassification, setUnlockClassification] = useState<StatementClassification | null>(
+    null,
+  );
   const [pendingText, setPendingText] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -191,7 +211,18 @@ export function WorkspacePage() {
   const [snippetTags, setSnippetTags] = useState('');
   const [snippetBusy, setSnippetBusy] = useState(false);
 
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now());
+  // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
+  // so the flag flips exactly when the unlock window closes, instead of
+  // reading the time while rendering.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!unlockedUntil) return;
+    const remaining = unlockedUntil - Date.now();
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [unlockedUntil]);
+
+  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
 
   const patch = (patchValue: Partial<QueryTab>): void => {
     if (activeTab) patchTab(activeTab.id, patchValue);
@@ -332,12 +363,7 @@ export function WorkspacePage() {
     if (withAnalyze) setAnalyzing(true);
     patch({ explaining: true, outputTab: 'explain', error: null });
     try {
-      const result = await dbApi.explain(
-        activeProfileId,
-        text,
-        selectedDatabase,
-        withAnalyze,
-      );
+      const result = await dbApi.explain(activeProfileId, text, selectedDatabase, withAnalyze);
       patch({ explaining: false, explain: result, outputTab: 'explain' });
     } catch (error) {
       patch({ explaining: false });
@@ -592,23 +618,65 @@ export function WorkspacePage() {
     );
   };
 
-  const splitterDown = (event: React.MouseEvent): void => {
-    event.preventDefault();
+  const splitterPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return;
+    if (event.pointerType === 'mouse' && (event.buttons & 1) === 0) return;
     const area = editorAreaRef.current;
     if (!area) return;
+    event.preventDefault();
     const rect = area.getBoundingClientRect();
-    const startY = event.clientY;
-    const startPct = editorPct;
-    const onMove = (moveEvent: MouseEvent): void => {
-      const deltaPct = ((moveEvent.clientY - startY) / rect.height) * 100;
-      setEditorPct(Math.max(20, Math.min(78, startPct + deltaPct)));
+    splitterDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startPct: editorPct,
+      areaHeight: rect.height,
     };
-    const onUp = (): void => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.focus({ preventScroll: true });
+  };
+
+  const splitterPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = splitterDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const deltaPct = ((event.clientY - drag.startY) / drag.areaHeight) * 100;
+    setEditorPct(Math.max(SPLITTER_MIN, Math.min(SPLITTER_MAX, drag.startPct + deltaPct)));
+  };
+
+  const splitterPointerEnd = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const drag = splitterDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    splitterDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const splitterKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    let next: number;
+    switch (event.key) {
+      case 'ArrowUp':
+        next = editorPct - 2;
+        break;
+      case 'ArrowDown':
+        next = editorPct + 2;
+        break;
+      case 'PageUp':
+        next = editorPct - 10;
+        break;
+      case 'PageDown':
+        next = editorPct + 10;
+        break;
+      case 'Home':
+        next = SPLITTER_MIN;
+        break;
+      case 'End':
+        next = SPLITTER_MAX;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setEditorPct(next);
   };
 
   // The workspace event bus is global, so subscribe once and read the newest
@@ -623,16 +691,19 @@ export function WorkspacePage() {
     openHistory,
     openSnippets,
   });
-  actionsRef.current = {
-    createTab,
-    execute,
-    runSelection,
-    explain,
-    review,
-    formatCurrent,
-    openHistory,
-    openSnippets,
-  };
+
+  useEffect(() => {
+    actionsRef.current = {
+      createTab,
+      execute,
+      runSelection,
+      explain,
+      review,
+      formatCurrent,
+      openHistory,
+      openSnippets,
+    };
+  });
 
   useEffect(() => {
     return onWorkspace((action: WorkspaceAction) => {
@@ -676,8 +747,7 @@ export function WorkspacePage() {
     {
       id: 'messages' as const,
       label: 'Messages',
-      count:
-        (activeTab.error ? 1 : 0) + (activeTab.result?.warnings.length ?? 0),
+      count: (activeTab.error ? 1 : 0) + (activeTab.result?.warnings.length ?? 0),
     },
     {
       id: 'explain' as const,
@@ -687,9 +757,7 @@ export function WorkspacePage() {
     {
       id: 'review' as const,
       label: 'Review',
-      count:
-        (activeTab.review?.findings.length ?? 0) +
-        (activeTab.ai?.findings.length ?? 0),
+      count: (activeTab.review?.findings.length ?? 0) + (activeTab.ai?.findings.length ?? 0),
     },
   ];
 
@@ -818,7 +886,7 @@ export function WorkspacePage() {
             </Button>
 
             <div className="ml-auto flex items-center gap-2">
-              <span className="hidden font-mono text-[9.5px] text-muted lg:inline">
+              <span className="hidden font-mono text-[10px] text-muted lg:inline">
                 cap {settings.rowLimit} rows · {Math.round(settings.queryTimeoutMs / 1000)}s timeout
               </span>
               {unlocked ? (
@@ -871,7 +939,23 @@ export function WorkspacePage() {
             />
           </div>
 
-          <div className="splitter" onMouseDown={splitterDown} />
+          <div
+            className="splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize editor and results panels"
+            aria-valuenow={Math.round(editorPct)}
+            aria-valuemin={SPLITTER_MIN}
+            aria-valuemax={SPLITTER_MAX}
+            aria-valuetext={`${Math.round(editorPct)}% editor height`}
+            aria-keyshortcuts="ArrowUp ArrowDown PageUp PageDown Home End"
+            tabIndex={0}
+            onPointerDown={splitterPointerDown}
+            onPointerMove={splitterPointerMove}
+            onPointerUp={splitterPointerEnd}
+            onPointerCancel={splitterPointerEnd}
+            onKeyDown={splitterKeyDown}
+          />
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center border-b border-line-soft">
@@ -880,10 +964,11 @@ export function WorkspacePage() {
                 value={activeTab.outputTab}
                 onChange={(value) => setOutputTab(activeTab.id, value)}
               />
-              <div className="ml-auto flex items-center gap-2 px-3 text-[9.5px] text-muted">
+              <div className="ml-auto flex items-center gap-2 px-3 text-[10px] text-muted">
                 {activeTab.result ? (
                   <span className="font-mono">
-                    {formatDuration(activeTab.result.executionMs)} · {activeTab.result.rowCount} rows
+                    {formatDuration(activeTab.result.executionMs)} · {activeTab.result.rowCount}{' '}
+                    rows
                   </span>
                 ) : null}
                 {activeTab.review ? (
@@ -893,9 +978,7 @@ export function WorkspacePage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  icon={
-                    resultsMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />
-                  }
+                  icon={resultsMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
                   onClick={toggleResultsMaximized}
                   title={resultsMaximized ? 'Show the editor (Esc)' : 'Maximize results'}
                 >
@@ -912,10 +995,7 @@ export function WorkspacePage() {
                     Executing…
                   </div>
                 ) : activeTab.result ? (
-                  <ResultsGrid
-                    result={activeTab.result}
-                    onReveal={revealSensitiveValues}
-                  />
+                  <ResultsGrid result={activeTab.result} onReveal={revealSensitiveValues} />
                 ) : (
                   <EmptyState
                     icon={<Play size={22} />}
@@ -974,7 +1054,7 @@ export function WorkspacePage() {
             <span>row cap {settings.rowLimit}</span>
             <span className="ml-auto">
               {activeTab.result
-                ? `last run ${formatRelative(new Date(Date.now() - activeTab.result.executionMs).toISOString())}`
+                ? `last run ${lastRunLabel(activeTab.result.executionMs)}`
                 : 'ctrl+enter run · ctrl+shift+enter selection · ctrl+shift+r review'}
             </span>
           </div>

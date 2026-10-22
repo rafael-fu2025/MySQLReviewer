@@ -43,20 +43,14 @@ import {
   Spinner,
   StatCard,
   Tabs,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
 }
 
-function TableLink({
-  table,
-  onOpen,
-}: {
-  table: TableSummary;
-  onOpen: () => void;
-}) {
+function TableLink({ table, onOpen }: { table: TableSummary; onOpen: () => void }) {
   return (
     <button
       type="button"
@@ -66,7 +60,7 @@ function TableLink({
       <Table2 size={14} className="shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-semibold text-ink">{table.name}</div>
-        <div className="mt-0.5 font-mono text-[9.5px] text-muted">
+        <div className="mt-0.5 font-mono text-[10px] text-muted">
           {table.engine ?? (table.type === 'BASE TABLE' ? '—' : 'view')} ·{' '}
           {formatNumber(table.rowsEstimate)} rows ·{' '}
           {formatBytes(table.dataBytes + table.indexBytes)}
@@ -109,10 +103,7 @@ function RelationMap({
   };
 
   // SVG nodes are reachable with the keyboard and behave like buttons.
-  const activateNode = (
-    event: React.KeyboardEvent<SVGGElement>,
-    action: () => void,
-  ): void => {
+  const activateNode = (event: React.KeyboardEvent<SVGGElement>, action: () => void): void => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     action();
@@ -122,7 +113,15 @@ function RelationMap({
     <div className="overflow-auto rounded-xl border border-line-soft bg-panel-2/25">
       <svg width={width} height={height} role="group" aria-label="Table relationships">
         <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <marker
+            id="arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="5"
+            markerHeight="5"
+            orient="auto-start-reverse"
+          >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-muted)" />
           </marker>
         </defs>
@@ -139,7 +138,13 @@ function RelationMap({
                 strokeWidth={1.4}
                 markerEnd="url(#arrow)"
               />
-              <text x={190} y={y - 6} fill="var(--color-muted)" fontSize={9} fontFamily="var(--font-mono)">
+              <text
+                x={190}
+                y={y - 6}
+                fill="var(--color-muted)"
+                fontSize={9}
+                fontFamily="var(--font-mono)"
+              >
                 {fk.columns.join(', ')}
               </text>
             </g>
@@ -158,7 +163,13 @@ function RelationMap({
                 strokeWidth={1.4}
                 markerEnd="url(#arrow)"
               />
-              <text x={centerX + 92} y={centerY + 14} fill="var(--color-muted)" fontSize={9} fontFamily="var(--font-mono)">
+              <text
+                x={centerX + 92}
+                y={centerY + 14}
+                fill="var(--color-muted)"
+                fontSize={9}
+                fontFamily="var(--font-mono)"
+              >
                 {fk.columns.join(', ')}
               </text>
             </g>
@@ -175,7 +186,14 @@ function RelationMap({
             fill="color-mix(in oklab, var(--color-ember) 16%, var(--color-panel))"
             stroke="var(--color-ember)"
           />
-          <text x={centerX} y={centerY + 4} textAnchor="middle" fill="var(--color-ink)" fontSize={12} fontWeight={700}>
+          <text
+            x={centerX}
+            y={centerY + 4}
+            textAnchor="middle"
+            fill="var(--color-ink)"
+            fontSize={12}
+            fontWeight={700}
+          >
             {detail.summary.name}
           </text>
         </g>
@@ -194,8 +212,22 @@ function RelationMap({
                 activateNode(event, () => onOpen(fk.referencedDatabase, fk.referencedTable))
               }
             >
-              <rect x={30} y={y - 18} width={150} height={36} rx={9} fill="var(--color-panel-2)" stroke="var(--color-line)" />
-              <text x={105} y={y + 4} textAnchor="middle" fill="var(--color-ink-soft)" fontSize={11}>
+              <rect
+                x={30}
+                y={y - 18}
+                width={150}
+                height={36}
+                rx={9}
+                fill="var(--color-panel-2)"
+                stroke="var(--color-line)"
+              />
+              <text
+                x={105}
+                y={y + 4}
+                textAnchor="middle"
+                fill="var(--color-ink-soft)"
+                fontSize={11}
+              >
                 {fk.referencedTable}
               </text>
             </g>
@@ -215,8 +247,22 @@ function RelationMap({
                 activateNode(event, () => onOpen(fk.referencedDatabase, fk.referencedTable))
               }
             >
-              <rect x={width - 180} y={y - 18} width={150} height={36} rx={9} fill="var(--color-panel-2)" stroke="var(--color-line)" />
-              <text x={width - 105} y={y + 4} textAnchor="middle" fill="var(--color-ink-soft)" fontSize={11}>
+              <rect
+                x={width - 180}
+                y={y - 18}
+                width={150}
+                height={36}
+                rx={9}
+                fill="var(--color-panel-2)"
+                stroke="var(--color-line)"
+              />
+              <text
+                x={width - 105}
+                y={y + 4}
+                textAnchor="middle"
+                fill="var(--color-ink-soft)"
+                fontSize={11}
+              >
                 {fk.referencedTable}
               </text>
             </g>
@@ -224,7 +270,8 @@ function RelationMap({
         })}
       </svg>
       <div className="border-t border-line-soft px-3 py-2 text-[10px] text-muted">
-        Left: tables referencing this table. Right: tables this table references. Click a node to open it.
+        Left: tables referencing this table. Right: tables this table references. Click a node to
+        open it.
       </div>
     </div>
   );
@@ -249,12 +296,39 @@ function DataPreview({
   const [operator, setOperator] = useState<TableDataFilter['operator']>('=');
   const [value, setValue] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Only the newest request may write the grid: a slow response for table A must
   // never land after a faster response for table B.
   const requestId = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  // The request itself carries no state, so an effect can start a load without
+  // setting state first. The caller decides what to do with the response.
+  const request = useCallback(
+    (
+      nextFilters: TableDataFilter[],
+      nextOrder: string,
+      nextDir: 'asc' | 'desc',
+      nextLimit: number,
+      nextReveal: boolean,
+      signal: AbortSignal,
+    ): Promise<QueryResult> =>
+      dbApi.tableData(
+        profileId,
+        database,
+        table,
+        {
+          limit: nextLimit,
+          orderBy: nextOrder || null,
+          orderDir: nextDir,
+          filters: nextFilters,
+          revealSensitive: nextReveal,
+        },
+        { signal },
+      ),
+    [database, profileId, table],
+  );
 
   const load = useCallback(
     async (
@@ -272,18 +346,13 @@ function DataPreview({
       setLoading(true);
       setError(null);
       try {
-        const data = await dbApi.tableData(
-          profileId,
-          database,
-          table,
-          {
-            limit: nextLimit,
-            orderBy: nextOrder || null,
-            orderDir: nextDir,
-            filters: nextFilters,
-            revealSensitive: nextReveal,
-          },
-          { signal: controller.signal },
+        const data = await request(
+          nextFilters,
+          nextOrder,
+          nextDir,
+          nextLimit,
+          nextReveal,
+          controller.signal,
         );
         if (requestId.current !== id) return;
         setResult(data);
@@ -294,35 +363,41 @@ function DataPreview({
         if (requestId.current === id) setLoading(false);
       }
     },
-    [database, profileId, table],
+    [request],
   );
 
-  // A different table or database starts from a clean preview. The component is
-  // remounted on navigation, but the reset also covers an in-place change.
+  // The preview starts from a clean slate: a different table or database
+  // remounts the component (see the `key` in TableDetailView), so the reset
+  // does not need an effect.
   useEffect(() => {
-    setLimit(100);
-    setOrderBy('');
-    setOrderDir('asc');
-    setFilters([]);
-    setColumn(columns[0]?.name ?? '');
-    setOperator('=');
-    setValue('');
-    setResult(null);
-    setError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [database, table]);
-
-  useEffect(() => {
-    void load([], '', 'asc', 100);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const id = requestId.current + 1;
+    requestId.current = id;
+    request([], '', 'asc', 100, false, controller.signal)
+      .then((data) => {
+        if (requestId.current !== id) return;
+        setResult(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (requestId.current !== id || controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
     return () => {
-      abortRef.current?.abort();
+      controller.abort();
     };
-  }, [load]);
+  }, [request]);
 
   // Columns change after a schema refresh (or when another database exposes a
   // table with the same name). Never leave the filter/sort pointing at a column
-  // that no longer exists.
-  useEffect(() => {
+  // that no longer exists. The state is adjusted while rendering so the grid
+  // never points at a column that is gone.
+  const columnNames = useMemo(() => columns.map((item) => item.name).join('\u0000'), [columns]);
+  const [knownColumns, setKnownColumns] = useState(columnNames);
+  if (knownColumns !== columnNames) {
+    setKnownColumns(columnNames);
     const names = new Set(columns.map((item) => item.name));
     setColumn((previous) => (names.has(previous) ? previous : (columns[0]?.name ?? '')));
     setOrderBy((previous) => (previous && !names.has(previous) ? '' : previous));
@@ -330,7 +405,7 @@ function DataPreview({
       const next = previous.filter((filter) => names.has(filter.column));
       return next.length === previous.length ? previous : next;
     });
-  }, [columns]);
+  }
 
   const addFilter = (): void => {
     if (!column) return;
@@ -524,17 +599,17 @@ function TableDetailView({
   onBack: () => void;
   onOpenRelated: (database: string, table: string) => void;
 }) {
-  const [tab, setTab] = useState<'overview' | 'columns' | 'indexes' | 'relations' | 'data' | 'ddl' | 'triggers'>(
-    'overview',
-  );
+  const [tab, setTab] = useState<
+    'overview' | 'columns' | 'indexes' | 'relations' | 'data' | 'ddl' | 'triggers'
+  >('overview');
   // The preview is mounted on first visit and then kept alive (hidden) so its
   // filters, sort, and row limit survive tab switches and metadata refreshes.
-  const [dataMounted, setDataMounted] = useState(false);
+  const [dataVisited, setDataVisited] = useState(false);
+  if (tab === 'data' && !dataVisited) {
+    setDataVisited(true);
+  }
+  const dataMounted = dataVisited || tab === 'data';
   const summary = detail.summary;
-
-  useEffect(() => {
-    if (tab === 'data') setDataMounted(true);
-  }, [tab]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -588,12 +663,29 @@ function TableDetailView({
       {tab === 'overview' ? (
         <div className="flex flex-col gap-3">
           <div className="stat-grid">
-            <StatCard label="Estimated rows" value={formatNumber(summary.rowsEstimate)} sub="InnoDB estimate" />
+            <StatCard
+              label="Estimated rows"
+              value={formatNumber(summary.rowsEstimate)}
+              sub="InnoDB estimate"
+            />
             <StatCard label="Data size" value={formatBytes(summary.dataBytes)} sub="DATA_LENGTH" />
-            <StatCard label="Index size" value={formatBytes(summary.indexBytes)} sub="INDEX_LENGTH" />
-            <StatCard label="Free space" value={formatBytes(summary.dataFreeBytes)} sub="DATA_FREE" tone="warn" />
+            <StatCard
+              label="Index size"
+              value={formatBytes(summary.indexBytes)}
+              sub="INDEX_LENGTH"
+            />
+            <StatCard
+              label="Free space"
+              value={formatBytes(summary.dataFreeBytes)}
+              sub="DATA_FREE"
+              tone="warn"
+            />
             <StatCard label="Indexes" value={detail.indexes.length} sub="including primary" />
-            <StatCard label="Columns" value={detail.columns.length} sub={`${detail.checks.length} checks`} />
+            <StatCard
+              label="Columns"
+              value={detail.columns.length}
+              sub={`${detail.checks.length} checks`}
+            />
           </div>
           <Card className="p-4">
             <div className="section-title mb-3">Table metadata</div>
@@ -606,7 +698,10 @@ function TableDetailView({
                 ['Partitions', String(detail.partitions.length)],
                 ['Comment', summary.comment || '—'],
               ].map(([label, value]) => (
-                <div key={label} className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5">
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5"
+                >
                   <span className="text-muted">{label}</span>
                   <span className="max-w-[60%] text-right font-mono text-[10.5px]">{value}</span>
                 </div>
@@ -674,7 +769,11 @@ function TableDetailView({
       {tab === 'indexes' ? (
         <div className="flex flex-col gap-2">
           {detail.indexes.length === 0 ? (
-            <EmptyState icon={<KeyRound size={22} />} title="No indexes" copy="This table has no index definitions." />
+            <EmptyState
+              icon={<KeyRound size={22} />}
+              title="No indexes"
+              copy="This table has no index definitions."
+            />
           ) : (
             detail.indexes.map((index) => (
               <Card key={index.name} className="flex flex-wrap items-center gap-3 p-3">
@@ -682,12 +781,18 @@ function TableDetailView({
                 {index.name === 'PRIMARY' ? <Badge tone="ember">primary</Badge> : null}
                 {index.unique ? <Badge tone="mint">unique</Badge> : null}
                 <Badge>{index.type}</Badge>
-                {index.duplicateOf ? <Badge tone="warn">duplicate of {index.duplicateOf}</Badge> : null}
-                {index.redundantOf ? <Badge tone="warn">redundant prefix of {index.redundantOf}</Badge> : null}
+                {index.duplicateOf ? (
+                  <Badge tone="warn">duplicate of {index.duplicateOf}</Badge>
+                ) : null}
+                {index.redundantOf ? (
+                  <Badge tone="warn">redundant prefix of {index.redundantOf}</Badge>
+                ) : null}
                 <span className="ml-auto font-mono text-[10px] text-muted">
-                  {index.columns.map((column) => `${column.name}${column.subPart ? `(${column.subPart})` : ''}`).join(', ')}
+                  {index.columns
+                    .map((column) => `${column.name}${column.subPart ? `(${column.subPart})` : ''}`)
+                    .join(', ')}
                 </span>
-                <span className="font-mono text-[9.5px] text-muted">
+                <span className="font-mono text-[10px] text-muted">
                   card {index.cardinality != null ? formatNumber(index.cardinality) : '—'}
                 </span>
               </Card>
@@ -714,7 +819,8 @@ function TableDetailView({
                   >
                     <span className="font-mono text-muted">{fk.name}</span>
                     <span className="font-mono">
-                      ({fk.columns.join(', ')}) → {fk.referencedTable}({fk.referencedColumns.join(', ')})
+                      ({fk.columns.join(', ')}) → {fk.referencedTable}(
+                      {fk.referencedColumns.join(', ')})
                     </span>
                     <Badge className="ml-auto" tone="neutral">
                       {fk.onDelete}
@@ -737,7 +843,8 @@ function TableDetailView({
                   >
                     <span className="font-mono text-muted">{fk.name}</span>
                     <span className="font-mono">
-                      {fk.referencedTable}({fk.referencedColumns.join(', ')}) → ({fk.columns.join(', ')})
+                      {fk.referencedTable}({fk.referencedColumns.join(', ')}) → (
+                      {fk.columns.join(', ')})
                     </span>
                     <Badge className="ml-auto" tone="neutral">
                       {fk.onDelete}
@@ -753,6 +860,7 @@ function TableDetailView({
       {dataMounted ? (
         <div className={tab === 'data' ? undefined : 'hidden'}>
           <DataPreview
+            key={`${profileId}:${summary.database}:${summary.name}`}
             profileId={profileId}
             database={summary.database}
             table={summary.name}
@@ -785,23 +893,36 @@ function TableDetailView({
               ) : null}
             </div>
           </div>
-          <CodeBlock text={detail.createSql ?? 'DDL is not available for this object (permission denied or view definition hidden).'} />
+          <CodeBlock
+            text={
+              detail.createSql ??
+              'DDL is not available for this object (permission denied or view definition hidden).'
+            }
+          />
         </div>
       ) : null}
 
       {tab === 'triggers' ? (
         <div className="flex flex-col gap-2">
           {detail.triggers.length === 0 ? (
-            <EmptyState icon={<SparklesIcon />} title="No triggers" copy="No triggers are attached to this table." />
+            <EmptyState
+              icon={<SparklesIcon />}
+              title="No triggers"
+              copy="No triggers are attached to this table."
+            />
           ) : (
             detail.triggers.map((trigger) => (
               <Card key={trigger.name} className="p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[11.5px] font-semibold text-ink">{trigger.name}</span>
+                  <span className="font-mono text-[11.5px] font-semibold text-ink">
+                    {trigger.name}
+                  </span>
                   <Badge tone="warn">
                     {trigger.timing} {trigger.event}
                   </Badge>
-                  <span className="ml-auto font-mono text-[9.5px] text-muted">{trigger.definer}</span>
+                  <span className="ml-auto font-mono text-[10px] text-muted">
+                    {trigger.definer}
+                  </span>
                 </div>
                 <CodeBlock text={trigger.statement} className="mt-2 max-h-40 text-[10.5px]" />
               </Card>
@@ -824,6 +945,11 @@ function detailKeyFor(
   table: string | null,
 ): string {
   return `${profileId ?? ''}\u0000${database ?? ''}\u0000${table ?? ''}`;
+}
+
+/** Identity of an objects request: profile + database + request counter. */
+function objectsKeyFor(profileId: string | null, database: string | null, request: number): string {
+  return `${profileId ?? ''}\u0000${database ?? ''}\u0000${request}`;
 }
 
 export function DatabasePage() {
@@ -849,23 +975,34 @@ export function DatabasePage() {
   // refreshes all share one copy, so this page never holds a second snapshot.
   const objects = useAppStore((state) => state.objects);
   const refreshObjects = useAppStore((state) => state.refreshObjects);
-  const [objectsLoading, setObjectsLoading] = useState(false);
-  const [objectsError, setObjectsError] = useState<string | null>(null);
   const [objectsRequest, setObjectsRequest] = useState(0);
+  // The objects response is tagged with the request it belongs to, so the
+  // loading flag and the error are derived from the request that is running.
+  const objectsKey = objectsKeyFor(activeProfileId, selectedDatabase, objectsRequest);
+  const [objectsState, setObjectsState] = useState<{ key: string; error: string | null } | null>(
+    null,
+  );
+  const objectsLoading =
+    Boolean(activeProfileId && selectedDatabase) && objectsState?.key !== objectsKey;
+  const objectsError = objectsState?.key === objectsKey ? objectsState.error : null;
 
   // The detail is tagged with the profile/database/table it was fetched for, so
   // a response for table A can never render under table B's URL.
   const detailKey = detailKeyFor(activeProfileId, selectedDatabase, tableParam);
   const [detailState, setDetailState] = useState<{
     key: string;
+    fetchKey: string;
     detail: TableDetail | null;
     error: string | null;
   } | null>(null);
   const detailRequest = useRef(0);
   const detail = detailState?.key === detailKey ? detailState.detail : null;
   const detailError = detailState?.key === detailKey ? detailState.error : null;
-  const [detailLoading, setDetailLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // A refresh refetches the same table, so the pending flag follows the fetch
+  // the state belongs to rather than the table identity.
+  const detailFetchKey = `${detailKey}\u0000${refreshKey}`;
+  const detailLoading = detailState?.fetchKey !== detailFetchKey;
   const [search, setSearch] = useState('');
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     tables: true,
@@ -899,9 +1036,18 @@ export function DatabasePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDatabase]);
 
+  // `?create=1` is a one-shot entry point: it opens the dialog and is then
+  // dropped from the URL. The dialog is opened while rendering so it never
+  // renders closed first.
+  const createParam = params.get('create');
+  const [lastCreateParam, setLastCreateParam] = useState<string | null>(null);
+  if (createParam !== lastCreateParam) {
+    setLastCreateParam(createParam);
+    if (createParam === '1') setCreateOpen(true);
+  }
+
   useEffect(() => {
     if (params.get('create') !== '1') return;
-    setCreateOpen(true);
     const next = new URLSearchParams(params);
     next.delete('create');
     setParams(next, { replace: true });
@@ -909,26 +1055,27 @@ export function DatabasePage() {
   }, [params]);
 
   useEffect(() => {
-    if (!activeProfileId || !selectedDatabase) {
-      setObjectsError(null);
-      setObjectsLoading(false);
-      return;
-    }
+    if (!activeProfileId || !selectedDatabase) return;
     let cancelled = false;
-    setObjectsLoading(true);
-    setObjectsError(null);
+    const key = objectsKeyFor(activeProfileId, selectedDatabase, objectsRequest);
     void refreshObjects()
       .catch((error) => {
-        if (!cancelled) setObjectsError(error instanceof Error ? error.message : String(error));
+        if (cancelled) return;
+        setObjectsState({
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
       })
       .finally(() => {
         if (cancelled) return;
-        setObjectsLoading(false);
         // refreshObjects deliberately swallows transport errors, so a completed
         // call with no objects in the store means the fetch failed.
-        if (!useAppStore.getState().objects) {
-          setObjectsError('Could not load the tables, views, and routines for this database.');
-        }
+        setObjectsState({
+          key,
+          error: useAppStore.getState().objects
+            ? null
+            : 'Could not load the tables, views, and routines for this database.',
+        });
       });
     return () => {
       cancelled = true;
@@ -936,34 +1083,27 @@ export function DatabasePage() {
   }, [activeProfileId, selectedDatabase, refreshObjects, objectsRequest]);
 
   useEffect(() => {
-    if (!activeProfileId || !selectedDatabase || !tableParam) {
-      setDetailLoading(false);
-      return;
-    }
+    if (!activeProfileId || !selectedDatabase || !tableParam) return;
     const key = detailKeyFor(activeProfileId, selectedDatabase, tableParam);
     const requestId = detailRequest.current + 1;
     detailRequest.current = requestId;
-    setDetailLoading(true);
     dbApi
       .tableDetail(activeProfileId, selectedDatabase, tableParam)
       .then((result) => {
         if (detailRequest.current !== requestId) return;
-        setDetailState({ key, detail: result, error: null });
+        setDetailState({ key, fetchKey: detailFetchKey, detail: result, error: null });
       })
       .catch((error) => {
         if (detailRequest.current !== requestId) return;
         const message = error instanceof Error ? error.message : String(error);
-        setDetailState({ key, detail: null, error: message });
+        setDetailState({ key, fetchKey: detailFetchKey, detail: null, error: message });
         toast(message, 'error');
-      })
-      .finally(() => {
-        if (detailRequest.current === requestId) setDetailLoading(false);
       });
     return () => {
       // Invalidate the in-flight response even if it never settles.
       if (detailRequest.current === requestId) detailRequest.current += 1;
     };
-  }, [activeProfileId, selectedDatabase, tableParam, refreshKey, toast]);
+  }, [activeProfileId, selectedDatabase, tableParam, toast, detailFetchKey]);
 
   useEffect(() => {
     if (!activeProfileId || !selectedDatabase || !objectParam) return;
@@ -978,10 +1118,7 @@ export function DatabasePage() {
           routineType ?? undefined,
         );
         if (cancelled) return;
-        const title =
-          (info.name as string) ??
-          (info.TRIGGER_NAME as string) ??
-          objectParam;
+        const title = (info.name as string) ?? (info.TRIGGER_NAME as string) ?? objectParam;
         const fields: { label: string; value: string }[] = [];
         let text = '';
         if (objectType === 'view') {
@@ -1138,14 +1275,14 @@ export function DatabasePage() {
 
   return (
     <div className="page">
-      <div className="flex min-h-[640px] gap-0 overflow-hidden rounded-2xl border border-line bg-panel/40">
-        <aside className="w-[270px] shrink-0 border-r border-line-soft bg-panel/40">
+      <div className="flex min-h-[640px] flex-col gap-0 overflow-hidden rounded-2xl border border-line bg-panel/40 md:flex-row">
+        <aside className="w-full shrink-0 border-b border-line-soft bg-panel/40 md:w-[270px] md:border-b-0 md:border-r">
           <div className="border-b border-line-soft p-3">
             <div className="flex items-center gap-2">
               <Database size={14} className="text-ember" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[12px] font-semibold">{selectedDatabase}</div>
-                <div className="text-[9.5px] text-muted">
+                <div className="text-[10px] text-muted">
                   {objects
                     ? `${objects.tables.length} tables · ${objects.views.length} views`
                     : objectsError
@@ -1175,12 +1312,14 @@ export function DatabasePage() {
             </div>
           </div>
 
-          <div className="h-[560px] overflow-auto p-2">
+          <div className="h-[260px] overflow-auto p-2 md:h-[560px]">
             <Section
               label="Tables"
               count={filteredTables.length}
               open={openSections.tables}
-              onToggle={() => setOpenSections((current) => ({ ...current, tables: !current.tables }))}
+              onToggle={() =>
+                setOpenSections((current) => ({ ...current, tables: !current.tables }))
+              }
             >
               {filteredTables.map((table) => (
                 <button
@@ -1225,7 +1364,9 @@ export function DatabasePage() {
               label="Routines"
               count={objects?.routines.length ?? 0}
               open={openSections.routines}
-              onToggle={() => setOpenSections((current) => ({ ...current, routines: !current.routines }))}
+              onToggle={() =>
+                setOpenSections((current) => ({ ...current, routines: !current.routines }))
+              }
             >
               {(objects?.routines ?? []).map((routine) => (
                 <button
@@ -1233,15 +1374,10 @@ export function DatabasePage() {
                   type="button"
                   className="tree-item w-full text-left"
                   onClick={() =>
-                    selectObject(
-                      selectedDatabase,
-                      'routine',
-                      routine.name,
-                      routine.type,
-                    )
+                    selectObject(selectedDatabase, 'routine', routine.name, routine.type)
                   }
                 >
-                  <span className="text-[8px] font-bold text-ember">
+                  <span className="text-[10px] font-bold text-ember">
                     {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
                   </span>
                   <span>{routine.name}</span>
@@ -1253,7 +1389,9 @@ export function DatabasePage() {
               label="Triggers"
               count={objects?.triggers.length ?? 0}
               open={openSections.triggers}
-              onToggle={() => setOpenSections((current) => ({ ...current, triggers: !current.triggers }))}
+              onToggle={() =>
+                setOpenSections((current) => ({ ...current, triggers: !current.triggers }))
+              }
             >
               {(objects?.triggers ?? []).map((trigger) => (
                 <button
@@ -1262,7 +1400,7 @@ export function DatabasePage() {
                   className="tree-item w-full text-left"
                   onClick={() => selectObject(selectedDatabase, 'trigger', trigger.name)}
                 >
-                  <span className="text-[8px] font-bold text-warn">TR</span>
+                  <span className="text-[10px] font-bold text-warn">TR</span>
                   <span>{trigger.name}</span>
                 </button>
               ))}
@@ -1272,7 +1410,9 @@ export function DatabasePage() {
               label="Events"
               count={objects?.events.length ?? 0}
               open={openSections.events}
-              onToggle={() => setOpenSections((current) => ({ ...current, events: !current.events }))}
+              onToggle={() =>
+                setOpenSections((current) => ({ ...current, events: !current.events }))
+              }
             >
               {(objects?.events ?? []).map((event) => (
                 <button
@@ -1281,7 +1421,7 @@ export function DatabasePage() {
                   className="tree-item w-full text-left"
                   onClick={() => selectObject(selectedDatabase, 'event', event.name)}
                 >
-                  <span className="text-[8px] font-bold text-info">EV</span>
+                  <span className="text-[10px] font-bold text-info">EV</span>
                   <span>{event.name}</span>
                 </button>
               ))}
@@ -1352,8 +1492,17 @@ export function DatabasePage() {
                 }
               />
               <div className="stat-grid">
-                <StatCard label="Tables" value={objects?.tables.length ?? '—'} icon={<Table2 size={14} />} tone="ember" />
-                <StatCard label="Views" value={objects?.views.length ?? '—'} icon={<Eye size={14} />} />
+                <StatCard
+                  label="Tables"
+                  value={objects?.tables.length ?? '—'}
+                  icon={<Table2 size={14} />}
+                  tone="ember"
+                />
+                <StatCard
+                  label="Views"
+                  value={objects?.views.length ?? '—'}
+                  icon={<Eye size={14} />}
+                />
                 <StatCard label="Routines" value={objects?.routines.length ?? '—'} />
                 <StatCard label="Triggers" value={objects?.triggers.length ?? '—'} />
                 <StatCard label="Events" value={objects?.events.length ?? '—'} />
@@ -1472,15 +1621,16 @@ function ModalForObject({
       title={state.title}
       subtitle={state.subtitle}
       size="wide"
-      footer={
-        state.text ? <CopyButton text={state.text} label="Copy definition" /> : null
-      }
+      footer={state.text ? <CopyButton text={state.text} label="Copy definition" /> : null}
     >
       <div className="flex flex-col gap-3">
         {state.fields.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {state.fields.map((field) => (
-              <div key={field.label} className="rounded-lg border border-line-soft bg-panel-2/40 p-2">
+              <div
+                key={field.label}
+                className="rounded-lg border border-line-soft bg-panel-2/40 p-2"
+              >
                 <div className="mono-label">{field.label}</div>
                 <div className="mt-1 break-words font-mono text-[10.5px]">{field.value}</div>
               </div>

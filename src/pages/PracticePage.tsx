@@ -59,9 +59,9 @@ import {
   ScoreRing,
   Spinner,
   Textarea,
-  cn,
-  useMediaQuery,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
+import { useMediaQuery } from '@/lib/hooks';
 
 interface AnswerState {
   sql: string;
@@ -118,11 +118,7 @@ function readDraft(profileId: string, setId: string): Record<string, PracticeDra
   }
 }
 
-function writeDraft(
-  profileId: string,
-  setId: string,
-  drafts: Record<string, PracticeDraft>,
-): void {
+function writeDraft(profileId: string, setId: string, drafts: Record<string, PracticeDraft>): void {
   try {
     const key = draftKey(profileId, setId);
     if (Object.keys(drafts).length === 0) localStorage.removeItem(key);
@@ -140,7 +136,9 @@ function topicLabel(topic: PracticeTopic): string {
   return PRACTICE_TOPICS.find((item) => item.id === topic)?.label ?? topic;
 }
 
-function verdictTone(verdict: PracticeEvaluation['verdict']): 'mint' | 'warn' | 'danger' | 'neutral' {
+function verdictTone(
+  verdict: PracticeEvaluation['verdict'],
+): 'mint' | 'warn' | 'danger' | 'neutral' {
   if (verdict === 'correct') return 'mint';
   if (verdict === 'close') return 'warn';
   if (verdict === 'incorrect') return 'danger';
@@ -154,9 +152,7 @@ function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
         <Badge tone={comparison.matched ? 'mint' : 'warn'}>
           {comparison.matched ? 'results match' : 'results differ'}
         </Badge>
-        <Badge tone="neutral">
-          {comparison.ordered ? 'order matters' : 'order ignored'}
-        </Badge>
+        <Badge tone="neutral">{comparison.ordered ? 'order matters' : 'order ignored'}</Badge>
         {comparison.truncated ? <Badge tone="warn">row cap reached</Badge> : null}
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -183,13 +179,17 @@ function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
           {comparison.missingRows.length > 0 ? (
             <div>
               <div className="mono-label mb-1">Missing rows (sample)</div>
-              <pre className="finding-evidence">{JSON.stringify(comparison.missingRows, null, 2)}</pre>
+              <pre className="finding-evidence">
+                {JSON.stringify(comparison.missingRows, null, 2)}
+              </pre>
             </div>
           ) : null}
           {comparison.extraRows.length > 0 ? (
             <div>
               <div className="mono-label mb-1">Extra rows (sample)</div>
-              <pre className="finding-evidence">{JSON.stringify(comparison.extraRows, null, 2)}</pre>
+              <pre className="finding-evidence">
+                {JSON.stringify(comparison.extraRows, null, 2)}
+              </pre>
             </div>
           ) : null}
         </div>
@@ -217,11 +217,7 @@ export function PracticePage() {
     null;
 
   const [tables, setTables] = useState<string[]>([]);
-  const [topics, setTopics] = useState<PracticeTopic[]>([
-    'select',
-    'joins',
-    'aggregation',
-  ]);
+  const [topics, setTopics] = useState<PracticeTopic[]>(['select', 'joins', 'aggregation']);
   const [difficulty, setDifficulty] = useState<PracticeDifficulty | 'mixed'>('mixed');
   const [count, setCount] = useState(5);
   const [providerId, setProviderId] = useState(defaultProvider?.id ?? '');
@@ -260,7 +256,7 @@ export function PracticePage() {
   const persistedSetId = useRef<string | null>(null);
 
   const question = practiceSet?.questions[activeIndex] ?? null;
-  const current = question ? answers[question.id] ?? EMPTY_ANSWER : EMPTY_ANSWER;
+  const current = question ? (answers[question.id] ?? EMPTY_ANSWER) : EMPTY_ANSWER;
   const evaluation = current.evaluation;
   const flaggedCurrent = question ? Boolean(flagged[question.id]) : false;
   // Released by the server only for questions this profile has already attempted.
@@ -327,15 +323,19 @@ export function PracticePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDatabase]);
 
-  useEffect(() => {
+  // Tables belong to one database; drop the selection when it changes. The
+  // state is adjusted while rendering so the stale table list is never used.
+  const [tablesDatabase, setTablesDatabase] = useState(selectedDatabase);
+  if (tablesDatabase !== selectedDatabase) {
+    setTablesDatabase(selectedDatabase);
     setTables([]);
-  }, [selectedDatabase]);
+  }
 
-  useEffect(() => {
-    if (providerId || !defaultProvider) return;
+  // Adopt the default provider as soon as the provider list is available.
+  if (!providerId && defaultProvider) {
     setProviderId(defaultProvider.id);
     setModel(defaultProvider.model);
-  }, [defaultProvider, providerId]);
+  }
 
   useEffect(() => {
     if (!activeProfileId) return;
@@ -349,27 +349,42 @@ export function PracticePage() {
       .catch(() => undefined);
   }, [activeProfileId]);
 
-  useEffect(() => {
+  // A new question starts without hints and without the previous run result.
+  // The state is adjusted while rendering so the panel never shows results
+  // that belong to another question.
+  const [hintedQuestionId, setHintedQuestionId] = useState(question?.id);
+  if (hintedQuestionId !== question?.id) {
+    setHintedQuestionId(question?.id);
     setHintsShown(0);
     setRunResult(null);
     setRunError(null);
-  }, [question?.id]);
+  }
 
   // Restore unsubmitted drafts when a set becomes active (for example after a
-  // reload and reopening it from the recent list).
-  useEffect(() => {
-    if (!activeProfileId || !practiceSet) return;
+  // reload and reopening it from the recent list). The drafts are read while
+  // rendering and merged in the same commit as the set change.
+  const [restoredDrafts, setRestoredDrafts] = useState<{
+    profileId: string;
+    set: PracticeSetPublic;
+  } | null>(null);
+  if (
+    activeProfileId &&
+    practiceSet &&
+    (restoredDrafts?.profileId !== activeProfileId || restoredDrafts?.set !== practiceSet)
+  ) {
+    setRestoredDrafts({ profileId: activeProfileId, set: practiceSet });
     const stored = readDraft(activeProfileId, practiceSet.id);
-    if (Object.keys(stored).length === 0) return;
-    setAnswers((previous) => {
-      const next = { ...previous };
-      for (const [questionId, draft] of Object.entries(stored)) {
-        if (next[questionId]?.evaluation) continue;
-        next[questionId] = { ...(next[questionId] ?? EMPTY_ANSWER), ...draft };
-      }
-      return next;
-    });
-  }, [activeProfileId, practiceSet]);
+    if (Object.keys(stored).length > 0) {
+      setAnswers((previous) => {
+        const next = { ...previous };
+        for (const [questionId, draft] of Object.entries(stored)) {
+          if (next[questionId]?.evaluation) continue;
+          next[questionId] = { ...(next[questionId] ?? EMPTY_ANSWER), ...draft };
+        }
+        return next;
+      });
+    }
+  }
 
   // Persist only unanswered text: once a question is graded the server owns the
   // attempt and the local draft is cleared.
@@ -404,9 +419,7 @@ export function PracticePage() {
     try {
       const payload = await dbApi.practiceAnswers(setId, activeProfileId);
       if (activeSetId.current !== setId) return;
-      setAnswerMaterial(
-        Object.fromEntries(payload.answers.map((item) => [item.questionId, item])),
-      );
+      setAnswerMaterial(Object.fromEntries(payload.answers.map((item) => [item.questionId, item])));
     } catch {
       // Reference material is supplementary; grading already happened.
     }
@@ -716,12 +729,7 @@ export function PracticePage() {
               <Badge tone="mint">
                 <Target size={10} /> {selectedDatabase}
               </Badge>
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Sparkles size={12} />}
-                onClick={openSetup}
-              >
+              <Button variant="primary" size="sm" icon={<Sparkles size={12} />} onClick={openSetup}>
                 Generate challenges
               </Button>
             </>
@@ -756,300 +764,303 @@ export function PracticePage() {
           size="wide"
         >
           <div className="practice-setup-grid">
-          <Card className="p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <FlaskConical size={15} className="text-ember" />
-              <div className="section-title">Generate a challenge set</div>
-            </div>
-            {providers.length === 0 ? (
-              <div className="callout info mb-3 flex flex-wrap items-center gap-2">
-                <Sparkles size={14} />
-                <span className="flex-1">Add an AI provider to generate challenges.</span>
-                <Button size="sm" variant="secondary" onClick={() => navigate('/settings?tab=ai')}>
-                  Configure AI
-                </Button>
+            <Card className="p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <FlaskConical size={15} className="text-ember" />
+                <div className="section-title">Generate a challenge set</div>
               </div>
-            ) : null}
-
-            <div className="flex flex-col gap-3">
-              <Field
-                label="Tables"
-                hint={
-                  tableOptions.length === 0
-                    ? 'Schema is loading. Open the Database page if this persists.'
-                    : 'Leave empty to use up to 20 tables selected by size.'
-                }
-              >
-                <MultiSelect
-                  options={tableOptions}
-                  values={tables}
-                  onChange={setTables}
-                  placeholder="All tables (up to 20)"
-                  searchPlaceholder="Search tables…"
-                  showSelectAll
-                />
-              </Field>
-
-              <Field label="Topics">
-                <MultiSelect
-                  options={PRACTICE_TOPICS.map((topic) => ({
-                    value: topic.id,
-                    label: topic.label,
-                    group: 'Topics',
-                  }))}
-                  values={topics}
-                  onChange={(values) => setTopics(values as PracticeTopic[])}
-                  placeholder="Choose topics…"
-                  searchPlaceholder="Search topics…"
-                  showSelectAll
-                />
-              </Field>
-
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Difficulty">
-                  <Combobox
-                    options={PRACTICE_DIFFICULTIES.map((item) => ({
-                      value: item.id,
-                      label: item.label,
-                    }))}
-                    value={difficulty}
-                    onChange={(value) =>
-                      setDifficulty(value as PracticeDifficulty | 'mixed')
-                    }
-                    clearable={false}
-                  />
-                </Field>
-                <Field label="Challenges">
-                  <Combobox
-                    options={CHALLENGE_COUNTS.map((value) => ({
-                      value: String(value),
-                      label: String(value),
-                    }))}
-                    value={String(count)}
-                    onChange={(value) => setCount(Number(value))}
-                    clearable={false}
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Field label="Provider">
-                  <Combobox
-                    options={providerOptions}
-                    value={providerId || null}
-                    onChange={(value) => {
-                      setProviderId(value);
-                      const next = providers.find((provider) => provider.id === value);
-                      if (next) setModel(next.model);
-                    }}
-                    placeholder={providers.length ? 'Select provider…' : 'No providers'}
-                    clearable={false}
-                    disabled={providers.length === 0}
-                  />
-                </Field>
-                <Field label="Model">
-                  <Input
-                    className="font-mono text-[11px]"
-                    value={model}
-                    onChange={(event) => setModel(event.target.value)}
-                    placeholder="model"
-                    list="practice-models"
-                  />
-                  <datalist id="practice-models">
-                    {(providers.find((provider) => provider.id === providerId)?.models ?? []).map(
-                      (item) => (
-                        <option key={item} value={item} />
-                      ),
-                    )}
-                  </datalist>
-                </Field>
-              </div>
-
-              <Checkbox
-                label="Include a few masked sample rows"
-                checked={includeSampleData}
-                onChange={setIncludeSampleData}
-              />
-              <Checkbox
-                label="Use AI feedback after deterministic grading"
-                checked={includeAi}
-                onChange={setIncludeAi}
-              />
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="primary"
-                  className="flex-1"
-                  icon={generating ? <Spinner size={12} /> : <Sparkles size={13} />}
-                  onClick={() => void generate()}
-                  loading={generating}
-                  disabled={providers.length === 0 || topics.length === 0}
-                >
-                  Generate challenges
-                </Button>
-                {generating ? (
-                  <Button variant="ghost" size="sm" onClick={cancelGeneration}>
-                    Cancel
+              {providers.length === 0 ? (
+                <div className="callout info mb-3 flex flex-wrap items-center gap-2">
+                  <Sparkles size={14} />
+                  <span className="flex-1">Add an AI provider to generate challenges.</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => navigate('/settings?tab=ai')}
+                  >
+                    Configure AI
                   </Button>
-                ) : null}
-              </div>
-              <div className="text-[10px] leading-4 text-muted">
-                Challenges are grounded in the selected schema. The reference SQL is
-                validated read-only before it is accepted. Nothing in the database is
-                modified.
-              </div>
-              {error ? (
-                <div className="callout danger flex items-start gap-2 text-[11px]">
-                  <XCircle size={13} className="mt-0.5 shrink-0" />
-                  <span>{error}</span>
                 </div>
               ) : null}
-              {generating ? (
-                <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3">
-                  <div className="flex items-center gap-2 text-[11px] text-muted">
-                    <Spinner size={13} />
-                    Designing challenges from {selectedDatabase}…
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto"
-                      onClick={cancelGeneration}
-                    >
-                      Stop
+
+              <div className="flex flex-col gap-3">
+                <Field
+                  label="Tables"
+                  hint={
+                    tableOptions.length === 0
+                      ? 'Schema is loading. Open the Database page if this persists.'
+                      : 'Leave empty to use up to 20 tables selected by size.'
+                  }
+                >
+                  <MultiSelect
+                    options={tableOptions}
+                    values={tables}
+                    onChange={setTables}
+                    placeholder="All tables (up to 20)"
+                    searchPlaceholder="Search tables…"
+                    showSelectAll
+                  />
+                </Field>
+
+                <Field label="Topics">
+                  <MultiSelect
+                    options={PRACTICE_TOPICS.map((topic) => ({
+                      value: topic.id,
+                      label: topic.label,
+                      group: 'Topics',
+                    }))}
+                    values={topics}
+                    onChange={(values) => setTopics(values as PracticeTopic[])}
+                    placeholder="Choose topics…"
+                    searchPlaceholder="Search topics…"
+                    showSelectAll
+                  />
+                </Field>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Difficulty">
+                    <Combobox
+                      options={PRACTICE_DIFFICULTIES.map((item) => ({
+                        value: item.id,
+                        label: item.label,
+                      }))}
+                      value={difficulty}
+                      onChange={(value) => setDifficulty(value as PracticeDifficulty | 'mixed')}
+                      clearable={false}
+                    />
+                  </Field>
+                  <Field label="Challenges">
+                    <Combobox
+                      options={CHALLENGE_COUNTS.map((value) => ({
+                        value: String(value),
+                        label: String(value),
+                      }))}
+                      value={String(count)}
+                      onChange={(value) => setCount(Number(value))}
+                      clearable={false}
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Field label="Provider">
+                    <Combobox
+                      options={providerOptions}
+                      value={providerId || null}
+                      onChange={(value) => {
+                        setProviderId(value);
+                        const next = providers.find((provider) => provider.id === value);
+                        if (next) setModel(next.model);
+                      }}
+                      placeholder={providers.length ? 'Select provider…' : 'No providers'}
+                      clearable={false}
+                      disabled={providers.length === 0}
+                    />
+                  </Field>
+                  <Field label="Model">
+                    <Input
+                      className="font-mono text-[11px]"
+                      value={model}
+                      onChange={(event) => setModel(event.target.value)}
+                      placeholder="model"
+                      list="practice-models"
+                    />
+                    <datalist id="practice-models">
+                      {(providers.find((provider) => provider.id === providerId)?.models ?? []).map(
+                        (item) => (
+                          <option key={item} value={item} />
+                        ),
+                      )}
+                    </datalist>
+                  </Field>
+                </div>
+
+                <Checkbox
+                  label="Include a few masked sample rows"
+                  checked={includeSampleData}
+                  onChange={setIncludeSampleData}
+                />
+                <Checkbox
+                  label="Use AI feedback after deterministic grading"
+                  checked={includeAi}
+                  onChange={setIncludeAi}
+                />
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="primary"
+                    className="flex-1"
+                    icon={generating ? <Spinner size={12} /> : <Sparkles size={13} />}
+                    onClick={() => void generate()}
+                    loading={generating}
+                    disabled={providers.length === 0 || topics.length === 0}
+                  >
+                    Generate challenges
+                  </Button>
+                  {generating ? (
+                    <Button variant="ghost" size="sm" onClick={cancelGeneration}>
+                      Cancel
                     </Button>
-                  </div>
-                  {generationText ? (
-                    <details className="mt-2">
-                      <summary className="cursor-pointer text-[10px] text-muted">
-                        Raw stream
-                      </summary>
-                      <pre className="finding-evidence mt-1 max-h-40 whitespace-pre-wrap">
-                        {generationText.slice(-4_000)}
-                      </pre>
-                    </details>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
-          </Card>
-
-          <div className="practice-setup-side">
-          <Card className="p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <Trophy size={14} className="text-ember" />
-              <div className="section-title">Progress</div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto"
-                icon={<RefreshCw size={11} />}
-                onClick={() => void loadProgress()}
-              >
-                Refresh
-              </Button>
-            </div>
-            {progress && progress.totalAttempts > 0 ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="neutral">{progress.totalAttempts} attempts</Badge>
-                  <Badge tone="mint">avg {progress.averageScore}</Badge>
+                <div className="text-[10px] leading-4 text-muted">
+                  Challenges are grounded in the selected schema. The reference SQL is validated
+                  read-only before it is accepted. Nothing in the database is modified.
                 </div>
-                {progress.recommendedTopics.length > 0 ? (
-                  <div>
-                    <div className="mono-label mb-1">Recommended next</div>
-                    <div className="flex flex-wrap gap-1">
-                      {progress.recommendedTopics.map((topic) => (
-                        <Badge key={topic} tone="ember">
-                          {topicLabel(topic)}
-                        </Badge>
-                      ))}
-                    </div>
+                {error ? (
+                  <div className="callout danger flex items-start gap-2 text-[11px]">
+                    <XCircle size={13} className="mt-0.5 shrink-0" />
+                    <span>{error}</span>
                   </div>
                 ) : null}
-                <div className="flex flex-col gap-1.5">
-                  {progress.topics
-                    .filter((topic) => topic.attempts > 0)
-                    .sort((a, b) => b.attempts - a.attempts)
-                    .slice(0, 8)
-                    .map((topic) => (
-                      <div key={topic.topic}>
-                        <div className="flex items-center justify-between gap-2 text-[10.5px]">
-                          <span className="truncate text-ink-soft">{topicLabel(topic.topic)}</span>
-                          <span className="font-mono text-muted">
-                            {topic.averageScore} · {topic.attempts}×
-                          </span>
-                        </div>
-                        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
-                          <div
-                            className={cn(
-                              'h-full rounded-full',
-                              topic.averageScore >= 80
-                                ? 'bg-mint'
-                                : topic.averageScore >= 60
-                                  ? 'bg-warn'
-                                  : 'bg-danger',
-                            )}
-                            style={{ width: `${Math.max(3, topic.averageScore)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
+                {generating ? (
+                  <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3">
+                    <div className="flex items-center gap-2 text-[11px] text-muted">
+                      <Spinner size={13} />
+                      Designing challenges from {selectedDatabase}…
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={cancelGeneration}
+                      >
+                        Stop
+                      </Button>
+                    </div>
+                    {generationText ? (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[10px] text-muted">
+                          Raw stream
+                        </summary>
+                        <pre className="finding-evidence mt-1 max-h-40 whitespace-pre-wrap">
+                          {generationText.slice(-4_000)}
+                        </pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+
+            <div className="practice-setup-side">
+              <Card className="p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Trophy size={14} className="text-ember" />
+                  <div className="section-title">Progress</div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-danger"
-                    icon={<Trash2 size={11} />}
-                    onClick={() => setClearConfirm(true)}
+                    className="ml-auto"
+                    icon={<RefreshCw size={11} />}
+                    onClick={() => void loadProgress()}
                   >
-                    Clear attempts
+                    Refresh
                   </Button>
-                  {progress.recent.length > 0 ? (
-                    <span className="text-[9.5px] text-muted">
-                      last {formatDate(progress.recent[0].createdAt)}
-                    </span>
-                  ) : null}
                 </div>
-              </div>
-            ) : (
-              <div className="text-[11px] text-muted">
-                Your topic mastery appears here after you submit answers. The lab tracks
-                attempts locally for this connection.
-              </div>
-            )}
-          </Card>
+                {progress && progress.totalAttempts > 0 ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="neutral">{progress.totalAttempts} attempts</Badge>
+                      <Badge tone="mint">avg {progress.averageScore}</Badge>
+                    </div>
+                    {progress.recommendedTopics.length > 0 ? (
+                      <div>
+                        <div className="mono-label mb-1">Recommended next</div>
+                        <div className="flex flex-wrap gap-1">
+                          {progress.recommendedTopics.map((topic) => (
+                            <Badge key={topic} tone="ember">
+                              {topicLabel(topic)}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-col gap-1.5">
+                      {progress.topics
+                        .filter((topic) => topic.attempts > 0)
+                        .sort((a, b) => b.attempts - a.attempts)
+                        .slice(0, 8)
+                        .map((topic) => (
+                          <div key={topic.topic}>
+                            <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                              <span className="truncate text-ink-soft">
+                                {topicLabel(topic.topic)}
+                              </span>
+                              <span className="font-mono text-muted">
+                                {topic.averageScore} · {topic.attempts}×
+                              </span>
+                            </div>
+                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full',
+                                  topic.averageScore >= 80
+                                    ? 'bg-mint'
+                                    : topic.averageScore >= 60
+                                      ? 'bg-warn'
+                                      : 'bg-danger',
+                                )}
+                                style={{ width: `${Math.max(3, topic.averageScore)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger"
+                        icon={<Trash2 size={11} />}
+                        onClick={() => setClearConfirm(true)}
+                      >
+                        Clear attempts
+                      </Button>
+                      {progress.recent.length > 0 ? (
+                        <span className="text-[10px] text-muted">
+                          last {formatDate(progress.recent[0].createdAt)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-muted">
+                    Your topic mastery appears here after you submit answers. The lab tracks
+                    attempts locally for this connection.
+                  </div>
+                )}
+              </Card>
 
-          {recentSets.length > 0 ? (
-            <Card className="p-4">
-              <div className="section-title mb-2">Recent challenge sets</div>
-              <div className="flex flex-col gap-1.5">
-                {recentSets.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
-                    onClick={() => {
-                      activateSet(item);
-                      setSetupOpen(false);
-                    }}
-                  >
-                    <FlaskConical size={13} className="text-muted" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[11px] text-ink-soft">
-                        {item.database} · {item.questions.length} challenges
-                      </span>
-                      <span className="block text-[9.5px] text-muted">
-                        {formatDate(item.createdAt)}
-                      </span>
-                    </span>
-                    <Badge tone="neutral">{item.model}</Badge>
-                  </button>
-                ))}
-              </div>
-            </Card>
-          ) : null}
-          </div>
+              {recentSets.length > 0 ? (
+                <Card className="p-4">
+                  <div className="section-title mb-2">Recent challenge sets</div>
+                  <div className="flex flex-col gap-1.5">
+                    {recentSets.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
+                        onClick={() => {
+                          activateSet(item);
+                          setSetupOpen(false);
+                        }}
+                      >
+                        <FlaskConical size={13} className="text-muted" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[11px] text-ink-soft">
+                            {item.database} · {item.questions.length} challenges
+                          </span>
+                          <span className="block text-[10px] text-muted">
+                            {formatDate(item.createdAt)}
+                          </span>
+                        </span>
+                        <Badge tone="neutral">{item.model}</Badge>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              ) : null}
+            </div>
           </div>
         </Modal>
 
@@ -1060,11 +1071,7 @@ export function PracticePage() {
               title="No challenge set yet"
               copy="Choose tables and topics, then generate a set. You can answer with SQL or a written explanation, depending on the challenge."
               action={
-                <Button
-                  variant="primary"
-                  icon={<Sparkles size={13} />}
-                  onClick={openSetup}
-                >
+                <Button variant="primary" icon={<Sparkles size={13} />} onClick={openSetup}>
                   Generate a challenge set
                 </Button>
               }
@@ -1124,7 +1131,9 @@ export function PracticePage() {
                 {question.brokenSql ? (
                   <div className="mt-3">
                     <div className="mono-label mb-1">
-                      {question.type === 'fix-query' ? 'Broken / inefficient query' : 'Query to review'}
+                      {question.type === 'fix-query'
+                        ? 'Broken / inefficient query'
+                        : 'Query to review'}
                     </div>
                     <CodeBlock text={question.brokenSql} className="max-h-52 text-[11px]" />
                   </div>
@@ -1141,7 +1150,9 @@ export function PracticePage() {
                         variant="ghost"
                         size="sm"
                         className="ml-auto h-6 px-2 text-[10.5px]"
-                        onClick={() => setHintsShown((value) => Math.min(question.hints.length, value + 1))}
+                        onClick={() =>
+                          setHintsShown((value) => Math.min(question.hints.length, value + 1))
+                        }
                         disabled={hintsShown >= question.hints.length}
                       >
                         {hintsShown === 0 ? 'Show a hint' : 'Another hint'}
@@ -1331,9 +1342,9 @@ export function PracticePage() {
                         <div className="score-explainer-body">
                           Correctness is 60% of the overall score and comes from comparing your
                           result with the reference (column count, row multiset, and order when
-                          required). Performance is 25% from static rules and EXPLAIN. Style is
-                          15% from readability rules. A truncated comparison caps correctness at
-                          90; non-executed answers use the AI evaluation only.
+                          required). Performance is 25% from static rules and EXPLAIN. Style is 15%
+                          from readability rules. A truncated comparison caps correctness at 90;
+                          non-executed answers use the AI evaluation only.
                         </div>
                       </details>
                     </div>
@@ -1541,11 +1552,7 @@ export function PracticePage() {
                   >
                     {index + 1}
                     {itemFlagged ? (
-                      <Flag
-                        size={8}
-                        className="practice-nav-flag"
-                        fill="currentColor"
-                      />
+                      <Flag size={8} className="practice-nav-flag" fill="currentColor" />
                     ) : null}
                   </button>
                 );
@@ -1566,12 +1573,7 @@ export function PracticePage() {
               variant="ghost"
               size="sm"
               className={cn('practice-nav-flag-btn', flaggedCurrent && 'text-warn')}
-              icon={
-                <Flag
-                  size={11}
-                  fill={flaggedCurrent ? 'currentColor' : 'none'}
-                />
-              }
+              icon={<Flag size={11} fill={flaggedCurrent ? 'currentColor' : 'none'} />}
               onClick={() => {
                 if (question) toggleFlag(question.id);
               }}

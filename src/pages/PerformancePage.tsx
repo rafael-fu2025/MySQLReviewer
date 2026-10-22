@@ -33,8 +33,8 @@ import {
   Spinner,
   StatCard,
   Tabs,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 function Sparkline({ values, color = '#ff8a3d' }: { values: number[]; color?: string }) {
   if (values.length < 2) return <div className="h-[42px]" />;
@@ -89,7 +89,18 @@ export function PerformancePage() {
   const [killing, setKilling] = useState(false);
   const snapshotRef = useRef<PerformanceSnapshot | null>(null);
 
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now());
+  // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
+  // so the flag flips exactly when the unlock window closes, instead of
+  // reading the time while rendering.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!unlockedUntil) return;
+    const remaining = unlockedUntil - Date.now();
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [unlockedUntil]);
+
+  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
 
   const load = async (quiet = false): Promise<void> => {
     if (!activeProfileId) {
@@ -116,12 +127,18 @@ export function PerformancePage() {
   };
 
   useEffect(() => {
-    void load();
-    if (!activeProfileId) return;
+    // The load writes loading/error state, so it runs in a task instead of
+    // synchronously in the effect body: that keeps the mount render free of
+    // cascading setState calls.
+    const start = setTimeout(() => void load(), 0);
+    if (!activeProfileId) return () => clearTimeout(start);
     const timer = setInterval(() => {
       if (!paused && document.visibilityState === 'visible') void load(true);
     }, 5_000);
-    return () => clearInterval(timer);
+    return () => {
+      clearTimeout(start);
+      clearInterval(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProfileId, paused]);
 
@@ -143,15 +160,10 @@ export function PerformancePage() {
     const entries = varsOf(snapshot);
     const needle = variableFilter.trim().toLowerCase();
     if (!needle) return entries;
-    return entries.filter(([name, value]) =>
-      `${name} ${value}`.toLowerCase().includes(needle),
-    );
+    return entries.filter(([name, value]) => `${name} ${value}`.toLowerCase().includes(needle));
   }, [snapshot, variableFilter]);
 
-  const topTableMax = Math.max(
-    1,
-    ...(snapshot?.topTables.map((table) => table.totalBytes) ?? [1]),
-  );
+  const topTableMax = Math.max(1, ...(snapshot?.topTables.map((table) => table.totalBytes) ?? [1]));
 
   const killProcess = async (): Promise<void> => {
     if (!killTarget || !activeProfileId) return;
@@ -199,9 +211,7 @@ export function PerformancePage() {
         subtitle="A live snapshot of server throughput, sessions, slow work, and configuration."
         actions={
           <>
-            <Badge tone={paused ? 'warn' : 'mint'}>
-              {paused ? 'paused' : 'polling every 5s'}
-            </Badge>
+            <Badge tone={paused ? 'warn' : 'mint'}>{paused ? 'paused' : 'polling every 5s'}</Badge>
             <Button
               variant="secondary"
               size="sm"
@@ -261,7 +271,9 @@ export function PerformancePage() {
             </Card>
             <StatCard
               label="Buffer pool hit"
-              value={metrics.bufferPoolHitRatio != null ? formatPercent(metrics.bufferPoolHitRatio) : '—'}
+              value={
+                metrics.bufferPoolHitRatio != null ? formatPercent(metrics.bufferPoolHitRatio) : '—'
+              }
               sub="InnoDB read cache"
               icon={<Gauge size={14} />}
               tone="mint"
@@ -303,7 +315,11 @@ export function PerformancePage() {
               { id: 'overview', label: 'Overview' },
               { id: 'processes', label: 'Processes', count: snapshot.processlist.length },
               { id: 'slow', label: 'Slow queries', count: snapshot.slowQueries.length },
-              { id: 'variables', label: 'Variables', count: Object.keys(snapshot.variables).length },
+              {
+                id: 'variables',
+                label: 'Variables',
+                count: Object.keys(snapshot.variables).length,
+              },
             ]}
             value={tab}
             onChange={setTab}
@@ -331,7 +347,9 @@ export function PerformancePage() {
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
                           <div
                             className="h-full rounded-full bg-ember/70"
-                            style={{ width: `${Math.max(3, (table.totalBytes / topTableMax) * 100)}%` }}
+                            style={{
+                              width: `${Math.max(3, (table.totalBytes / topTableMax) * 100)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -343,7 +361,10 @@ export function PerformancePage() {
               <Card className="p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <div className="section-title">Replication</div>
-                  <Badge tone={snapshot.replication.configured ? 'mint' : 'neutral'} className="ml-auto">
+                  <Badge
+                    tone={snapshot.replication.configured ? 'mint' : 'neutral'}
+                    className="ml-auto"
+                  >
                     {snapshot.replication.configured ? 'configured' : 'not configured'}
                   </Badge>
                 </div>
@@ -376,7 +397,10 @@ export function PerformancePage() {
               <Card className="p-4 lg:col-span-2">
                 <div className="mb-2 flex items-center gap-2">
                   <div className="section-title">Slow query source</div>
-                  <Badge tone={snapshot.slowQuerySource === 'none' ? 'warn' : 'mint'} className="ml-auto">
+                  <Badge
+                    tone={snapshot.slowQuerySource === 'none' ? 'warn' : 'mint'}
+                    className="ml-auto"
+                  >
                     {snapshot.slowQuerySource}
                   </Badge>
                 </div>
@@ -494,7 +518,9 @@ export function PerformancePage() {
                   <EmptyState
                     icon={<Timer size={22} />}
                     title="Slow query data is unavailable"
-                    copy={snapshot.slowQueryAdvice ?? 'Enable the slow query log or performance_schema.'}
+                    copy={
+                      snapshot.slowQueryAdvice ?? 'Enable the slow query log or performance_schema.'
+                    }
                   />
                 </div>
               ) : (

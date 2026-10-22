@@ -1,13 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { cn } from './ui';
+
+import { cn } from '@/lib/utils';
 
 type TooltipSide = 'right' | 'left' | 'top' | 'bottom';
 
@@ -100,10 +94,7 @@ export function Tooltip({
       nextSide = 'right';
     } else if (nextSide === 'top' && box.top - gap - size.height < pad) {
       nextSide = 'bottom';
-    } else if (
-      nextSide === 'bottom' &&
-      box.bottom + gap + size.height > window.innerHeight - pad
-    ) {
+    } else if (nextSide === 'bottom' && box.bottom + gap + size.height > window.innerHeight - pad) {
       nextSide = 'top';
     }
 
@@ -128,11 +119,7 @@ export function Tooltip({
     <>
       <span
         ref={anchorRef}
-        className={cn(
-          'tip-anchor',
-          block ? 'tip-anchor-block' : 'tip-anchor-inline',
-          className,
-        )}
+        className={cn('tip-anchor', block ? 'tip-anchor-block' : 'tip-anchor-inline', className)}
         onMouseEnter={() => show(false)}
         onMouseLeave={hide}
         onFocus={() => show(true)}
@@ -148,10 +135,7 @@ export function Tooltip({
             <div
               ref={bubbleRef}
               role="tooltip"
-              className={cn(
-                'tip',
-                position ? `tip-${position.side}` : 'tip-right',
-              )}
+              className={cn('tip', position ? `tip-${position.side}` : 'tip-right')}
               style={{
                 left: position?.left ?? -9999,
                 top: position?.top ?? -9999,

@@ -1,16 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertOctagon, Lock, ShieldAlert, Unlock } from 'lucide-react';
 import type { StatementClassification } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
-import {
-  Button,
-  Checkbox,
-  Field,
-  Input,
-  Modal,
-  Spinner,
-  cn,
-} from './ui';
+import { Button, Checkbox, Field, Input, Modal, Spinner } from './ui';
+import { cn } from '@/lib/utils';
 
 export function UnlockDialog({
   open,
@@ -32,14 +25,20 @@ export function UnlockDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setPhrase('');
-    setStep('unlock');
-    setAcknowledged(false);
-    setBusy(false);
-    setError(null);
-  }, [open]);
+  // Every time the dialog opens it starts from a clean unlock form. Adjusting
+  // the state while rendering keeps the reset in the same commit as the open,
+  // instead of running a second render from an effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setPhrase('');
+      setStep('unlock');
+      setAcknowledged(false);
+      setBusy(false);
+      setError(null);
+    }
+  }
 
   const confirmUnlock = async (): Promise<void> => {
     setBusy(true);
@@ -64,12 +63,11 @@ export function UnlockDialog({
     onProceed();
   };
 
-  const title =
-    classification?.destructive
-      ? 'This statement can destroy data'
-      : classification
-        ? 'Writes are locked'
-        : 'Unlock writes';
+  const title = classification?.destructive
+    ? 'This statement can destroy data'
+    : classification
+      ? 'Writes are locked'
+      : 'Unlock writes';
 
   return (
     <Modal
@@ -123,8 +121,8 @@ export function UnlockDialog({
               {classification?.reason ??
                 'DML, DDL, and administrative statements will be allowed for this connection.'}
               <div className="mt-1 text-[11px] text-muted">
-                Read-only queries continue to work normally. You can lock writes again at any
-                time from the top bar.
+                Read-only queries continue to work normally. You can lock writes again at any time
+                from the top bar.
               </div>
             </div>
           </div>
@@ -173,8 +171,7 @@ export function UnlockDialog({
                   : 'Run the unlocked statement.'}
               </div>
               <div className="mt-1 text-[11.5px] text-muted">
-                {classification?.reason ??
-                  'Verify the target and keep a backup before proceeding.'}
+                {classification?.reason ?? 'Verify the target and keep a backup before proceeding.'}
               </div>
             </div>
           </div>

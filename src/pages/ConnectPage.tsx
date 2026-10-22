@@ -30,8 +30,8 @@ import {
   Modal,
   PageHeader,
   Spinner,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 function ProfileCard({
   profile,
@@ -66,9 +66,7 @@ function ProfileCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-[14px] font-bold tracking-tight">
-              {profile.name}
-            </span>
+            <span className="truncate text-[14px] font-bold tracking-tight">{profile.name}</span>
             {active ? <Badge tone="mint">active</Badge> : null}
             {profile.host === '127.0.0.1' || profile.host === 'localhost' ? (
               <Badge tone="ember">local</Badge>
@@ -90,7 +88,15 @@ function ProfileCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Badge tone={profile.passwordSource === 'saved' ? 'mint' : profile.passwordSource === 'session' ? 'info' : 'warn'}>
+        <Badge
+          tone={
+            profile.passwordSource === 'saved'
+              ? 'mint'
+              : profile.passwordSource === 'session'
+                ? 'info'
+                : 'warn'
+          }
+        >
           <KeyRound size={10} />
           {profile.passwordSource === 'saved'
             ? 'encrypted password'
@@ -98,7 +104,9 @@ function ProfileCard({
               ? 'session password'
               : 'no saved password'}
         </Badge>
-        <Badge>{profile.lastUsedAt ? `used ${formatRelative(profile.lastUsedAt)}` : 'never used'}</Badge>
+        <Badge>
+          {profile.lastUsedAt ? `used ${formatRelative(profile.lastUsedAt)}` : 'never used'}
+        </Badge>
         <Badge tone={profile.databaseScope === 'selected' ? 'ember' : 'neutral'}>
           {profile.databaseScope === 'selected'
             ? `${profile.allowedDatabases.length} DB scope`
@@ -117,18 +125,10 @@ function ProfileCard({
         >
           {active ? 'Reconnect' : 'Connect'}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onTest}
-          loading={testing}
-          disabled={connecting}
-        >
+        <Button variant="ghost" size="sm" onClick={onTest} loading={testing} disabled={connecting}>
           Test
         </Button>
-        <span className="ml-auto text-[10px] text-muted">
-          read-only by default
-        </span>
+        <span className="ml-auto text-[10px] text-muted">read-only by default</span>
       </div>
     </Card>
   );
@@ -269,8 +269,8 @@ export function ConnectPage() {
                 Connect to your MySQL server
               </h1>
               <p className="mt-2 max-w-xl text-[12.5px] leading-6 text-muted">
-                Choose a profile to explore schemas, run safe queries, review EXPLAIN plans,
-                audit access, and practice with SQL Lab.
+                Choose a profile to explore schemas, run safe queries, review EXPLAIN plans, audit
+                access, and practice with SQL Lab.
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
                 <Button
@@ -316,9 +316,7 @@ export function ConnectPage() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">MySQL port</span>
-                <span className="font-mono text-[10.5px]">
-                  {detectedXampp?.port ?? 3306}
-                </span>
+                <span className="font-mono text-[10.5px]">{detectedXampp?.port ?? 3306}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">Node runtime</span>
@@ -336,9 +334,9 @@ export function ConnectPage() {
               <div className="mb-1 flex items-center gap-1.5 font-semibold text-ink-soft">
                 <Lock size={12} className="text-mint" /> Safety model
               </div>
-              The API binds to 127.0.0.1, validates the Host/Origin, and requires a per-boot
-              token. Saved passwords and AI keys are encrypted with AES-256-GCM. Cloud AI is
-              only called when you click a review action.
+              The API binds to 127.0.0.1, validates the Host/Origin, and requires a per-boot token.
+              Saved passwords and AI keys are encrypted with AES-256-GCM. Cloud AI is only called
+              when you click a review action.
             </div>
             {activeProfileId && server ? (
               <div className="rounded-xl border border-mint/25 bg-mint/5 p-3">
@@ -349,18 +347,10 @@ export function ConnectPage() {
                   {server.version} · {server.flavor}
                 </div>
                 <div className="mt-2 flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() => navigate('/workspace')}
-                  >
+                  <Button size="sm" variant="primary" onClick={() => navigate('/workspace')}>
                     Open workspace
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void disconnect()}
-                  >
+                  <Button size="sm" variant="ghost" onClick={() => void disconnect()}>
                     Disconnect
                   </Button>
                 </div>
@@ -433,7 +423,9 @@ export function ConnectPage() {
         </section>
 
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-2 pb-4 text-[10.5px] text-muted">
-          <span>MyLens is local-first. Nothing is uploaded unless you trigger a cloud AI review.</span>
+          <span>
+            MyLens is local-first. Nothing is uploaded unless you trigger a cloud AI review.
+          </span>
           <span className="font-mono">localhost · AES-256-GCM · no telemetry</span>
         </footer>
       </div>
@@ -465,11 +457,7 @@ export function ConnectPage() {
           setPasswordError(null);
         }}
         title="Password required"
-        subtitle={
-          passwordFor
-            ? `${passwordFor.user}@${passwordFor.host}:${passwordFor.port}`
-            : ''
-        }
+        subtitle={passwordFor ? `${passwordFor.user}@${passwordFor.host}:${passwordFor.port}` : ''}
         size="narrow"
         footer={
           <>
@@ -503,8 +491,8 @@ export function ConnectPage() {
       >
         <div className="flex flex-col gap-3">
           <p className="text-[12px] text-muted">
-            This profile has no saved password. Enter it for this session, or cancel and
-            update the profile to remember it.
+            This profile has no saved password. Enter it for this session, or cancel and update the
+            profile to remember it.
           </p>
           <Field label="Password" error={passwordError}>
             <Input

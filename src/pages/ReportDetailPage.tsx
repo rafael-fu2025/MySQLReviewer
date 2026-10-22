@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  FileJson,
-  FileText,
-  Globe2,
-  Sparkles,
-  Wand2,
-  XCircle,
-} from 'lucide-react';
+import { ArrowLeft, FileJson, FileText, Globe2, Sparkles, Wand2, XCircle } from 'lucide-react';
 import type { AuditReport, StoredReviewReport } from '@shared/types';
 import { api, downloadReport } from '@/lib/api';
 import { formatDate } from '@/lib/format';
@@ -24,8 +16,8 @@ import {
   PageHeader,
   ScoreRing,
   Spinner,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
@@ -66,9 +58,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
               {report.profile
                 ? `${report.profile.name} · ${report.profile.user}@${report.profile.host}:${report.profile.port}`
                 : 'No connection snapshot'}
-              {report.databaseScope.length
-                ? ` · ${report.databaseScope.join(', ')}`
-                : ''}
+              {report.databaseScope.length ? ` · ${report.databaseScope.join(', ')}` : ''}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {(['critical', 'high', 'medium', 'low', 'info'] as const)
@@ -197,9 +187,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
                 <CopyButton text={report.ai.rewrite.sql} label="Copy" className="ml-auto" />
               </div>
               <CodeBlock text={report.ai.rewrite.sql} className="mt-2" />
-              <div className="mt-2 text-[11px] text-muted">
-                {report.ai.rewrite.explanation}
-              </div>
+              <div className="mt-2 text-[11px] text-muted">{report.ai.rewrite.explanation}</div>
             </div>
           ) : null}
         </Card>
@@ -211,32 +199,34 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
 export function ReportDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [report, setReport] = useState<AuditReport | StoredReviewReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [missingId, setMissingId] = useState(!id);
+  // The response is tagged with the report id it was fetched for, so a report
+  // for one id can never render under another id's URL.
+  const [reportState, setReportState] = useState<{
+    id: string;
+    report: AuditReport | StoredReviewReport | null;
+    error: string | null;
+  } | null>(null);
+  const report = reportState && reportState.id === id ? reportState.report : null;
+  const error = reportState && reportState.id === id ? reportState.error : null;
+  const missingId = !id;
+  const loading = Boolean(id) && (!reportState || reportState.id !== id);
 
   useEffect(() => {
-    if (!id) {
-      setReport(null);
-      setError(null);
-      setMissingId(true);
-      setLoading(false);
-      return;
-    }
-    setMissingId(false);
+    if (!id) return;
     let cancelled = false;
-    setLoading(true);
     api
       .get<AuditReport | StoredReviewReport>(`/api/reports/${encodeURIComponent(id)}`)
       .then((result) => {
-        if (!cancelled) setReport(result);
+        if (cancelled) return;
+        setReportState({ id, report: result, error: null });
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setReportState({
+          id,
+          report: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     return () => {
       cancelled = true;

@@ -23,8 +23,8 @@ import {
   PageHeader,
   Spinner,
   StatCard,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 function userLabel(user: DbUser): string {
   return `'${user.user}'@'${user.host}'`;
@@ -35,36 +35,62 @@ export function SecurityPage() {
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const toast = useAppStore((state) => state.toast);
   const [data, setData] = useState<SecurityAuditResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Bumping the request counter reloads the audit; the loading flag and the
+  // error are derived from the request the state belongs to.
+  const [loadRequest, setLoadRequest] = useState(0);
+  const [loadState, setLoadState] = useState<{
+    profileId: string;
+    request: number;
+    error: string | null;
+  } | null>(null);
   const [grantsFor, setGrantsFor] = useState<DbUser | null>(null);
   const [grants, setGrants] = useState<GrantInfo | null>(null);
   const [grantsLoading, setGrantsLoading] = useState(false);
 
-  const load = async (): Promise<void> => {
-    if (!activeProfileId) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.get<SecurityAuditResult>(
-        `/api/db/${encodeURIComponent(activeProfileId)}/security`,
-      );
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
+  const loading = activeProfileId
+    ? loadState === null ||
+      loadState.profileId !== activeProfileId ||
+      loadState.request !== loadRequest
+    : false;
+  const error =
+    activeProfileId &&
+    loadState &&
+    loadState.profileId === activeProfileId &&
+    loadState.request === loadRequest
+      ? loadState.error
+      : null;
+
+  // Without a connection there is nothing to show: drop the previous audit.
+  if (!activeProfileId && data) {
+    setData(null);
+  }
+
+  const refresh = (): void => {
+    setLoadRequest((value) => value + 1);
   };
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProfileId]);
+    if (!activeProfileId) return;
+    let cancelled = false;
+    api
+      .get<SecurityAuditResult>(`/api/db/${encodeURIComponent(activeProfileId)}/security`)
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        setLoadState({ profileId: activeProfileId, request: loadRequest, error: null });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoadState({
+          profileId: activeProfileId,
+          request: loadRequest,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileId, loadRequest]);
 
   const openGrants = async (user: DbUser): Promise<void> => {
     if (!activeProfileId) return;
@@ -86,7 +112,10 @@ export function SecurityPage() {
   if (!activeProfileId) {
     return (
       <div className="page">
-        <PageHeader title="Security" subtitle="Accounts, grants, authentication, and configuration risk." />
+        <PageHeader
+          title="Security"
+          subtitle="Accounts, grants, authentication, and configuration risk."
+        />
         <EmptyState
           icon={<Database size={24} />}
           title="Connect to a database"
@@ -104,7 +133,10 @@ export function SecurityPage() {
   if (loading && !data) {
     return (
       <div className="page">
-        <PageHeader title="Security" subtitle="Accounts, grants, authentication, and configuration risk." />
+        <PageHeader
+          title="Security"
+          subtitle="Accounts, grants, authentication, and configuration risk."
+        />
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <div key={index} className="skeleton h-24" />
@@ -117,12 +149,15 @@ export function SecurityPage() {
   if (!data) {
     return (
       <div className="page">
-        <PageHeader title="Security" subtitle="Accounts, grants, authentication, and configuration risk." />
+        <PageHeader
+          title="Security"
+          subtitle="Accounts, grants, authentication, and configuration risk."
+        />
         <EmptyState
           icon={<ShieldAlert size={24} />}
           title="Security audit unavailable"
           copy={error ?? 'The server did not return security data.'}
-          action={<Button onClick={() => void load()}>Try again</Button>}
+          action={<Button onClick={refresh}>Try again</Button>}
         />
       </div>
     );
@@ -149,7 +184,7 @@ export function SecurityPage() {
               variant="secondary"
               size="sm"
               icon={loading ? <Spinner size={12} /> : <RefreshCw size={12} />}
-              onClick={() => void load()}
+              onClick={refresh}
               loading={loading}
             >
               Refresh
@@ -166,7 +201,12 @@ export function SecurityPage() {
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Accounts" value={data.users.length} icon={<Users size={14} />} tone="info" />
+        <StatCard
+          label="Accounts"
+          value={data.users.length}
+          icon={<Users size={14} />}
+          tone="info"
+        />
         <StatCard
           label="Passwordless"
           value={passwordless}
@@ -193,8 +233,8 @@ export function SecurityPage() {
         <div>
           <div className="font-semibold text-ink">This is a local XAMPP server.</div>
           <div className="mt-0.5 text-[11.5px] text-muted">
-            Passwordless root accounts and wildcard binding are convenient on a laptop but unsafe
-            on a network. Set passwords, restrict accounts to localhost, and keep MySQL bound to
+            Passwordless root accounts and wildcard binding are convenient on a laptop but unsafe on
+            a network. Set passwords, restrict accounts to localhost, and keep MySQL bound to
             127.0.0.1 when you are not intentionally sharing it.
           </div>
         </div>
@@ -292,9 +332,7 @@ export function SecurityPage() {
               <div
                 className={cn(
                   'mt-1 break-words font-mono text-[10.5px]',
-                  value == null || value === 'NULL' || value === ''
-                    ? 'text-warn'
-                    : 'text-ink-soft',
+                  value == null || value === 'NULL' || value === '' ? 'text-warn' : 'text-ink-soft',
                 )}
               >
                 {value == null || value === '' ? '(empty)' : value}
@@ -324,7 +362,9 @@ export function SecurityPage() {
               key={`${item.check}-${index}`}
               className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-[11px]"
             >
-              <Badge tone={item.status === 'ran' ? 'mint' : item.status === 'denied' ? 'danger' : 'warn'}>
+              <Badge
+                tone={item.status === 'ran' ? 'mint' : item.status === 'denied' ? 'danger' : 'warn'}
+              >
                 {item.status}
               </Badge>
               <span className="text-ink-soft">{item.check}</span>

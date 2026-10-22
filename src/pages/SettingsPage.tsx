@@ -42,8 +42,8 @@ import {
   Spinner,
   Switch,
   Tabs,
-  cn,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 import { Combobox } from '@/components/Combobox';
 
 type SettingsTab = 'connections' | 'ai' | 'review' | 'safety' | 'appearance' | 'data';
@@ -55,11 +55,7 @@ function parseTab(value: string | null): SettingsTab {
 }
 
 type NumericField =
-  | 'rowLimit'
-  | 'queryTimeoutMs'
-  | 'cellMaxChars'
-  | 'aiContextChars'
-  | 'historyLimit';
+  'rowLimit' | 'queryTimeoutMs' | 'cellMaxChars' | 'aiContextChars' | 'historyLimit';
 
 const NUMERIC_FIELDS: NumericField[] = [
   'rowLimit',
@@ -254,19 +250,21 @@ export function SettingsPage() {
   const testConnection = async (profile: ConnectionProfile): Promise<void> => {
     setBusy(profile.id);
     try {
-      const result = await api.post<{ ok: boolean; latencyMs: number; server?: { version: string }; error?: string }>(
-        '/api/connections/test',
-        {
-          name: profile.name,
-          host: profile.host,
-          port: profile.port,
-          user: profile.user,
-          database: profile.database ?? undefined,
-          socketPath: profile.socketPath ?? undefined,
-          ssl: profile.ssl ?? undefined,
-          profileId: profile.id,
-        },
-      );
+      const result = await api.post<{
+        ok: boolean;
+        latencyMs: number;
+        server?: { version: string };
+        error?: string;
+      }>('/api/connections/test', {
+        name: profile.name,
+        host: profile.host,
+        port: profile.port,
+        user: profile.user,
+        database: profile.database ?? undefined,
+        socketPath: profile.socketPath ?? undefined,
+        ssl: profile.ssl ?? undefined,
+        profileId: profile.id,
+      });
       if (result.ok) {
         toast(
           `${result.server?.version ?? 'MySQL'} responded in ${result.latencyMs} ms.`,
@@ -285,14 +283,9 @@ export function SettingsPage() {
   const testProvider = async (provider: AiProvider): Promise<void> => {
     setTestingProvider(provider.id);
     try {
-      const result = await api.post<AiProviderTestResult>(
-        `/api/ai/providers/${provider.id}/test`,
-      );
+      const result = await api.post<AiProviderTestResult>(`/api/ai/providers/${provider.id}/test`);
       if (result.ok) {
-        toast(
-          `${result.message}${result.latencyMs ? ` (${result.latencyMs} ms)` : ''}`,
-          'success',
-        );
+        toast(`${result.message}${result.latencyMs ? ` (${result.latencyMs} ms)` : ''}`, 'success');
         await refreshProviders();
       } else {
         toast(result.message, 'error');
@@ -350,7 +343,8 @@ export function SettingsPage() {
     }
   };
 
-  const activeProfileName = profiles.find((profile) => profile.id === activeProfileId)?.name ?? null;
+  const activeProfileName =
+    profiles.find((profile) => profile.id === activeProfileId)?.name ?? null;
 
   return (
     <div className="page">
@@ -361,8 +355,18 @@ export function SettingsPage() {
 
       <Tabs
         items={[
-          { id: 'connections', label: 'Connections', count: profiles.length, icon: <Database size={12} /> },
-          { id: 'ai', label: 'AI providers', count: providers.length, icon: <Sparkles size={12} /> },
+          {
+            id: 'connections',
+            label: 'Connections',
+            count: profiles.length,
+            icon: <Database size={12} />,
+          },
+          {
+            id: 'ai',
+            label: 'AI providers',
+            count: providers.length,
+            icon: <Sparkles size={12} />,
+          },
           { id: 'review', label: 'Review', icon: <Brain size={12} /> },
           { id: 'safety', label: 'Safety', icon: <ShieldCheck size={12} /> },
           { id: 'appearance', label: 'Appearance', icon: <Sun size={12} /> },
@@ -534,11 +538,7 @@ export function SettingsPage() {
                       variant="secondary"
                       size="sm"
                       icon={
-                        testingProvider === provider.id ? (
-                          <Spinner size={11} />
-                        ) : (
-                          <Zap size={11} />
-                        )
+                        testingProvider === provider.id ? <Spinner size={11} /> : <Zap size={11} />
                       }
                       onClick={() => void testProvider(provider)}
                       disabled={Boolean(testingProvider)}
@@ -649,11 +649,7 @@ export function SettingsPage() {
             </Field>
           </div>
           <div className="mt-3 flex justify-end">
-            <Button
-              variant="primary"
-              loading={savingSettings}
-              onClick={() => void saveSettings()}
-            >
+            <Button variant="primary" loading={savingSettings} onClick={() => void saveSettings()}>
               Save review settings
             </Button>
           </div>
@@ -683,10 +679,10 @@ export function SettingsPage() {
               <div>
                 <div className="text-[12px] font-semibold">Mask sensitive columns</div>
                 <div className="mt-0.5 max-w-xl text-[10.5px] leading-4 text-muted">
-                  Credential-like columns (password, token, secret, API key, private key,
-                  session id, card number, SSN) are masked before results reach the
-                  browser. You can reveal them per query after a confirmation. This is a
-                  safety net, not a substitute for database grants.
+                  Credential-like columns (password, token, secret, API key, private key, session
+                  id, card number, SSN) are masked before results reach the browser. You can reveal
+                  them per query after a confirmation. This is a safety net, not a substitute for
+                  database grants.
                 </div>
               </div>
               <Switch
@@ -830,9 +826,14 @@ export function SettingsPage() {
                 ['Saved reports', String(reports.length)],
                 ['Node runtime', boot?.nodeVersion ?? '—'],
               ].map(([label, value]) => (
-                <div key={label} className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5">
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5"
+                >
                   <span className="text-muted">{label}</span>
-                  <span className="max-w-[65%] break-all text-right font-mono text-[10px]">{value}</span>
+                  <span className="max-w-[65%] break-all text-right font-mono text-[10px]">
+                    {value}
+                  </span>
                 </div>
               ))}
             </div>
@@ -843,7 +844,10 @@ export function SettingsPage() {
                 icon={<Trash2 size={11} />}
                 onClick={() => {
                   if (!activeProfileId) {
-                    toast('Connect to a database first — history is cleared per connection.', 'warn');
+                    toast(
+                      'Connect to a database first — history is cleared per connection.',
+                      'warn',
+                    );
                     return;
                   }
                   setConfirmClearHistory(true);
@@ -851,11 +855,7 @@ export function SettingsPage() {
               >
                 Clear query history
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setTab('connections')}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setTab('connections')}>
                 Manage connections
               </Button>
             </div>
@@ -870,7 +870,9 @@ export function SettingsPage() {
             <div className="flex flex-col gap-2 text-[11.5px]">
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">XAMPP detected</span>
-                <span className="font-mono text-[10px]">{detectedXampp?.path ?? 'not detected'}</span>
+                <span className="font-mono text-[10px]">
+                  {detectedXampp?.path ?? 'not detected'}
+                </span>
               </div>
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">MySQL port</span>

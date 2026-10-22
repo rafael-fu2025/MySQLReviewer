@@ -1,16 +1,10 @@
 import { useMemo } from 'react';
-import {
-  Activity,
-  AlertTriangle,
-  ChevronRight,
-  FileSearch,
-  Timer,
-  Zap,
-} from 'lucide-react';
+import { Activity, AlertTriangle, ChevronRight, FileSearch, Timer, Zap } from 'lucide-react';
 import type { ExplainNode, ExplainResult } from '@shared/types';
 import { formatDuration, formatNumber } from '@/lib/format';
 import { FindingCard } from './Findings';
-import { Badge, Button, CopyButton, EmptyState, cn } from './ui';
+import { Badge, Button, CopyButton, EmptyState } from './ui';
+import { cn } from '@/lib/utils';
 
 function flatten(nodes: ExplainNode[], depth = 0): { node: ExplainNode; depth: number }[] {
   const out: { node: ExplainNode; depth: number }[] = [];
@@ -63,7 +57,9 @@ export function ExplainPanel({
         </div>
         <div className="stat">
           <div className="stat-label">Total cost</div>
-          <div className="stat-value">{explain.totalCost != null ? explain.totalCost.toFixed(2) : '—'}</div>
+          <div className="stat-value">
+            {explain.totalCost != null ? explain.totalCost.toFixed(2) : '—'}
+          </div>
           <div className="stat-sub">optimizer units</div>
         </div>
         <div className="stat">
@@ -131,7 +127,10 @@ export function ExplainPanel({
               return (
                 <tr key={node.id}>
                   <td>
-                    <span style={{ paddingLeft: depth * 14 }} className="inline-flex items-center gap-1.5">
+                    <span
+                      style={{ paddingLeft: depth * 14 }}
+                      className="inline-flex items-center gap-1.5"
+                    >
                       {depth > 0 ? <ChevronRight size={10} className="text-muted" /> : null}
                       <span className="font-semibold text-ink">{node.table ?? node.label}</span>
                     </span>
@@ -149,7 +148,10 @@ export function ExplainPanel({
                       <span className="tabular-nums">{formatNumber(node.rows)}</span>
                       <span className="h-1.5 w-14 overflow-hidden rounded-full bg-panel-3">
                         <span
-                          className={cn('block h-full rounded-full', ratio > 0.6 ? 'bg-danger' : ratio > 0.25 ? 'bg-warn' : 'bg-mint')}
+                          className={cn(
+                            'block h-full rounded-full',
+                            ratio > 0.6 ? 'bg-danger' : ratio > 0.25 ? 'bg-warn' : 'bg-mint',
+                          )}
                           style={{ width: `${Math.max(4, ratio * 100)}%` }}
                         />
                       </span>
@@ -162,13 +164,13 @@ export function ExplainPanel({
                       {node.extra.map((extra, index) => (
                         <span
                           key={index}
-                          className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 text-[9px] text-muted"
+                          className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 text-[10px] text-muted"
                         >
                           {extra}
                         </span>
                       ))}
                       {node.runtimeRows != null ? (
-                        <span className="rounded border border-info/30 bg-info/10 px-1.5 py-0.5 text-[9px] text-info">
+                        <span className="rounded border border-info/30 bg-info/10 px-1.5 py-0.5 text-[10px] text-info">
                           runtime rows {formatNumber(node.runtimeRows)}
                         </span>
                       ) : null}
@@ -207,9 +209,7 @@ export function ExplainPanel({
           Raw plan {explain.analyzed ? '(ANALYZE)' : '(JSON)'}
         </summary>
         <pre className="code-block mt-2 max-h-80 text-[10.5px]">
-          {typeof explain.raw === 'string'
-            ? explain.raw
-            : JSON.stringify(explain.raw, null, 2)}
+          {typeof explain.raw === 'string' ? explain.raw : JSON.stringify(explain.raw, null, 2)}
         </pre>
         {explain.text ? (
           <pre className="code-block mt-2 max-h-80 whitespace-pre-wrap text-[10.5px]">

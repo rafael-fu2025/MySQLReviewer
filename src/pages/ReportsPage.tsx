@@ -37,47 +37,56 @@ export function ReportsPage() {
   const navigate = useNavigate();
   const toast = useAppStore((state) => state.toast);
   const [reports, setReports] = useState<ReportSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumping the request counter reloads the list; the loading flag and the
+  // error are derived from the request the state belongs to.
+  const [loadRequest, setLoadRequest] = useState(0);
+  const [loadState, setLoadState] = useState<{ request: number; error: string | null } | null>(
+    null,
+  );
+  const loading = loadState === null || loadState.request !== loadRequest;
+  const loadError = loadState?.request === loadRequest ? loadState.error : null;
   const [filter, setFilter] = useState<'all' | 'audit' | 'review'>('all');
   const [search, setSearch] = useState('');
   const [deleting, setDeleting] = useState<ReportSummary | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
 
-  const load = async (): Promise<void> => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      setReports(await api.get<ReportSummary[]>('/api/reports'));
-    } catch (error) {
-      setReports([]);
-      setLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-    }
+  const refresh = (): void => {
+    setLoadRequest((value) => value + 1);
   };
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
+    api
+      .get<ReportSummary[]>('/api/reports')
+      .then((result) => {
+        if (cancelled) return;
+        setReports(result);
+        setLoadState({ request: loadRequest, error: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setReports([]);
+        setLoadState({
+          request: loadRequest,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadRequest]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return reports.filter((report) => {
       if (filter !== 'all' && report.kind !== filter) return false;
       if (!needle) return true;
-      return `${report.title} ${report.databaseScope.join(' ')}`
-        .toLowerCase()
-        .includes(needle);
+      return `${report.title} ${report.databaseScope.join(' ')}`.toLowerCase().includes(needle);
     });
   }, [filter, reports, search]);
 
-  const doExport = async (
-    report: ReportSummary,
-    format: 'md' | 'html' | 'json',
-  ): Promise<void> => {
+  const doExport = async (report: ReportSummary, format: 'md' | 'html' | 'json'): Promise<void> => {
     setExporting(`${report.id}:${format}`);
     try {
       await downloadReport(report.id, format);
@@ -118,7 +127,7 @@ export function ReportsPage() {
             variant="secondary"
             size="sm"
             icon={loading ? <Spinner size={12} /> : <RefreshCw size={12} />}
-            onClick={() => void load()}
+            onClick={refresh}
             loading={loading}
           >
             Refresh
@@ -172,7 +181,7 @@ export function ReportsPage() {
             </div>
             <div className="text-[14px] font-bold">Reports could not be loaded</div>
             <div className="max-w-md text-[12px] text-muted">{loadError}</div>
-            <Button variant="secondary" icon={<RefreshCw size={12} />} onClick={() => void load()}>
+            <Button variant="secondary" icon={<RefreshCw size={12} />} onClick={refresh}>
               Retry
             </Button>
           </div>
@@ -209,9 +218,7 @@ export function ReportsPage() {
                 <ScoreRing score={report.score} grade={report.grade} size={68} stroke={6} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone={report.kind === 'audit' ? 'ember' : 'info'}>
-                      {report.kind}
-                    </Badge>
+                    <Badge tone={report.kind === 'audit' ? 'ember' : 'info'}>{report.kind}</Badge>
                     {report.hasAi ? (
                       <Badge tone="info">
                         <Sparkles size={9} /> AI
@@ -221,9 +228,7 @@ export function ReportsPage() {
                   <div className="mt-1 line-clamp-2 text-[13px] font-semibold text-ink">
                     {report.title}
                   </div>
-                  <div className="mt-1 text-[9.5px] text-muted">
-                    {formatDate(report.createdAt)}
-                  </div>
+                  <div className="mt-1 text-[10px] text-muted">{formatDate(report.createdAt)}</div>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
@@ -247,11 +252,7 @@ export function ReportsPage() {
                   variant="ghost"
                   size="sm"
                   icon={
-                    exporting === `${report.id}:md` ? (
-                      <Spinner size={11} />
-                    ) : (
-                      <Download size={11} />
-                    )
+                    exporting === `${report.id}:md` ? <Spinner size={11} /> : <Download size={11} />
                   }
                   onClick={() => void doExport(report, 'md')}
                   disabled={isExporting(exporting, report.id)}
@@ -262,11 +263,7 @@ export function ReportsPage() {
                   variant="ghost"
                   size="sm"
                   icon={
-                    exporting === `${report.id}:html` ? (
-                      <Spinner size={11} />
-                    ) : (
-                      <Globe2 size={11} />
-                    )
+                    exporting === `${report.id}:html` ? <Spinner size={11} /> : <Globe2 size={11} />
                   }
                   onClick={() => void doExport(report, 'html')}
                   disabled={isExporting(exporting, report.id)}
@@ -305,11 +302,7 @@ export function ReportsPage() {
         onClose={() => setDeleting(null)}
         onConfirm={() => void remove()}
         title="Delete report?"
-        message={
-          deleting
-            ? `Remove “${deleting.title}” from disk. This cannot be undone.`
-            : ''
-        }
+        message={deleting ? `Remove “${deleting.title}” from disk. This cannot be undone.` : ''}
         confirmLabel="Delete report"
         danger
         loading={deletingBusy}

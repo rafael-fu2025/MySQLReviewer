@@ -9,13 +9,9 @@ import {
 } from 'lucide-react';
 import type { Finding, FindingCategory, FindingGroup, Severity } from '@shared/types';
 import { CATEGORY_LABELS, SEVERITY_ORDER } from '@shared/types';
-import {
-  Badge,
-  EmptyState,
-  SeverityBadge,
-  cn,
-  severityCounts,
-} from './ui';
+import { Badge, EmptyState, SeverityBadge } from './ui';
+import { cn } from '@/lib/utils';
+import { severityCounts } from '@shared/findings';
 import { Combobox } from './Combobox';
 
 export function FindingCard({
@@ -30,9 +26,7 @@ export function FindingCard({
   const object = finding.object;
   const objectLabel = object
     ? [
-        object.database && object.table
-          ? `${object.database}.${object.table}`
-          : object.table,
+        object.database && object.table ? `${object.database}.${object.table}` : object.table,
         object.column,
         object.index,
         object.user ? `'${object.user}'@'${object.host ?? ''}'` : object.host,
@@ -49,7 +43,7 @@ export function FindingCard({
           <Badge tone={finding.source === 'ai' ? 'info' : 'neutral'}>{finding.source}</Badge>
         ) : null}
         {finding.confidence === 'low' ? <Badge tone="warn">low confidence</Badge> : null}
-        <span className="ml-auto font-mono text-[9.5px] text-muted">{finding.ruleId}</span>
+        <span className="ml-auto font-mono text-[10px] text-muted">{finding.ruleId}</span>
       </div>
       {objectLabel || finding.line ? (
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted">
@@ -100,18 +94,13 @@ export function FindingFilters({
   onSearch: (value: string) => void;
 }) {
   const counts = severityCounts(findings);
-  const categories = Array.from(
-    new Set(findings.map((finding) => finding.category)),
-  ).sort();
+  const categories = Array.from(new Set(findings.map((finding) => finding.category))).sort();
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="flex flex-wrap items-center gap-1">
         <button
           type="button"
-          className={cn(
-            'badge cursor-pointer',
-            severity === 'all' && 'badge-ember',
-          )}
+          className={cn('badge cursor-pointer', severity === 'all' && 'badge-ember')}
           onClick={() => onSeverity('all')}
         >
           all {findings.length}
@@ -120,10 +109,7 @@ export function FindingFilters({
           <button
             key={item}
             type="button"
-            className={cn(
-              'badge cursor-pointer',
-              severity === item ? `sev-${item}` : 'text-muted',
-            )}
+            className={cn('badge cursor-pointer', severity === item ? `sev-${item}` : 'text-muted')}
             onClick={() => onSeverity(severity === item ? 'all' : item)}
           >
             {item} {counts[item]}
@@ -207,13 +193,7 @@ export function FindingsList({
   );
 
   if (findings.length === 0) {
-    return (
-      <EmptyState
-        icon={<ShieldAlert size={22} />}
-        title={emptyTitle}
-        copy={emptyCopy}
-      />
-    );
+    return <EmptyState icon={<ShieldAlert size={22} />} title={emptyTitle} copy={emptyCopy} />;
   }
 
   return (
@@ -257,10 +237,7 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const allFindings = useMemo(
-    () => groups.flatMap((group) => group.instances),
-    [groups],
-  );
+  const allFindings = useMemo(() => groups.flatMap((group) => group.instances), [groups]);
   const needle = search.trim().toLowerCase();
   const filtered = groups.filter((group) => {
     if (severity !== 'all' && group.severity !== severity) return false;
@@ -327,7 +304,7 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
                   <span className="block truncate text-[12.5px] font-semibold text-ink">
                     {group.title}
                   </span>
-                  <span className="mt-0.5 block font-mono text-[9.5px] text-muted">
+                  <span className="mt-0.5 block font-mono text-[10px] text-muted">
                     {group.ruleId} · {CATEGORY_LABELS[group.category]}
                   </span>
                 </span>
