@@ -48,7 +48,9 @@ export function mapDbError(error: unknown): AppError {
       );
     case 'ENOTFOUND':
     case 'EAI_AGAIN':
-      return new AppError('HOST_NOT_FOUND', `The host could not be resolved: ${raw}`, 502, { code });
+      return new AppError('HOST_NOT_FOUND', `The host could not be resolved: ${raw}`, 502, {
+        code,
+      });
     case 'ETIMEDOUT':
     case 'PROTOCOL_SEQUENCE_TIMEOUT':
       return new AppError(
@@ -66,7 +68,13 @@ export function mapDbError(error: unknown): AppError {
         extra,
       );
     case 'ER_BAD_DB_ERROR':
-      return new AppError('DATABASE_NOT_FOUND', 'That database does not exist.', 404, { code }, extra);
+      return new AppError(
+        'DATABASE_NOT_FOUND',
+        'That database does not exist.',
+        404,
+        { code },
+        extra,
+      );
     case 'ER_DBACCESS_DENIED_ERROR':
       return new AppError(
         'DATABASE_ACCESS_DENIED',
@@ -91,7 +99,9 @@ export function mapDbError(error: unknown): AppError {
         extra,
       );
     case 'PROTOCOL_CONNECTION_LOST':
-      return new AppError('CONNECTION_LOST', 'The MySQL connection was lost. Try again.', 502, { code });
+      return new AppError('CONNECTION_LOST', 'The MySQL connection was lost. Try again.', 502, {
+        code,
+      });
     case 'ER_SPECIFIC_ACCESS_DENIED_ERROR':
       return new AppError('PRIVILEGE_DENIED', raw, 403, { code }, extra);
     case 'ER_NOT_SUPPORTED_YET':

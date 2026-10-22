@@ -40,7 +40,10 @@ export function serializeBinary(buffer: Buffer): BinaryCell {
   return {
     __type: 'binary',
     length: buffer.length,
-    previewHex: preview.toString('hex').replace(/(.{2})/g, '$1 ').trim(),
+    previewHex: preview
+      .toString('hex')
+      .replace(/(.{2})/g, '$1 ')
+      .trim(),
     truncated: buffer.length > preview.length,
   };
 }

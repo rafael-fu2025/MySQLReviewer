@@ -39,9 +39,7 @@ function hintRevealsAnswer(hint: string): boolean {
   return SQL_SHAPED_HINT.test(hint);
 }
 
-export function toPublicPracticeQuestion(
-  question: PracticeQuestion,
-): PracticeQuestionPublic {
+export function toPublicPracticeQuestion(question: PracticeQuestion): PracticeQuestionPublic {
   const base: PracticeQuestionPublic = {
     id: question.id,
     type: question.type,
@@ -73,11 +71,7 @@ export function toPublicPracticeSet(set: PracticeSet): PracticeSetPublic {
 export function toPublicPracticeEvaluation(
   evaluation: PracticeEvaluation,
 ): PracticeEvaluationPublic {
-  const {
-    referenceSql: _referenceSql,
-    referenceResult: _referenceResult,
-    ...safe
-  } = evaluation;
+  const { referenceSql: _referenceSql, referenceResult: _referenceResult, ...safe } = evaluation;
   return safe;
 }
 
@@ -88,9 +82,7 @@ export function toPublicPracticeAttempt(attempt: PracticeAttempt): PracticeAttem
   };
 }
 
-export function toPublicPracticeProgress(
-  progress: PracticeProgress,
-): PracticeProgressPublic {
+export function toPublicPracticeProgress(progress: PracticeProgress): PracticeProgressPublic {
   return {
     ...progress,
     recent: progress.recent.map(toPublicPracticeAttempt),
@@ -333,9 +325,7 @@ function keywordsIn(sql: string): Set<string> {
   const text = normalizeSqlText(sql);
   const found = new Set<string>();
   for (const keyword of STRUCTURAL_KEYWORDS) {
-    const pattern = new RegExp(
-      `(?:^|[^a-z0-9_])${keyword.replace(/ /g, '\\s+')}(?:[^a-z0-9_]|$)`,
-    );
+    const pattern = new RegExp(`(?:^|[^a-z0-9_])${keyword.replace(/ /g, '\\s+')}(?:[^a-z0-9_]|$)`);
     if (pattern.test(text)) found.add(keyword);
   }
   return found;
@@ -416,9 +406,7 @@ export function scorePractice(input: {
 }): PracticeScores {
   const scored = scoreFindings(input.findings);
   const performance = clamp(100 - scored.deductions.performance);
-  const style = clamp(
-    100 - scored.deductions.maintainability - scored.deductions.style,
-  );
+  const style = clamp(100 - scored.deductions.maintainability - scored.deductions.style);
 
   let correctness: number;
   let overall: number;
@@ -450,9 +438,7 @@ export function scorePractice(input: {
         (input.aiScores.style ?? style) * 0.15,
     );
   } else {
-    const structural = input.submission
-      ? staticPracticeCorrectness(input.submission)
-      : 0;
+    const structural = input.submission ? staticPracticeCorrectness(input.submission) : 0;
     correctness = clamp(structural - scored.deductions.correctness);
     overall = clamp(correctness * 0.6 + performance * 0.25 + style * 0.15);
   }

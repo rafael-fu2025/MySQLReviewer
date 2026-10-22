@@ -1,9 +1,5 @@
 import { Router } from 'express';
-import {
-  getGlobalStatus,
-  getGlobalVariables,
-  getPerformanceSnapshot,
-} from '../db/metrics';
+import { getGlobalStatus, getGlobalVariables, getPerformanceSnapshot } from '../db/metrics';
 import { assertServerWideAllowed } from '../db/scope';
 import { asyncHandler, param } from './util';
 

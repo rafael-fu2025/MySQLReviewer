@@ -40,9 +40,7 @@ describe('database scope', () => {
   });
 
   it('collects qualified table references', () => {
-    expect(collectReferencedDatabases('SELECT * FROM shop.users')).toEqual(
-      new Set(['shop']),
-    );
+    expect(collectReferencedDatabases('SELECT * FROM shop.users')).toEqual(new Set(['shop']));
     expect(
       collectReferencedDatabases(
         'SELECT u.id FROM shop.users u JOIN analytics.orders o ON o.user_id = u.id',
@@ -52,9 +50,7 @@ describe('database scope', () => {
 
   it('handles CTEs without treating the CTE name as a database', () => {
     expect(
-      collectReferencedDatabases(
-        'WITH recent AS (SELECT * FROM shop.orders) SELECT * FROM recent',
-      ),
+      collectReferencedDatabases('WITH recent AS (SELECT * FROM shop.orders) SELECT * FROM recent'),
     ).toEqual(new Set(['shop']));
   });
 
@@ -69,8 +65,6 @@ describe('database scope', () => {
     expect(collectReferencedDatabases('SHOW DATABASES')).toContain('__all_databases__');
     expect(collectReferencedDatabases('SHOW PROCESSLIST')).toContain('__processlist__');
     expect(collectReferencedDatabases('SHOW GRANTS')).toContain('__grants__');
-    expect(collectReferencedDatabases('SHOW CREATE USER root@localhost')).toContain(
-      '__accounts__',
-    );
+    expect(collectReferencedDatabases('SHOW CREATE USER root@localhost')).toContain('__accounts__');
   });
 });

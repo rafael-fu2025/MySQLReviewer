@@ -84,11 +84,7 @@ function validate(input: ConnectionInput): ConnectionInput {
   }
   const databaseScope = input.databaseScope === 'selected' ? 'selected' : 'all';
   const allowedDatabases = Array.from(
-    new Set(
-      (input.allowedDatabases ?? [])
-        .map((database) => database.trim())
-        .filter(Boolean),
-    ),
+    new Set((input.allowedDatabases ?? []).map((database) => database.trim()).filter(Boolean)),
   ).slice(0, 200);
   if (databaseScope === 'selected' && allowedDatabases.length === 0) {
     throw new AppError(
@@ -97,15 +93,8 @@ function validate(input: ConnectionInput): ConnectionInput {
     );
   }
   const database = input.database?.trim() || undefined;
-  if (
-    databaseScope === 'selected' &&
-    database &&
-    !allowedDatabases.includes(database)
-  ) {
-    throw new AppError(
-      'VALIDATION',
-      'The default database must be one of the selected databases.',
-    );
+  if (databaseScope === 'selected' && database && !allowedDatabases.includes(database)) {
+    throw new AppError('VALIDATION', 'The default database must be one of the selected databases.');
   }
   return {
     ...input,
@@ -198,7 +187,10 @@ export async function createProfile(input: ConnectionInput): Promise<ConnectionP
   return toPublic(stored);
 }
 
-export async function updateProfile(id: string, input: ConnectionInput): Promise<ConnectionProfile> {
+export async function updateProfile(
+  id: string,
+  input: ConnectionInput,
+): Promise<ConnectionProfile> {
   const clean = validate(input);
   let updated: StoredProfile | null = null;
 
@@ -273,18 +265,13 @@ export async function touchProfile(id: string): Promise<void> {
   }));
 }
 
-export async function addDatabaseToScope(
-  id: string,
-  database: string,
-): Promise<ConnectionProfile> {
+export async function addDatabaseToScope(id: string, database: string): Promise<ConnectionProfile> {
   let updated: StoredProfile | null = null;
   await store.update((current) => ({
     profiles: current.profiles.map((profile) => {
       if (profile.id !== id) return profile;
       const scope = profile.databaseScope === 'selected' ? 'selected' : 'all';
-      const allowed = Array.from(
-        new Set([...(profile.allowedDatabases ?? []), database]),
-      );
+      const allowed = Array.from(new Set([...(profile.allowedDatabases ?? []), database]));
       updated = { ...profile, databaseScope: scope, allowedDatabases: allowed, updatedAt: now() };
       return updated;
     }),

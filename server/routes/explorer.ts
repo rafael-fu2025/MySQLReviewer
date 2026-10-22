@@ -204,12 +204,7 @@ explorerRouter.get(
         throw new AppError('VALIDATION', 'routineType must be FUNCTION or PROCEDURE.', 400);
       }
       res.json({
-        data: await getRoutineDefinition(
-          profileId,
-          database,
-          routineType,
-          name,
-        ),
+        data: await getRoutineDefinition(profileId, database, routineType, name),
       });
       return;
     }

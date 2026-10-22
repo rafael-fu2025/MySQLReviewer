@@ -42,9 +42,7 @@ function buildBody(
     max_tokens: options.maxTokens ?? provider.maxTokens,
     temperature: options.temperature ?? provider.temperature,
     ...(system ? { system } : {}),
-    messages: conversation.length
-      ? conversation
-      : [{ role: 'user', content: 'Continue.' }],
+    messages: conversation.length ? conversation : [{ role: 'user', content: 'Continue.' }],
     stream,
     ...provider.extraBody,
   };
@@ -143,9 +141,7 @@ export async function streamAnthropic(
               inputTokens,
               outputTokens,
               totalTokens:
-                inputTokens != null && outputTokens != null
-                  ? inputTokens + outputTokens
-                  : null,
+                inputTokens != null && outputTokens != null ? inputTokens + outputTokens : null,
             }
           : null;
       return { text, usage };
@@ -159,20 +155,17 @@ export async function listAnthropicModels(
   provider: AiProvider,
   apiKey: string | null,
 ): Promise<string[]> {
-  return withTimeout(
-    async (signal) => {
-      const url = joinUrl(provider.baseUrl, provider.modelsPath || '/v1/models');
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: headers(provider, apiKey),
-        signal,
-      });
-      if (!response.ok) await errorFromResponse(response, provider.name);
-      const data = (await response.json()) as { data?: { id?: string }[] };
-      return Array.from(
-        new Set((data.data ?? []).map((item) => item.id ?? '').filter(Boolean)),
-      ).slice(0, 500);
-    },
-    30_000,
-  );
+  return withTimeout(async (signal) => {
+    const url = joinUrl(provider.baseUrl, provider.modelsPath || '/v1/models');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: headers(provider, apiKey),
+      signal,
+    });
+    if (!response.ok) await errorFromResponse(response, provider.name);
+    const data = (await response.json()) as { data?: { id?: string }[] };
+    return Array.from(
+      new Set((data.data ?? []).map((item) => item.id ?? '').filter(Boolean)),
+    ).slice(0, 500);
+  }, 30_000);
 }

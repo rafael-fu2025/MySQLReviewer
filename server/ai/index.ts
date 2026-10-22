@@ -1,18 +1,9 @@
 import type { AiProvider, AiProviderTestResult } from '../../shared/types';
 import { AppError } from '../errors';
-import {
-  completeAnthropic,
-  listAnthropicModels,
-  streamAnthropic,
-} from './anthropic';
+import { completeAnthropic, listAnthropicModels, streamAnthropic } from './anthropic';
 import { completeGoogle, listGoogleModels, streamGoogle } from './google';
 import { completeOpenAi, listOpenAiModels, streamOpenAi } from './openai';
-import type {
-  ChatMessage,
-  ChatOptions,
-  CompleteResult,
-  StreamHandlers,
-} from './http';
+import type { ChatMessage, ChatOptions, CompleteResult, StreamHandlers } from './http';
 
 export type { ChatMessage, ChatOptions, CompleteResult, StreamHandlers, ChatUsage } from './http';
 
@@ -47,10 +38,7 @@ export async function stream(
   return streamOpenAi(provider, apiKey, messages, handlers, options);
 }
 
-export async function listModels(
-  provider: AiProvider,
-  apiKey: string | null,
-): Promise<string[]> {
+export async function listModels(provider: AiProvider, apiKey: string | null): Promise<string[]> {
   if (provider.type === 'anthropic') return listAnthropicModels(provider, apiKey);
   if (provider.type === 'google') return listGoogleModels(provider, apiKey);
   return listOpenAiModels(provider, apiKey);

@@ -42,8 +42,7 @@ export async function getGlobalVariables(profileId: string): Promise<Record<stri
     const [rows] = await conn.query<Row[]>('SHOW GLOBAL VARIABLES');
     const out: Record<string, string> = {};
     for (const row of rows) {
-      out[str(row.Variable_name)] =
-        row.Value == null ? 'NULL' : String(row.Value);
+      out[str(row.Variable_name)] = row.Value == null ? 'NULL' : String(row.Value);
     }
     // SHOW VARIABLES reports NULL as an empty string on some MariaDB builds.
     // Read the two security-sensitive values directly to preserve NULL.
@@ -53,13 +52,9 @@ export async function getGlobalVariables(profileId: string): Promise<Record<stri
       );
       if (special[0]) {
         out.secure_file_priv =
-          special[0].secure_file_priv == null
-            ? 'NULL'
-            : String(special[0].secure_file_priv);
+          special[0].secure_file_priv == null ? 'NULL' : String(special[0].secure_file_priv);
         out.bind_address =
-          special[0].bind_address == null
-            ? 'NULL'
-            : String(special[0].bind_address);
+          special[0].bind_address == null ? 'NULL' : String(special[0].bind_address);
       }
     } catch {
       // Keep the SHOW VARIABLES values if the direct read is unavailable.
@@ -221,7 +216,9 @@ async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo
       const rowsSent = block.match(/Rows_sent:\s*(\d+)/);
       const rowsExamined = block.match(/Rows_examined:\s*(\d+)/);
       const timestamp = timeMatch ? timeMatch[1].trim() : null;
-      const sqlMatch = block.match(/(?:^|\n)(?:use\s+[^;]+;\s*)?(SELECT[\s\S]*?|INSERT[\s\S]*?|UPDATE[\s\S]*?|DELETE[\s\S]*?|REPLACE[\s\S]*?|ALTER[\s\S]*?|CREATE[\s\S]*?|DROP[\s\S]*?);?\s*$/i);
+      const sqlMatch = block.match(
+        /(?:^|\n)(?:use\s+[^;]+;\s*)?(SELECT[\s\S]*?|INSERT[\s\S]*?|UPDATE[\s\S]*?|DELETE[\s\S]*?|REPLACE[\s\S]*?|ALTER[\s\S]*?|CREATE[\s\S]*?|DROP[\s\S]*?);?\s*$/i,
+      );
       const sql = sqlMatch ? sqlMatch[1] : '';
       if (!sql) continue;
       const normalized = normalizeSlowSql(sql);
@@ -270,7 +267,11 @@ async function getSlowQueries(
   profileId: string,
   performanceSchema: boolean,
   variables: Record<string, string>,
-): Promise<{ rows: SlowQueryInfo[]; source: 'performance_schema' | 'slow_log' | 'none'; advice: string | null }> {
+): Promise<{
+  rows: SlowQueryInfo[];
+  source: 'performance_schema' | 'slow_log' | 'none';
+  advice: string | null;
+}> {
   if (performanceSchema) {
     try {
       const rows = await withConnection(profileId, async (conn) => {
@@ -365,11 +366,7 @@ export async function getPerformanceSnapshot(profileId: string): Promise<Perform
     getProcessList(profileId),
     getTopTables(profileId, 10),
   ]);
-  const slow = await getSlowQueries(
-    profileId,
-    server.capabilities.performanceSchema,
-    variables,
-  );
+  const slow = await getSlowQueries(profileId, server.capabilities.performanceSchema, variables);
   const replication = await getReplication(profileId, server.capabilities.replicaStatusCommand);
 
   return {

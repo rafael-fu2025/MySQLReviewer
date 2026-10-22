@@ -32,15 +32,7 @@ export interface ClassifiedSql {
   empty: boolean;
 }
 
-const READ_KEYWORDS = new Set([
-  'SELECT',
-  'SHOW',
-  'DESCRIBE',
-  'DESC',
-  'TABLE',
-  'VALUES',
-  'HELP',
-]);
+const READ_KEYWORDS = new Set(['SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'TABLE', 'VALUES', 'HELP']);
 
 const WRITE_KEYWORDS = new Set(['INSERT', 'UPDATE', 'DELETE', 'REPLACE']);
 const DDL_KEYWORDS = new Set(['CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'RENAME']);
@@ -184,8 +176,7 @@ function classifyKeyword(keyword: string, tokens: Token[]): StatementClassificat
     result.destructive =
       upper === 'DROP' ||
       upper === 'TRUNCATE' ||
-      (upper === 'ALTER' &&
-        (containsWord(tokens, 'DROP') || containsWord(tokens, 'CHANGE')));
+      (upper === 'ALTER' && (containsWord(tokens, 'DROP') || containsWord(tokens, 'CHANGE')));
     result.reason = `${upper} changes the schema.`;
     return result;
   }

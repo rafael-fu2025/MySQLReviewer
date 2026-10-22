@@ -21,12 +21,24 @@ function sanitize(input: Partial<AppSettings>, base: AppSettings): AppSettings {
       1_000,
       300_000,
     ),
-    cellMaxChars: clampInt(input.cellMaxChars ?? base.cellMaxChars, base.cellMaxChars, 256, 1_000_000),
+    cellMaxChars: clampInt(
+      input.cellMaxChars ?? base.cellMaxChars,
+      base.cellMaxChars,
+      256,
+      1_000_000,
+    ),
     liveLint: input.liveLint ?? base.liveLint,
     includeSchemaByDefault: input.includeSchemaByDefault ?? base.includeSchemaByDefault,
-    aiContextChars: clampInt(input.aiContextChars ?? base.aiContextChars, base.aiContextChars, 2_000, 200_000),
+    aiContextChars: clampInt(
+      input.aiContextChars ?? base.aiContextChars,
+      base.aiContextChars,
+      2_000,
+      200_000,
+    ),
     defaultAiProviderId:
-      input.defaultAiProviderId === undefined ? base.defaultAiProviderId : input.defaultAiProviderId,
+      input.defaultAiProviderId === undefined
+        ? base.defaultAiProviderId
+        : input.defaultAiProviderId,
     historyLimit: clampInt(input.historyLimit ?? base.historyLimit, base.historyLimit, 50, 5_000),
     showHints: input.showHints ?? base.showHints,
     maskSensitiveColumns: input.maskSensitiveColumns ?? base.maskSensitiveColumns,

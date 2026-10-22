@@ -101,10 +101,7 @@ function clientError(error: unknown): string {
  * top-bar selection, so it must not call `refreshObjects` (that writes
  * `objects` for `selectedDatabase`).
  */
-export async function loadObjects(
-  profileId: string,
-  database: string,
-): Promise<DatabaseObjects> {
+export async function loadObjects(profileId: string, database: string): Promise<DatabaseObjects> {
   return api.get<DatabaseObjects>(
     `/api/db/${encodeURIComponent(profileId)}/databases/${encodeURIComponent(database)}/objects`,
   );

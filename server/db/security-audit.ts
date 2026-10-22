@@ -1,10 +1,5 @@
 import type { RowDataPacket } from 'mysql2/promise';
-import type {
-  CoverageItem,
-  DbUser,
-  GrantInfo,
-  SecurityConfigSnapshot,
-} from '../../shared/types';
+import type { CoverageItem, DbUser, GrantInfo, SecurityConfigSnapshot } from '../../shared/types';
 import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError } from '../errors';
 import { withConnection } from './manager';
@@ -231,11 +226,7 @@ export async function collectSecurityData(
   };
 }
 
-export async function getGrants(
-  profileId: string,
-  user: string,
-  host: string,
-): Promise<GrantInfo> {
+export async function getGrants(profileId: string, user: string, host: string): Promise<GrantInfo> {
   const grantee = `'${user.replace(/'/g, "''")}'@'${host.replace(/'/g, "''")}'`;
   const grants: string[] = [];
   try {

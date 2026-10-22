@@ -6,12 +6,7 @@ import { getStoredProfile } from '../store/profiles';
 import { getSettings } from '../store/settings';
 import { classifySql } from '../review/sql-classifier';
 import { applyQueryGuards } from './dialect';
-import {
-  connectProfile,
-  getCachedServerInfo,
-  isWritesUnlocked,
-  withConnection,
-} from './manager';
+import { connectProfile, getCachedServerInfo, isWritesUnlocked, withConnection } from './manager';
 import { estimateBytes, mysqlTypeName as typeName, serializeCell } from './serialize';
 import { maskResultRows } from './masking';
 import { assertSqlScope } from './scope';
@@ -94,10 +89,7 @@ export async function executeQuery(
 
   const settings = await getSettings();
   const rowLimit = Math.max(1, Math.min(options.rowLimit ?? settings.rowLimit, 10_000));
-  const timeoutMs = Math.max(
-    500,
-    Math.min(options.timeoutMs ?? settings.queryTimeoutMs, 300_000),
-  );
+  const timeoutMs = Math.max(500, Math.min(options.timeoutMs ?? settings.queryTimeoutMs, 300_000));
   const started = performance.now();
   let server = getCachedServerInfo(profileId);
   if (!server) server = await connectProfile(profileId);

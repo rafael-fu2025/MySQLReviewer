@@ -72,9 +72,7 @@ export type SaveReviewBody = z.infer<typeof SaveReviewSchema>;
  * Older clients that do not send one get a purely static review: no schema read
  * and no EXPLAIN/ANALYZE.
  */
-export async function resolveReviewForSave(
-  body: SaveReviewBody,
-): Promise<StaticReviewResult> {
+export async function resolveReviewForSave(body: SaveReviewBody): Promise<StaticReviewResult> {
   if (body.review) return body.review as unknown as StaticReviewResult;
   return runStaticReview({
     profileId: body.profileId,

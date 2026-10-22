@@ -16,14 +16,12 @@ describe('static review rules', () => {
   });
 
   it('flags UPDATE without WHERE', async () => {
-    expect(await ruleIds('UPDATE users SET active = 0')).toContain(
-      'sql.update-without-where',
-    );
+    expect(await ruleIds('UPDATE users SET active = 0')).toContain('sql.update-without-where');
   });
 
   it('flags NULL equality and random sorting', async () => {
     const ids = await ruleIds(
-      "SELECT * FROM users WHERE id = NULL ORDER BY RAND() LIMIT 5 OFFSET 2000",
+      'SELECT * FROM users WHERE id = NULL ORDER BY RAND() LIMIT 5 OFFSET 2000',
     );
     expect(ids).toContain('sql.null-equality');
     expect(ids).toContain('sql.order-by-rand');
@@ -36,9 +34,7 @@ describe('static review rules', () => {
   });
 
   it('flags INSERT without a column list', async () => {
-    expect(await ruleIds('INSERT INTO t VALUES (1, 2)')).toContain(
-      'sql.insert-without-columns',
-    );
+    expect(await ruleIds('INSERT INTO t VALUES (1, 2)')).toContain('sql.insert-without-columns');
   });
 
   it('flags leading wildcard LIKE', async () => {

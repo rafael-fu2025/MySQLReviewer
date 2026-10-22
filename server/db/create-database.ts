@@ -90,11 +90,7 @@ export async function createDatabase(
       throw new AppError('DATABASE_EXISTS', `Database "${name}" already exists.`, 409);
     }
 
-    await conn.query('CREATE DATABASE ?? CHARACTER SET ?? COLLATE ??', [
-      name,
-      charset,
-      collation,
-    ]);
+    await conn.query('CREATE DATABASE ?? CHARACTER SET ?? COLLATE ??', [name, charset, collation]);
 
     const [dbRows] = await conn.query<Row[]>(
       `SELECT SCHEMA_NAME, DEFAULT_COLLATION_NAME

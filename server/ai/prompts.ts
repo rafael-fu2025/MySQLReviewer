@@ -212,10 +212,7 @@ Do not invent findings, tables, or metrics. If a category has no findings, say i
   ];
 }
 
-export function buildRepairMessages(
-  original: ChatMessage[],
-  raw: string,
-): ChatMessage[] {
+export function buildRepairMessages(original: ChatMessage[], raw: string): ChatMessage[] {
   return [
     ...original,
     { role: 'assistant', content: raw.slice(0, 30_000) },

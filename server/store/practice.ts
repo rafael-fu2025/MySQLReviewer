@@ -41,20 +41,13 @@ export async function getPracticeSet(id: string): Promise<PracticeSet> {
   return set;
 }
 
-export async function listPracticeSets(
-  profileId?: string,
-  limit = 20,
-): Promise<PracticeSet[]> {
+export async function listPracticeSets(profileId?: string, limit = 20): Promise<PracticeSet[]> {
   const file = await store.read();
-  const sets = profileId
-    ? file.sets.filter((set) => set.profileId === profileId)
-    : file.sets;
+  const sets = profileId ? file.sets.filter((set) => set.profileId === profileId) : file.sets;
   return sets.slice(0, Math.max(1, Math.min(50, limit)));
 }
 
-export async function addPracticeAttempt(
-  attempt: PracticeAttempt,
-): Promise<PracticeAttempt> {
+export async function addPracticeAttempt(attempt: PracticeAttempt): Promise<PracticeAttempt> {
   await store.update((current) => ({
     sets: current.sets,
     attempts: [attempt, ...current.attempts].slice(0, MAX_ATTEMPTS),
@@ -99,10 +92,7 @@ export async function clearPracticeAttempts(profileId?: string): Promise<void> {
 
 export async function getPracticeProgress(profileId: string): Promise<PracticeProgress> {
   const attempts = await listPracticeAttempts(profileId, 500);
-  const topicMap = new Map<
-    PracticeTopic,
-    { attempts: number; total: number; best: number }
-  >();
+  const topicMap = new Map<PracticeTopic, { attempts: number; total: number; best: number }>();
   for (const item of PRACTICE_TOPICS) {
     topicMap.set(item.id, { attempts: 0, total: 0, best: 0 });
   }
@@ -116,21 +106,17 @@ export async function getPracticeProgress(profileId: string): Promise<PracticePr
     }
   }
 
-  const topics: PracticeProgressTopic[] = Array.from(topicMap.entries()).map(
-    ([topic, value]) => ({
-      topic,
-      attempts: value.attempts,
-      averageScore: value.attempts > 0 ? Math.round(value.total / value.attempts) : 0,
-      bestScore: value.best,
-    }),
-  );
+  const topics: PracticeProgressTopic[] = Array.from(topicMap.entries()).map(([topic, value]) => ({
+    topic,
+    attempts: value.attempts,
+    averageScore: value.attempts > 0 ? Math.round(value.total / value.attempts) : 0,
+    bestScore: value.best,
+  }));
 
   const attempted = topics.filter((topic) => topic.attempts > 0);
   const unattempted = topics.filter((topic) => topic.attempts === 0);
   const recommended = [
-    ...attempted
-      .sort((a, b) => a.averageScore - b.averageScore)
-      .map((topic) => topic.topic),
+    ...attempted.sort((a, b) => a.averageScore - b.averageScore).map((topic) => topic.topic),
     ...unattempted.map((topic) => topic.topic),
   ].slice(0, 4);
 

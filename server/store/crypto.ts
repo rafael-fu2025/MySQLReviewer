@@ -31,9 +31,12 @@ export async function encryptSecret(plain: string): Promise<string> {
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [VERSION, iv.toString('base64'), tag.toString('base64'), encrypted.toString('base64')].join(
-    ':',
-  );
+  return [
+    VERSION,
+    iv.toString('base64'),
+    tag.toString('base64'),
+    encrypted.toString('base64'),
+  ].join(':');
 }
 
 export async function decryptSecret(payload: string | null | undefined): Promise<string | null> {

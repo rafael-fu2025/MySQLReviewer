@@ -4,9 +4,7 @@ import { splitStatements, tokenize } from '../server/review/tokenizer';
 
 describe('tokenizer', () => {
   it('ignores semicolons inside strings and comments', () => {
-    const statements = splitStatements(
-      "SELECT ';' AS value; -- trailing ;\nSELECT 2 /* ; */;",
-    );
+    const statements = splitStatements("SELECT ';' AS value; -- trailing ;\nSELECT 2 /* ; */;");
     expect(statements).toHaveLength(2);
     expect(statements[0].sql).toContain("SELECT ';'");
     expect(statements[1].sql).toContain('SELECT 2');

@@ -6,12 +6,7 @@ import { AppError } from '../errors';
 import { getSettings } from '../store/settings';
 import { getStoredProfile } from '../store/profiles';
 import { classifySql } from '../review/sql-classifier';
-import {
-  connectProfile,
-  getCachedServerInfo,
-  isWritesUnlocked,
-  withConnection,
-} from './manager';
+import { connectProfile, getCachedServerInfo, isWritesUnlocked, withConnection } from './manager';
 import { applyQueryGuards } from './dialect';
 import { assertSqlScope } from './scope';
 
@@ -73,9 +68,7 @@ function makeNode(value: Record<string, unknown>, flags: string[]): ExplainNode 
   ].filter((key, index, all) => all.indexOf(key) === index);
   const costInfo = (value.cost_info ?? {}) as Record<string, unknown>;
   const cost =
-    asNumber(costInfo.prefix_cost) ??
-    asNumber(costInfo.read_cost) ??
-    asNumber(value.cost);
+    asNumber(costInfo.prefix_cost) ?? asNumber(costInfo.read_cost) ?? asNumber(value.cost);
 
   return {
     id: crypto.randomUUID(),
@@ -152,7 +145,9 @@ function addFinding(
   recommendation: string,
   node: ExplainNode,
 ): void {
-  if (findings.some((finding) => finding.ruleId === ruleId && finding.object?.table === node.table)) {
+  if (
+    findings.some((finding) => finding.ruleId === ruleId && finding.object?.table === node.table)
+  ) {
     return;
   }
   findings.push({
@@ -302,7 +297,12 @@ export function explainFindings(nodes: ExplainNode[]): Finding[] {
     if (node.children.length) {
       const childFindings = explainFindings(node.children);
       for (const finding of childFindings) {
-        if (!findings.some((item) => item.ruleId === finding.ruleId && item.object?.table === finding.object?.table)) {
+        if (
+          !findings.some(
+            (item) =>
+              item.ruleId === finding.ruleId && item.object?.table === finding.object?.table,
+          )
+        ) {
           findings.push(finding);
         }
       }
@@ -366,12 +366,9 @@ export async function runExplain(
   const classified = classifySql(sql);
   if (classified.empty) throw new AppError('EMPTY_SQL', 'There is no SQL to explain.', 400);
   if (classified.multiStatement) {
-    throw new AppError(
-      'MULTI_STATEMENT',
-      'Explain one statement at a time.',
-      400,
-      { classification: classified.overall },
-    );
+    throw new AppError('MULTI_STATEMENT', 'Explain one statement at a time.', 400, {
+      classification: classified.overall,
+    });
   }
   const classification = classified.overall;
   assertExplainableStatement(sql);
@@ -414,22 +411,14 @@ export async function runExplain(
         if (options.analyze) {
           analyzed = true;
           if (server.flavor === 'mariadb') {
-            const [rows] = await conn.query<Row[]>(
-              `ANALYZE FORMAT=JSON ${sql}`,
-            );
+            const [rows] = await conn.query<Row[]>(`ANALYZE FORMAT=JSON ${sql}`);
             raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
           } else {
-            const [jsonRows] = await conn.query<Row[]>(
-              `EXPLAIN FORMAT=JSON ${sql}`,
-            );
-            raw = jsonRows.length > 0
-              ? parseJsonColumn(Object.values(jsonRows[0])[0])
-              : null;
+            const [jsonRows] = await conn.query<Row[]>(`EXPLAIN FORMAT=JSON ${sql}`);
+            raw = jsonRows.length > 0 ? parseJsonColumn(Object.values(jsonRows[0])[0]) : null;
             try {
               const [textRows] = await conn.query<Row[]>(`EXPLAIN ANALYZE ${sql}`);
-              text = textRows
-                .map((row) => Object.values(row).map(String).join(' '))
-                .join('\n');
+              text = textRows.map((row) => Object.values(row).map(String).join(' ')).join('\n');
             } catch {
               text = undefined;
             }

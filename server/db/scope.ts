@@ -3,12 +3,7 @@ import type { ConnectionProfile, DatabaseInfo } from '../../shared/types';
 import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError } from '../errors';
 import { getStoredProfile } from '../store/profiles';
-import {
-  significantTokens,
-  splitStatements,
-  tokenUpper,
-  type Token,
-} from '../review/tokenizer';
+import { significantTokens, splitStatements, tokenUpper, type Token } from '../review/tokenizer';
 
 const parserModule = sqlParser as unknown as typeof import('node-sql-parser');
 const parser = new parserModule.Parser();
@@ -72,10 +67,7 @@ export interface ProcessScopeTarget {
   db: string | null;
 }
 
-export function isProcessInScope(
-  process: ProcessScopeTarget,
-  scope: DatabaseScope,
-): boolean {
+export function isProcessInScope(process: ProcessScopeTarget, scope: DatabaseScope): boolean {
   if (scope.mode === 'all') return true;
   return process.db != null && scope.allowed.has(process.db);
 }
@@ -173,8 +165,7 @@ function collectShowRefs(tokens: Token[], out: Set<string>): void {
 
   const fromIndex = tokens.findIndex(
     (token) =>
-      token.kind === 'word' &&
-      (tokenUpper(token) === 'FROM' || tokenUpper(token) === 'IN'),
+      token.kind === 'word' && (tokenUpper(token) === 'FROM' || tokenUpper(token) === 'IN'),
   );
 
   if (fromIndex >= 0) {
@@ -190,7 +181,9 @@ function collectShowRefs(tokens: Token[], out: Set<string>): void {
   }
 
   if (
-    ['CREATE', 'COLUMNS', 'FIELDS', 'INDEX', 'INDEXES', 'KEYS', 'TRIGGERS', 'EVENTS'].includes(showType)
+    ['CREATE', 'COLUMNS', 'FIELDS', 'INDEX', 'INDEXES', 'KEYS', 'TRIGGERS', 'EVENTS'].includes(
+      showType,
+    )
   ) {
     for (let i = 0; i < tokens.length - 2; i += 1) {
       if (

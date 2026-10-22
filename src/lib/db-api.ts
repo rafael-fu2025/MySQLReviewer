@@ -40,10 +40,7 @@ export const dbApi = {
       database,
       revealSensitive: options.revealSensitive === true,
     };
-    return api.post<QueryResult>(
-      `/api/db/${encodeURIComponent(profileId)}/query`,
-      payload,
-    );
+    return api.post<QueryResult>(`/api/db/${encodeURIComponent(profileId)}/query`, payload);
   },
 
   explain(
@@ -53,10 +50,7 @@ export const dbApi = {
     analyze: boolean,
   ): Promise<ExplainResult> {
     const payload = { sql: statement, database, analyze };
-    return api.post<ExplainResult>(
-      `/api/db/${encodeURIComponent(profileId)}/explain`,
-      payload,
-    );
+    return api.post<ExplainResult>(`/api/db/${encodeURIComponent(profileId)}/explain`, payload);
   },
 
   review(
@@ -180,15 +174,10 @@ export const dbApi = {
   },
 
   listCharsets(profileId: string): Promise<CharsetInfo[]> {
-    return api.get<CharsetInfo[]>(
-      `/api/db/${encodeURIComponent(profileId)}/charsets`,
-    );
+    return api.get<CharsetInfo[]>(`/api/db/${encodeURIComponent(profileId)}/charsets`);
   },
 
-  createDatabase(
-    profileId: string,
-    input: CreateDatabaseInput,
-  ): Promise<CreateDatabaseResult> {
+  createDatabase(profileId: string, input: CreateDatabaseInput): Promise<CreateDatabaseResult> {
     return api.post<CreateDatabaseResult>(
       `/api/db/${encodeURIComponent(profileId)}/databases`,
       input,
@@ -236,8 +225,6 @@ export const dbApi = {
   },
 
   clearPracticeAttempts(profileId: string): Promise<unknown> {
-    return api.del(
-      `/api/practice/attempts?profileId=${encodeURIComponent(profileId)}`,
-    );
+    return api.del(`/api/practice/attempts?profileId=${encodeURIComponent(profileId)}`);
   },
 };

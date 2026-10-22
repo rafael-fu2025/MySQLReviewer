@@ -41,7 +41,11 @@ export function clampInt(
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
-export function detectXampp(): { path: string; port: number | null; version: string | null } | null {
+export function detectXampp(): {
+  path: string;
+  port: number | null;
+  version: string | null;
+} | null {
   const candidates = [
     'C:\\xampp',
     path.join(process.env.USERPROFILE ?? '', 'xampp'),

@@ -2,10 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { completeOpenAi, streamOpenAi } from '../server/ai/openai';
 import { completeAnthropic } from '../server/ai/anthropic';
 import { completeGoogle } from '../server/ai/google';
-import {
-  decryptProviderHeaders,
-  encryptProviderHeaders,
-} from '../server/store/providers';
+import { decryptProviderHeaders, encryptProviderHeaders } from '../server/store/providers';
 import { canReuseStoredPassword } from '../server/routes/connections';
 import { testProvider } from './fixtures';
 
@@ -27,12 +24,9 @@ describe('AI provider adapters', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await completeOpenAi(
-      testProvider,
-      'secret',
-      [{ role: 'user', content: 'Hi' }],
-      { maxTokens: 10 },
-    );
+    const result = await completeOpenAi(testProvider, 'secret', [{ role: 'user', content: 'Hi' }], {
+      maxTokens: 10,
+    });
 
     expect(result.text).toBe('Hello from the model');
     expect(result.usage).toEqual({
@@ -52,29 +46,19 @@ describe('AI provider adapters', () => {
     const stream = new ReadableStream({
       start(controller) {
         const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n'));
         controller.enqueue(
-          encoder.encode('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n'),
-        );
-        controller.enqueue(
-          encoder.encode(
-            'data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n',
-          ),
+          encoder.encode('data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n'),
         );
         controller.close();
       },
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(new Response(stream, { status: 200 })),
-    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
 
     const deltas: string[] = [];
-    const result = await streamOpenAi(
-      testProvider,
-      null,
-      [{ role: 'user', content: 'Hi' }],
-      { onDelta: (text) => deltas.push(text) },
-    );
+    const result = await streamOpenAi(testProvider, null, [{ role: 'user', content: 'Hi' }], {
+      onDelta: (text) => deltas.push(text),
+    });
 
     expect(result.text).toBe('Hello');
     expect(deltas).toEqual(['Hel', 'lo']);
@@ -103,9 +87,7 @@ describe('AI provider adapters', () => {
       baseUrl: 'https://api.anthropic.test',
       model: 'claude-test',
     };
-    const result = await completeAnthropic(provider, 'secret', [
-      { role: 'user', content: 'Hi' },
-    ]);
+    const result = await completeAnthropic(provider, 'secret', [{ role: 'user', content: 'Hi' }]);
 
     expect(result.text).toBe('Hello Claude');
     expect(result.usage).toEqual({
@@ -137,9 +119,7 @@ describe('AI provider adapters', () => {
       baseUrl: 'https://generativelanguage.test/v1beta',
       model: 'gemini-test',
     };
-    const result = await completeGoogle(provider, 'secret', [
-      { role: 'user', content: 'Hi' },
-    ]);
+    const result = await completeGoogle(provider, 'secret', [{ role: 'user', content: 'Hi' }]);
 
     expect(result.text).toBe('Hello Gemini');
     expect(result.usage?.totalTokens).toBe(6);
@@ -160,9 +140,7 @@ describe('AI provider adapters', () => {
     );
 
     await expect(
-      completeOpenAi(testProvider, 'super-secret', [
-        { role: 'user', content: 'Hi' },
-      ]),
+      completeOpenAi(testProvider, 'super-secret', [{ role: 'user', content: 'Hi' }]),
     ).rejects.toMatchObject({
       code: 'AI_AUTH',
       message: expect.not.stringContaining('super-secret'),
@@ -216,15 +194,15 @@ describe('connection test credential reuse', () => {
   });
 
   it('refuses to reuse it for a different host, port, user, or socket', () => {
-    expect(
-      canReuseStoredPassword(stored, { host: 'evil.test', port: 3306, user: 'app' }),
-    ).toBe(false);
-    expect(
-      canReuseStoredPassword(stored, { host: 'db.internal', port: 3307, user: 'app' }),
-    ).toBe(false);
-    expect(
-      canReuseStoredPassword(stored, { host: 'db.internal', port: 3306, user: 'root' }),
-    ).toBe(false);
+    expect(canReuseStoredPassword(stored, { host: 'evil.test', port: 3306, user: 'app' })).toBe(
+      false,
+    );
+    expect(canReuseStoredPassword(stored, { host: 'db.internal', port: 3307, user: 'app' })).toBe(
+      false,
+    );
+    expect(canReuseStoredPassword(stored, { host: 'db.internal', port: 3306, user: 'root' })).toBe(
+      false,
+    );
     expect(
       canReuseStoredPassword(stored, {
         host: 'db.internal',
@@ -235,4 +213,3 @@ describe('connection test credential reuse', () => {
     ).toBe(false);
   });
 });
-

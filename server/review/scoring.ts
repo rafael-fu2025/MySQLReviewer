@@ -30,9 +30,10 @@ export function gradeForScore(score: number): ScoreResult['grade'] {
 }
 
 export function scoreFindings(findings: Finding[]): ScoreResult {
-  const deductions = Object.fromEntries(
-    CATEGORIES.map((category) => [category, 0]),
-  ) as Record<FindingCategory, number>;
+  const deductions = Object.fromEntries(CATEGORIES.map((category) => [category, 0])) as Record<
+    FindingCategory,
+    number
+  >;
 
   for (const finding of findings) {
     deductions[finding.category] =

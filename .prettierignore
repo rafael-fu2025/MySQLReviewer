@@ -2,3 +2,8 @@ node_modules
 dist
 data
 package-lock.json
+.mimosa
+.zcode
+.snapshot
+scripts/ui-layout/app.css
+scripts/ui-layout/*.png

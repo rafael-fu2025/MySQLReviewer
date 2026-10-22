@@ -25,15 +25,11 @@ describe('least-privilege grant SQL', () => {
   });
 
   it('rejects unsafe identifiers', () => {
-    expect(() =>
-      generateGrantSql({ user: "bad'user", databases: ['shop'] }),
-    ).toThrow(/User name/);
-    expect(() =>
-      generateGrantSql({ user: 'app', databases: ['bad`name'] }),
-    ).toThrow(/Invalid database name/);
-    expect(() =>
-      generateGrantSql({ user: 'app', databases: [] }),
-    ).toThrow(/at least one database/);
+    expect(() => generateGrantSql({ user: "bad'user", databases: ['shop'] })).toThrow(/User name/);
+    expect(() => generateGrantSql({ user: 'app', databases: ['bad`name'] })).toThrow(
+      /Invalid database name/,
+    );
+    expect(() => generateGrantSql({ user: 'app', databases: [] })).toThrow(/at least one database/);
   });
 
   it('rejects privileges outside the allowlist', () => {

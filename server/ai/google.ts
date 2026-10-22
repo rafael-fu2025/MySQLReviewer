@@ -166,35 +166,32 @@ export async function listGoogleModels(
   provider: AiProvider,
   apiKey: string | null,
 ): Promise<string[]> {
-  return withTimeout(
-    async (signal) => {
-      const base = joinUrl(provider.baseUrl, provider.modelsPath || '/models');
-      const urlWithKey = `${base}${apiKey ? `?key=${encodeURIComponent(apiKey)}` : ''}`;
-      const response = await fetch(urlWithKey, {
-        method: 'GET',
-        headers: providerHeaders(provider, null),
-        signal,
-      });
-      if (!response.ok) await errorFromResponse(response, provider.name);
-      const data = (await response.json()) as {
-        models?: {
-          name?: string;
-          supportedGenerationMethods?: string[];
-        }[];
-      };
-      return Array.from(
-        new Set(
-          (data.models ?? [])
-            .filter(
-              (model) =>
-                !model.supportedGenerationMethods ||
-                model.supportedGenerationMethods.includes('generateContent'),
-            )
-            .map((model) => (model.name ?? '').replace(/^models\//, ''))
-            .filter(Boolean),
-        ),
-      ).slice(0, 500);
-    },
-    30_000,
-  );
+  return withTimeout(async (signal) => {
+    const base = joinUrl(provider.baseUrl, provider.modelsPath || '/models');
+    const urlWithKey = `${base}${apiKey ? `?key=${encodeURIComponent(apiKey)}` : ''}`;
+    const response = await fetch(urlWithKey, {
+      method: 'GET',
+      headers: providerHeaders(provider, null),
+      signal,
+    });
+    if (!response.ok) await errorFromResponse(response, provider.name);
+    const data = (await response.json()) as {
+      models?: {
+        name?: string;
+        supportedGenerationMethods?: string[];
+      }[];
+    };
+    return Array.from(
+      new Set(
+        (data.models ?? [])
+          .filter(
+            (model) =>
+              !model.supportedGenerationMethods ||
+              model.supportedGenerationMethods.includes('generateContent'),
+          )
+          .map((model) => (model.name ?? '').replace(/^models\//, ''))
+          .filter(Boolean),
+      ),
+    ).slice(0, 500);
+  }, 30_000);
 }

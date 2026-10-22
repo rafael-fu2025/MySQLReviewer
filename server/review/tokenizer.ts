@@ -238,9 +238,7 @@ export function findTopLevelSequence(tokens: Token[], ...words: string[]): numbe
 
 export function containsWord(tokens: Token[], word: string): boolean {
   const upper = word.toUpperCase();
-  return tokens.some(
-    (token) => token.kind === 'word' && tokenUpper(token) === upper,
-  );
+  return tokens.some((token) => token.kind === 'word' && tokenUpper(token) === upper);
 }
 
 export interface SplitStatement {

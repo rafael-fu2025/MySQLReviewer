@@ -130,25 +130,22 @@ export async function listOpenAiModels(
   provider: AiProvider,
   apiKey: string | null,
 ): Promise<string[]> {
-  return withTimeout(
-    async (signal) => {
-      const url = joinUrl(provider.baseUrl, provider.modelsPath || '/models');
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: providerHeaders(provider, apiKey),
-        signal,
-      });
-      if (!response.ok) await errorFromResponse(response, provider.name);
-      const data = (await response.json()) as {
-        data?: { id?: string }[];
-        models?: { id?: string; name?: string }[];
-      };
-      const models = [
-        ...(data.data ?? []).map((item) => item.id ?? ''),
-        ...(data.models ?? []).map((item) => item.id ?? item.name ?? ''),
-      ].filter(Boolean);
-      return Array.from(new Set(models)).slice(0, 500);
-    },
-    30_000,
-  );
+  return withTimeout(async (signal) => {
+    const url = joinUrl(provider.baseUrl, provider.modelsPath || '/models');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: providerHeaders(provider, apiKey),
+      signal,
+    });
+    if (!response.ok) await errorFromResponse(response, provider.name);
+    const data = (await response.json()) as {
+      data?: { id?: string }[];
+      models?: { id?: string; name?: string }[];
+    };
+    const models = [
+      ...(data.data ?? []).map((item) => item.id ?? ''),
+      ...(data.models ?? []).map((item) => item.id ?? item.name ?? ''),
+    ].filter(Boolean);
+    return Array.from(new Set(models)).slice(0, 500);
+  }, 30_000);
 }

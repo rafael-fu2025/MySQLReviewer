@@ -8,9 +8,7 @@ vi.mock('../server/review/static-review', () => ({
   runStaticReview: mocks.runStaticReview,
 }));
 
-const { SaveReviewSchema, resolveReviewForSave } = await import(
-  '../server/routes/review'
-);
+const { SaveReviewSchema, resolveReviewForSave } = await import('../server/routes/review');
 
 function review(sql = 'SELECT 1'): StaticReviewResult {
   return {

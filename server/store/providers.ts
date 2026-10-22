@@ -206,7 +206,8 @@ export async function resolveProvider(
   }
   if (!effectiveId) {
     const file = await store.read();
-    effectiveId = file.providers.find((item) => item.isDefault)?.id ?? file.providers[0]?.id ?? null;
+    effectiveId =
+      file.providers.find((item) => item.isDefault)?.id ?? file.providers[0]?.id ?? null;
   }
   if (!effectiveId) {
     throw new AppError('NO_AI_PROVIDER', 'No AI provider is configured. Add one in Settings.', 400);
@@ -357,9 +358,7 @@ export async function setProviderModels(id: string, models: string[]): Promise<v
   const unique = Array.from(new Set(models.filter(Boolean))).slice(0, 500);
   await store.update((current) => ({
     providers: current.providers.map((provider) =>
-      provider.id === id
-        ? { ...provider, models: unique, updatedAt: now() }
-        : provider,
+      provider.id === id ? { ...provider, models: unique, updatedAt: now() } : provider,
     ),
   }));
 }

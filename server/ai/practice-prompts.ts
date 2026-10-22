@@ -182,9 +182,7 @@ Rules:
     `DIFFICULTY: ${input.question.difficulty}`,
     `TOPICS: ${input.question.topics.join(', ')}`,
     `SCENARIO: ${input.question.scenario}`,
-    input.question.brokenSql
-      ? `BROKEN SQL TO REVIEW/FIX:\n${input.question.brokenSql}`
-      : '',
+    input.question.brokenSql ? `BROKEN SQL TO REVIEW/FIX:\n${input.question.brokenSql}` : '',
     `REFERENCE SQL:\n${input.question.referenceSql ?? '(none)'}`,
     `EXPECTED RESULT / RUBRIC: ${input.question.expectedResult ?? '(none)'}`,
     '',

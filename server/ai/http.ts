@@ -63,10 +63,7 @@ export async function withTimeout<T>(
   external?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error('AI request timed out.')),
-    timeoutMs,
-  );
+  const timer = setTimeout(() => controller.abort(new Error('AI request timed out.')), timeoutMs);
   const onAbort = (): void => controller.abort(new Error('AI request cancelled.'));
   if (external) {
     if (external.aborted) onAbort();
@@ -83,21 +80,14 @@ export async function withTimeout<T>(
       }
       throw new AppError('AI_TIMEOUT', 'The AI provider did not respond in time.', 504);
     }
-    throw new AppError(
-      'AI_NETWORK',
-      `Could not reach the AI provider: ${err.message}`,
-      502,
-    );
+    throw new AppError('AI_NETWORK', `Could not reach the AI provider: ${err.message}`, 502);
   } finally {
     clearTimeout(timer);
     external?.removeEventListener('abort', onAbort);
   }
 }
 
-export async function errorFromResponse(
-  response: Response,
-  providerName: string,
-): Promise<never> {
+export async function errorFromResponse(response: Response, providerName: string): Promise<never> {
   let detail = '';
   try {
     const text = await response.text();

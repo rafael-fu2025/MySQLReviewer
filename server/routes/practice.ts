@@ -18,10 +18,7 @@ import {
   toPublicPracticeProgress,
   toPublicPracticeSet,
 } from '../db/practice';
-import {
-  evaluatePractice,
-  generatePracticeSet,
-} from '../ai/practice';
+import { evaluatePractice, generatePracticeSet } from '../ai/practice';
 import { openSse } from '../sse';
 import { asyncHandler, param, parseBody, parseQuery } from './util';
 

@@ -51,10 +51,7 @@ reportsRouter.get(
       return;
     }
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${reportFileName(report, 'md')}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${reportFileName(report, 'md')}"`);
     res.send(reportToMarkdown(report));
   }),
 );

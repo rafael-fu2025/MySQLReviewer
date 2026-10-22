@@ -52,12 +52,9 @@ queryRouter.post(
   asyncHandler(async (req, res) => {
     const profileId = param(req, 'profileId');
     const body = parseBody(ExplainBody, req);
-    const result = await runExplain(
-      profileId,
-      body.sql,
-      body.database ?? null,
-      { analyze: Boolean(body.analyze) },
-    );
+    const result = await runExplain(profileId, body.sql, body.database ?? null, {
+      analyze: Boolean(body.analyze),
+    });
     res.json({ data: result });
   }),
 );

@@ -155,9 +155,7 @@ function buildInsert(table, columns, rows, types) {
     const values = batch
       .map((row) => `(${row.map((value, index) => sqlLiteral(value, types[index])).join(', ')})`)
       .join(',\n');
-    lines.push(
-      `INSERT INTO ${quoteIdentifier(table)} (${columnList}) VALUES\n${values};\n`,
-    );
+    lines.push(`INSERT INTO ${quoteIdentifier(table)} (${columnList}) VALUES\n${values};\n`);
   }
   return lines;
 }
@@ -165,12 +163,18 @@ function buildInsert(table, columns, rows, types) {
 async function extractTable(table) {
   assertIdentifier(table);
 
-  const ddlResult = await runSql(`SHOW CREATE TABLE ${quoteIdentifier(table)}`, `SHOW CREATE TABLE ${table}`);
+  const ddlResult = await runSql(
+    `SHOW CREATE TABLE ${quoteIdentifier(table)}`,
+    `SHOW CREATE TABLE ${table}`,
+  );
   const createSql = ddlResult.rows[0]?.[1];
   if (!createSql) throw new Error(`No CREATE TABLE statement returned for ${table}`);
   const ddl = createSql.replace(/\s+AUTO_INCREMENT=\d+/i, '').trim();
 
-  const columnsResult = await runSql(`SHOW COLUMNS FROM ${quoteIdentifier(table)}`, `SHOW COLUMNS ${table}`);
+  const columnsResult = await runSql(
+    `SHOW COLUMNS FROM ${quoteIdentifier(table)}`,
+    `SHOW COLUMNS ${table}`,
+  );
   const columns = columnsResult.rows.map((row) => ({
     name: assertIdentifier(row[0]),
     type: row[1],
@@ -182,7 +186,8 @@ async function extractTable(table) {
 
   const nullableColumns = columns.filter((column) => column.nullable);
   const nullMarkers = nullableColumns.map(
-    (column, index) => `${quoteIdentifier(column.name)} IS NULL AS ${quoteIdentifier(`__null_${index}`)}`,
+    (column, index) =>
+      `${quoteIdentifier(column.name)} IS NULL AS ${quoteIdentifier(`__null_${index}`)}`,
   );
   const selectSql =
     nullMarkers.length > 0
@@ -198,14 +203,14 @@ async function extractTable(table) {
     dataResult.header.length !== expectedHeader.length ||
     dataResult.header.some((name, index) => name !== expectedHeader[index])
   ) {
-    throw new Error(
-      `${table}: unexpected column layout (${dataResult.header.join(', ')})`,
-    );
+    throw new Error(`${table}: unexpected column layout (${dataResult.header.join(', ')})`);
   }
 
   const rows = dataResult.rows.map((row, rowIndex) => {
     if (row.length !== expectedHeader.length) {
-      throw new Error(`${table}: row ${rowIndex + 1} has ${row.length} cells, expected ${expectedHeader.length}`);
+      throw new Error(
+        `${table}: row ${rowIndex + 1} has ${row.length} cells, expected ${expectedHeader.length}`,
+      );
     }
     return columns.map((column, columnIndex) => {
       if (!column.nullable) return row[columnIndex];
@@ -284,7 +289,9 @@ async function main() {
   for (const tableName of tableNames) {
     const extracted = await extractTable(tableName);
     tables.push(extracted);
-    console.log(`  ${tableName}: ${extracted.rows.length} rows, ${extracted.columns.length} columns`);
+    console.log(
+      `  ${tableName}: ${extracted.rows.length} rows, ${extracted.columns.length} columns`,
+    );
     await sleep(300);
   }
 
@@ -310,7 +317,11 @@ async function main() {
       ]),
     ),
   };
-  await writeFile(join(dirname(outFile), 'extraction-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  await writeFile(
+    join(dirname(outFile), 'extraction-report.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+    'utf8',
+  );
 
   console.log(`\nWrote ${outFile} (${(report.bytes / 1024).toFixed(1)} KiB)`);
   console.log(`Rows total: ${tables.reduce((sum, table) => sum + table.rows.length, 0)}`);

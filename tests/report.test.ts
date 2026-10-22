@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuditReport, Finding } from '../shared/types';
 import { groupFindings } from '../server/review/findings';
 import { scoreFindings } from '../server/review/scoring';
-import {
-  reportFileName,
-  reportToHtml,
-  reportToMarkdown,
-} from '../server/review/report';
+import { reportFileName, reportToHtml, reportToMarkdown } from '../server/review/report';
 
 const finding: Finding = {
   id: 'finding-1',
@@ -73,9 +69,7 @@ const report: AuditReport = {
     durationMs: 42,
   },
   durationMs: 1234,
-  steps: [
-    { key: 'snapshot', label: 'Schema snapshot', status: 'done', durationMs: 10 },
-  ],
+  steps: [{ key: 'snapshot', label: 'Schema snapshot', status: 'done', durationMs: 10 }],
 };
 
 describe('report export', () => {

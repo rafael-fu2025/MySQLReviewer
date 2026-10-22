@@ -147,10 +147,7 @@ export default function App() {
           <Route
             path="*"
             element={
-              <Navigate
-                to={activeProfileId && server ? '/workspace' : '/connect'}
-                replace
-              />
+              <Navigate to={activeProfileId && server ? '/workspace' : '/connect'} replace />
             }
           />
         </Routes>

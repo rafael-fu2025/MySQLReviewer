@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  estimateBytes,
-  mysqlTypeName,
-  serializeCell,
-} from '../server/db/serialize';
+import { estimateBytes, mysqlTypeName, serializeCell } from '../server/db/serialize';
 
 describe('value serialization', () => {
   it('serializes dates as ISO strings', () => {
@@ -28,9 +24,7 @@ describe('value serialization', () => {
   });
 
   it('serializes bigint as a string', () => {
-    expect(serializeCell(BigInt('9007199254740993'), 100)).toBe(
-      '9007199254740993',
-    );
+    expect(serializeCell(BigInt('9007199254740993'), 100)).toBe('9007199254740993');
   });
 
   it('maps MySQL type codes', () => {

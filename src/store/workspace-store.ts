@@ -1,10 +1,5 @@
 import { create } from 'zustand';
-import type {
-  AiReview,
-  ExplainResult,
-  QueryResult,
-  StaticReviewResult,
-} from '@shared/types';
+import type { AiReview, ExplainResult, QueryResult, StaticReviewResult } from '@shared/types';
 import { ApiError } from '@/lib/api';
 
 export type OutputTab = 'results' | 'messages' | 'explain' | 'review';

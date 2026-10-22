@@ -21,8 +21,7 @@ securityRouter.get(
     const findings = dedupeFindings([
       ...runSecurityRules(data),
       ...runConfigRules(variables, server).filter(
-        (finding) =>
-          finding.category === 'security' || finding.category === 'config',
+        (finding) => finding.category === 'security' || finding.category === 'config',
       ),
     ]);
     const result: SecurityAuditResult = {

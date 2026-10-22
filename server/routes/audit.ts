@@ -24,8 +24,7 @@ auditRouter.post(
     // Audits read server-wide telemetry, so enforce the connection scope before
     // any database work starts. Throws the standard scope error shape.
     await assertServerWideAllowed(body.profileId);
-    const server =
-      getCachedServerInfo(body.profileId) ?? (await connectProfile(body.profileId));
+    const server = getCachedServerInfo(body.profileId) ?? (await connectProfile(body.profileId));
 
     if (body.includeAi && body.providerId) {
       const resolved = await resolveProvider(body.providerId);

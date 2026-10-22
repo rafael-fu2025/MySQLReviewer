@@ -1,19 +1,10 @@
 export type WorkspaceAction =
-  | 'new-tab'
-  | 'run'
-  | 'run-selection'
-  | 'explain'
-  | 'review'
-  | 'format'
-  | 'history'
-  | 'snippets';
+  'new-tab' | 'run' | 'run-selection' | 'explain' | 'review' | 'format' | 'history' | 'snippets';
 
 const EVENT_NAME = 'mylens:workspace';
 
 export function emitWorkspace(action: WorkspaceAction, payload?: unknown): void {
-  window.dispatchEvent(
-    new CustomEvent(EVENT_NAME, { detail: { action, payload } }),
-  );
+  window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { action, payload } }));
 }
 
 export function onWorkspace(

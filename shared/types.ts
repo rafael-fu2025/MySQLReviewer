@@ -5,13 +5,7 @@
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type FindingCategory =
-  | 'correctness'
-  | 'performance'
-  | 'security'
-  | 'schema'
-  | 'config'
-  | 'style'
-  | 'maintainability';
+  'correctness' | 'performance' | 'security' | 'schema' | 'config' | 'style' | 'maintainability';
 export type FindingSource = 'rule' | 'explain' | 'ai';
 
 export interface FindingObject {
@@ -371,17 +365,7 @@ export interface TableDataRequest {
 
 export interface TableDataFilter {
   column: string;
-  operator:
-    | '='
-    | '!='
-    | '>'
-    | '>='
-    | '<'
-    | '<='
-    | 'LIKE'
-    | 'NOT LIKE'
-    | 'IS NULL'
-    | 'IS NOT NULL';
+  operator: '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'NOT LIKE' | 'IS NULL' | 'IS NOT NULL';
   value?: string;
 }
 
@@ -413,13 +397,7 @@ export interface BinaryCell {
 }
 
 export type CellValue =
-  | string
-  | number
-  | boolean
-  | null
-  | BinaryCell
-  | { [key: string]: unknown }
-  | unknown[];
+  string | number | boolean | null | BinaryCell | { [key: string]: unknown } | unknown[];
 
 export interface QueryColumn {
   name: string;
@@ -1003,10 +981,7 @@ export interface PracticeEvaluation {
 }
 
 /** Wire shape of an evaluation inside attempt listings: no reference material. */
-export type PracticeEvaluationPublic = Omit<
-  PracticeEvaluation,
-  'referenceSql' | 'referenceResult'
->;
+export type PracticeEvaluationPublic = Omit<PracticeEvaluation, 'referenceSql' | 'referenceResult'>;
 
 export interface PracticeEvaluateRequest {
   profileId: string;

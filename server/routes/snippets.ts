@@ -1,11 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import {
-  createSnippet,
-  deleteSnippet,
-  listSnippets,
-  updateSnippet,
-} from '../store/snippets';
+import { createSnippet, deleteSnippet, listSnippets, updateSnippet } from '../store/snippets';
 import { asyncHandler, param, parseBody } from './util';
 
 const SnippetSchema = z.object({

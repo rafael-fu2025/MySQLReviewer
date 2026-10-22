@@ -34,10 +34,8 @@ export const useUiStore = create<UiState>()(
       setSidebarCollapsed: (value) => set({ sidebarCollapsed: value }),
       toggleSchema: () => set((state) => ({ schemaCollapsed: !state.schemaCollapsed })),
       setSchemaCollapsed: (value) => set({ schemaCollapsed: value }),
-      setEditorPct: (value) =>
-        set({ editorPct: Math.max(20, Math.min(78, Math.round(value))) }),
-      toggleResultsMaximized: () =>
-        set((state) => ({ resultsMaximized: !state.resultsMaximized })),
+      setEditorPct: (value) => set({ editorPct: Math.max(20, Math.min(78, Math.round(value))) }),
+      toggleResultsMaximized: () => set((state) => ({ resultsMaximized: !state.resultsMaximized })),
       setResultsMaximized: (value) => set({ resultsMaximized: value }),
       setCompactDensity: (value) => set({ compactDensity: value }),
       resetLayout: () => set({ ...DEFAULTS }),

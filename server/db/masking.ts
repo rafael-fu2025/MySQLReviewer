@@ -42,9 +42,7 @@ export function maskResultRows(
   const marked = columns.map((column) => ({
     ...column,
     sensitive:
-      column.sensitive ||
-      isSensitiveColumn(column.name) ||
-      isSensitiveColumn(column.originalName),
+      column.sensitive || isSensitiveColumn(column.name) || isSensitiveColumn(column.originalName),
   }));
 
   if (!options.enabled || options.reveal) {

@@ -45,17 +45,13 @@ describe('report listing cache', () => {
     await saveReport(reviewReport('review_cache_sort_b', 'Newer', '2026-02-01T00:00:00.000Z'));
 
     const ids = (await listReports()).map((report) => report.id);
-    expect(ids.indexOf('review_cache_sort_b')).toBeLessThan(
-      ids.indexOf('review_cache_sort_a'),
-    );
+    expect(ids.indexOf('review_cache_sort_b')).toBeLessThan(ids.indexOf('review_cache_sort_a'));
   });
 
   it('reflects a report rewritten outside the process', async () => {
     const id = 'review_cache_external_edit';
     await saveReport(reviewReport(id, 'Original title'));
-    expect((await listReports()).find((report) => report.id === id)?.title).toBe(
-      'Original title',
-    );
+    expect((await listReports()).find((report) => report.id === id)?.title).toBe('Original title');
 
     // A different-size body guarantees a different mtime+size fingerprint.
     const rewritten = reviewReport(id, 'Rewritten externally with a longer title');
@@ -82,14 +78,10 @@ describe('report listing cache', () => {
   it('invalidates the cached summary when saving the same id', async () => {
     const id = 'review_cache_resave';
     await saveReport(reviewReport(id, 'First title'));
-    expect((await listReports()).find((report) => report.id === id)?.title).toBe(
-      'First title',
-    );
+    expect((await listReports()).find((report) => report.id === id)?.title).toBe('First title');
 
     await saveReport(reviewReport(id, 'Second title'));
-    expect((await listReports()).find((report) => report.id === id)?.title).toBe(
-      'Second title',
-    );
+    expect((await listReports()).find((report) => report.id === id)?.title).toBe('Second title');
   });
 
   it('invalidates the cached summary when deleting through the store', async () => {

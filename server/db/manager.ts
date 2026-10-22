@@ -10,7 +10,13 @@ import type {
 } from '../../shared/types';
 import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError, isFatalConnectionError, mapDbError } from '../errors';
-import { profileConfigHash, getProfilePassword, getStoredProfile, touchProfile, setSessionPassword } from '../store/profiles';
+import {
+  profileConfigHash,
+  getProfilePassword,
+  getStoredProfile,
+  touchProfile,
+  setSessionPassword,
+} from '../store/profiles';
 import { getServerInfo, applyPoolSession } from './dialect';
 
 interface PoolEntry {
@@ -89,10 +95,7 @@ export async function getPool(profileId: string): Promise<Pool> {
   });
 
   const emitter = pool as unknown as {
-    on?: (
-      event: string,
-      listener: (conn: { promise: () => PoolConnection }) => void,
-    ) => void;
+    on?: (event: string, listener: (conn: { promise: () => PoolConnection }) => void) => void;
   };
   emitter.on?.('connection', (rawConnection) => {
     void applyPoolSession(rawConnection.promise()).catch(() => undefined);
@@ -138,9 +141,7 @@ export async function testConnection(
           tableCount: 0,
           viewCount: 0,
           sizeBytes: 0,
-          collation: row.DEFAULT_COLLATION_NAME == null
-            ? null
-            : String(row.DEFAULT_COLLATION_NAME),
+          collation: row.DEFAULT_COLLATION_NAME == null ? null : String(row.DEFAULT_COLLATION_NAME),
         };
       });
     }

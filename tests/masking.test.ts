@@ -50,29 +50,26 @@ describe('sensitive data masking', () => {
   });
 
   it('uses the original column name for aliases', () => {
-    const masked = maskResultRows(
-      [column('p', 'password')],
-      [['hash']],
-      { enabled: true, reveal: false },
-    );
+    const masked = maskResultRows([column('p', 'password')], [['hash']], {
+      enabled: true,
+      reveal: false,
+    });
     expect(masked.columns[0].sensitive).toBe(true);
     expect(masked.rows[0][0]).toBe('••••••••');
   });
 
   it('does not mask when disabled or revealed', () => {
-    const disabled = maskResultRows(
-      [column('password')],
-      [['hash']],
-      { enabled: false, reveal: false },
-    );
+    const disabled = maskResultRows([column('password')], [['hash']], {
+      enabled: false,
+      reveal: false,
+    });
     expect(disabled.masked).toBe(false);
     expect(disabled.rows[0][0]).toBe('hash');
 
-    const revealed = maskResultRows(
-      [column('password')],
-      [['hash']],
-      { enabled: true, reveal: true },
-    );
+    const revealed = maskResultRows([column('password')], [['hash']], {
+      enabled: true,
+      reveal: true,
+    });
     expect(revealed.masked).toBe(false);
     expect(revealed.rows[0][0]).toBe('hash');
   });

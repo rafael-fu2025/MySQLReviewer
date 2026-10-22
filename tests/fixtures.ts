@@ -1,14 +1,6 @@
-import type {
-  AiProvider,
-  ColumnInfo,
-  SchemaSnapshot,
-  SchemaTable,
-} from '../shared/types';
+import type { AiProvider, ColumnInfo, SchemaSnapshot, SchemaTable } from '../shared/types';
 
-export function column(
-  name: string,
-  overrides: Partial<ColumnInfo> = {},
-): ColumnInfo {
+export function column(name: string, overrides: Partial<ColumnInfo> = {}): ColumnInfo {
   return {
     name,
     position: 1,
@@ -26,10 +18,7 @@ export function column(
   };
 }
 
-export function table(
-  name: string,
-  overrides: Partial<SchemaTable> = {},
-): SchemaTable {
+export function table(name: string, overrides: Partial<SchemaTable> = {}): SchemaTable {
   return {
     database: 'shop',
     name,

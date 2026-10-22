@@ -1,23 +1,7 @@
-import {
-  Bookmark,
-  ChevronRight,
-  History,
-  Plus,
-  Save,
-  Trash2,
-} from 'lucide-react';
+import { Bookmark, ChevronRight, History, Plus, Save, Trash2 } from 'lucide-react';
 import type { HistoryEntry, Snippet } from '@shared/types';
 import { formatDate, formatDuration, sqlPreview } from '@/lib/format';
-import {
-  Badge,
-  Button,
-  EmptyState,
-  Field,
-  IconButton,
-  Input,
-  Modal,
-  Spinner,
-} from './ui';
+import { Badge, Button, EmptyState, Field, IconButton, Input, Modal, Spinner } from './ui';
 
 export function WorkspaceModals({
   historyOpen,
@@ -63,10 +47,7 @@ export function WorkspaceModals({
   const needle = historySearch.trim().toLowerCase();
   const filtered = needle
     ? history.filter((entry) =>
-        [entry.sql, entry.database ?? '', entry.kind]
-          .join(' ')
-          .toLowerCase()
-          .includes(needle),
+        [entry.sql, entry.database ?? '', entry.kind].join(' ').toLowerCase().includes(needle),
       )
     : history;
 
@@ -79,12 +60,7 @@ export function WorkspaceModals({
         subtitle="Saved locally on the MyLens server. Load a statement into the editor or a new tab."
         size="wide"
         footer={
-          <Button
-            variant="danger"
-            size="sm"
-            icon={<Trash2 size={12} />}
-            onClick={onClearHistory}
-          >
+          <Button variant="danger" size="sm" icon={<Trash2 size={12} />} onClick={onClearHistory}>
             Clear history
           </Button>
         }
@@ -110,10 +86,7 @@ export function WorkspaceModals({
         ) : (
           <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto">
             {filtered.map((entry) => (
-              <div
-                key={entry.id}
-                className="rounded-lg border border-line-soft bg-panel-2/50 p-3"
-              >
+              <div key={entry.id} className="rounded-lg border border-line-soft bg-panel-2/50 p-3">
                 <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
                   <Badge tone={entry.success ? 'mint' : 'danger'}>
                     {entry.success ? 'ok' : 'error'}
@@ -121,9 +94,7 @@ export function WorkspaceModals({
                   <Badge tone="neutral">{entry.kind}</Badge>
                   <span>{formatDate(entry.createdAt)}</span>
                   <span>{formatDuration(entry.executionMs)}</span>
-                  {entry.database ? (
-                    <span className="font-mono">{entry.database}</span>
-                  ) : null}
+                  {entry.database ? <span className="font-mono">{entry.database}</span> : null}
                   <div className="ml-auto flex gap-1">
                     <Button
                       variant="secondary"
@@ -176,9 +147,7 @@ export function WorkspaceModals({
                   className="rounded-lg border border-line-soft bg-panel-2/50 p-3"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] font-semibold text-ink">
-                      {snippet.title}
-                    </span>
+                    <span className="text-[12px] font-semibold text-ink">{snippet.title}</span>
                     {snippet.tags.map((tag) => (
                       <Badge key={tag} tone="neutral">
                         {tag}

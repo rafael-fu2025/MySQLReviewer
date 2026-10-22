@@ -16,24 +16,12 @@ import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError } from '../errors';
 import { getProfile } from '../store/profiles';
 import { saveReport } from '../store/reports';
-import {
-  getDatabaseObjects,
-  getSchemaSnapshot,
-} from '../db/introspection';
-import {
-  getGlobalStatus,
-  getGlobalVariables,
-  getPerformanceSnapshot,
-} from '../db/metrics';
+import { getDatabaseObjects, getSchemaSnapshot } from '../db/introspection';
+import { getGlobalStatus, getGlobalVariables, getPerformanceSnapshot } from '../db/metrics';
 import { collectSecurityData } from '../db/security-audit';
 import { withConnection } from '../db/manager';
 import { getDatabaseScope, assertServerWideAllowed, type DatabaseScope } from '../db/scope';
-import {
-  runConfigRules,
-  runPerformanceRules,
-  runSchemaRules,
-  runSecurityRules,
-} from './rules';
+import { runConfigRules, runPerformanceRules, runSchemaRules, runSecurityRules } from './rules';
 import { dedupeFindings, groupFindings } from './findings';
 import { scoreFindings } from './scoring';
 import { runAuditSummary } from '../ai/analyze';
@@ -48,11 +36,7 @@ export interface AuditRunInput {
     onDelta: (text: string) => void;
     signal?: AbortSignal;
   };
-  onProgress?: (event: {
-    step?: AuditStep;
-    percent?: number;
-    message?: string;
-  }) => void;
+  onProgress?: (event: { step?: AuditStep; percent?: number; message?: string }) => void;
 }
 
 interface UnusedIndexesResult {
@@ -165,7 +149,11 @@ async function loadUnusedIndexes(
 function aiSummaryReview(
   provider: AiProvider,
   text: string,
-  usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null } | null,
+  usage: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+  } | null,
   durationMs: number,
 ): AiReview {
   return {
@@ -190,11 +178,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
   const started = Date.now();
   const profile = await getProfile(input.profileId);
   const databases = Array.from(
-    new Set(
-      input.databases.filter(
-        (database) => database && !SYSTEM_SCHEMAS.includes(database),
-      ),
-    ),
+    new Set(input.databases.filter((database) => database && !SYSTEM_SCHEMAS.includes(database))),
   );
   if (databases.length === 0) {
     databases.push(...input.databases.filter(Boolean));
@@ -311,9 +295,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
   emit(64, 'Running schema rules.');
   startStep('schema-rules');
   const schemaStarted = Date.now();
-  const schemaFindings = allTables.flatMap((table) =>
-    runSchemaRules(table, { serverCharset }),
-  );
+  const schemaFindings = allTables.flatMap((table) => runSchemaRules(table, { serverCharset }));
   finishStep(
     'schema-rules',
     'done',
@@ -421,10 +403,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
     columns: allTables.reduce((sum, table) => sum + table.columns.length, 0),
     indexes: allTables.reduce((sum, table) => sum + table.indexes.length, 0),
     totalRowsEstimate: allTables.reduce((sum, table) => sum + table.rowsEstimate, 0),
-    totalBytes: allTables.reduce(
-      (sum, table) => sum + table.dataBytes + table.indexBytes,
-      0,
-    ),
+    totalBytes: allTables.reduce((sum, table) => sum + table.dataBytes + table.indexBytes, 0),
   };
 
   const environment: AuditEnvironment = {
@@ -471,12 +450,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
         input.ai.onDelta,
         input.ai.signal,
       );
-      ai = aiSummaryReview(
-        input.ai.provider,
-        result.text,
-        result.usage,
-        Date.now() - aiStarted,
-      );
+      ai = aiSummaryReview(input.ai.provider, result.text, result.usage, Date.now() - aiStarted);
       finishStep('ai', 'done', `${result.text.length} characters`, Date.now() - aiStarted);
     } catch (error) {
       finishStep('ai', 'error', (error as Error).message, Date.now() - aiStarted);

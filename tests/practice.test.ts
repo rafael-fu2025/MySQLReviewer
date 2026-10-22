@@ -56,8 +56,14 @@ function result(rows: unknown[][], columnCount = 2, truncated = false): QueryRes
 describe('practice result comparison', () => {
   it('matches unordered rows', () => {
     const comparison = comparePracticeResults(
-      result([[1, 'a'], [2, 'b']]),
-      result([[2, 'b'], [1, 'a']]),
+      result([
+        [1, 'a'],
+        [2, 'b'],
+      ]),
+      result([
+        [2, 'b'],
+        [1, 'a'],
+      ]),
       false,
     );
     expect(comparison.matched).toBe(true);
@@ -66,8 +72,14 @@ describe('practice result comparison', () => {
 
   it('enforces ordering when requested', () => {
     const comparison = comparePracticeResults(
-      result([[1, 'a'], [2, 'b']]),
-      result([[2, 'b'], [1, 'a']]),
+      result([
+        [1, 'a'],
+        [2, 'b'],
+      ]),
+      result([
+        [2, 'b'],
+        [1, 'a'],
+      ]),
       true,
     );
     expect(comparison.matched).toBe(false);
@@ -76,8 +88,15 @@ describe('practice result comparison', () => {
 
   it('reports extra and missing rows', () => {
     const comparison = comparePracticeResults(
-      result([[1, 'a'], [2, 'b'], [3, 'c']]),
-      result([[1, 'a'], [2, 'b']]),
+      result([
+        [1, 'a'],
+        [2, 'b'],
+        [3, 'c'],
+      ]),
+      result([
+        [1, 'a'],
+        [2, 'b'],
+      ]),
       false,
     );
     expect(comparison.matched).toBe(false);
@@ -86,11 +105,7 @@ describe('practice result comparison', () => {
   });
 
   it('detects column-count differences', () => {
-    const comparison = comparePracticeResults(
-      result([[1, 'a']], 2),
-      result([[1]], 1),
-      false,
-    );
+    const comparison = comparePracticeResults(result([[1, 'a']], 2), result([[1]], 1), false);
     expect(comparison.matched).toBe(false);
     expect(comparison.reason).toContain('column');
   });
@@ -115,11 +130,7 @@ describe('practice result comparison', () => {
 
 describe('practice scoring', () => {
   it('gives full credit for a matching result', () => {
-    const comparison = comparePracticeResults(
-      result([[1, 'a']]),
-      result([[1, 'a']]),
-      false,
-    );
+    const comparison = comparePracticeResults(result([[1, 'a']]), result([[1, 'a']]), false);
     const scores = scorePractice({ findings: [], comparison, executed: true });
     expect(scores.correctness).toBe(100);
     expect(scores.performance).toBe(100);
@@ -234,9 +245,7 @@ describe('practice answer leakage', () => {
 
   it('keeps broken input hidden for the other task types', () => {
     for (const type of ['write-query', 'review-query', 'concept'] as const) {
-      const pub = toPublicPracticeQuestion(
-        question({ type, brokenSql: 'SELECT broken' }),
-      );
+      const pub = toPublicPracticeQuestion(question({ type, brokenSql: 'SELECT broken' }));
       expect(pub).not.toHaveProperty('brokenSql');
     }
   });
@@ -438,4 +447,3 @@ describe('duplicate attempt detection', () => {
     ).toBe(false);
   });
 });
-
