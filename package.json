@@ -15,7 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "tsx scripts/smoke.ts",
-    "lint": "eslint .",
+    "rules:snapshot": "tsx scripts/rule-snapshot.ts",
+    "ui:layout": "npm run build && node scripts/ui-layout/measure.mjs",
+    "ui:shots": "node scripts/ui-layout/app-shots.mjs",
+    "ui:diff": "node scripts/ui-layout/pixel-diff.mjs",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

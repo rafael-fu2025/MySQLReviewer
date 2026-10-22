@@ -43,6 +43,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 ## Features
 
 ### Connections
+
 - Multiple connection profiles, optional database, socket path, and TLS.
 - Passwords encrypted at rest with AES-256-GCM, or session-only if you prefer not to save them.
 - Test connection with server version, flavor, latency, uptime, and the database list.
@@ -52,6 +53,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Automatic MySQL/MariaDB version detection and feature gating.
 
 ### SQL workspace
+
 - CodeMirror 6 editor with MySQL syntax highlighting, schema-aware autocomplete, formatter, and live lint.
 - Multiple tabs, query history, and saved snippets.
 - `Ctrl+Enter` run, `Ctrl+Shift+Enter` run selection, `Ctrl+Shift+R` review.
@@ -62,6 +64,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Persisted layout: collapse the sidebar or schema rail, drag the editor/results split, and maximize results (Escape restores).
 
 ### EXPLAIN and Review
+
 - Normalized plan tree with access types, keys, rows, filtered %, cost, and extra flags.
 - Runtime `ANALYZE` on MariaDB (`ANALYZE FORMAT=JSON`) or MySQL (`EXPLAIN ANALYZE`).
 - Plan insights: full scans, filesort, temporary tables, join buffers, missing indexes, bad filter ratios, high costs.
@@ -75,7 +78,31 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Weighted score with per-category caps, A–F grade, severity filters, and line-level navigation.
 - Index advisor that derives composite candidates from equality/range/join/ORDER BY usage and existing index prefixes.
 
+#### Rule engine
+
+Rules are declarative descriptors rather than inline conditionals:
+
+```ts
+defineRule(
+  {
+    id: 'sql.select-star',
+    title: 'SELECT * returns every column',
+    severity: 'low',
+    category: 'performance',
+  },
+  ({ ast, line }) => (isSelectStar(ast) ? { message: '…', recommendation: '…', line } : null),
+);
+```
+
+Every rule declares its id, title, severity, and category in one place, and
+returns the findings it produced (or nothing when it does not apply). The
+engine collects them, applies the rule's defaults, and scores the result.
+`RULE_CATALOG` in `server/review/rules/registry.ts` enumerates every rule with
+its metadata, so the rule set can be documented, listed, or filtered without
+touching the rule implementations.
+
 ### Database explorer
+
 - Databases, base tables, views, routines, triggers, and events.
 - **Create database** with a validated name, charset, and collation. This is DDL: it requires an unlocked connection and runs one statement that cannot be rolled back.
 - Table overview: estimated rows, data/index size, fragmentation, engine, collation, checks, partitions.
@@ -85,6 +112,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Definition viewer for views, routines, triggers, and events.
 
 ### SQL Lab
+
 - Choose a database, tables, topics (select, joins, aggregation, subqueries, CTEs, window functions, set operations, DML, DDL, indexes, transactions, schema design, security), difficulty, and challenge count.
 - AI generates reviewer-style prompts grounded only in the selected schema: write-a-query, fix-a-query, review-a-query, and concept/design tasks.
 - Executable reference SQL is validated as a single read-only, non-locking statement before a challenge is accepted.
@@ -95,6 +123,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Progress panel tracks per-topic attempts, average, best score, and recommends the weakest or least-practiced topic.
 
 ### Performance
+
 - Live snapshot every 5 seconds: QPS, threads, connections, buffer-pool hit ratio, slow queries, full joins, temp-table spills, aborted connects, uptime.
 - Sparklines from recent samples.
 - Process list with optional kill (requires unlock + confirmation).
@@ -102,6 +131,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Largest tables, replication status, and a searchable variables explorer.
 
 ### Security
+
 - Account inventory with host patterns, auth plugins, and password-set status.
 - Privilege flags and effective grants (never password hashes).
 - Findings for anonymous users, empty passwords, remote root, wildcard hosts, excessive privileges, weak plugins, and invalid definers.
@@ -109,6 +139,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Coverage reporting for denied or unsupported checks.
 
 ### Full audit
+
 - Select one or many databases and run schema, security, config, and performance checks.
 - Live progress over SSE, coverage transparency, grouped findings, score, environment snapshot, and audit steps.
 - Optional AI executive summary.
@@ -120,6 +151,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 Configure providers in **Settings → AI providers**.
 
 Built-in presets:
+
 - OpenAI
 - OpenRouter
 - DeepSeek
@@ -131,6 +163,7 @@ Built-in presets:
 - Any custom OpenAI-compatible endpoint (base URL, chat path, models path, auth header/prefix, custom headers, extra body)
 
 The AI review receives only what you choose:
+
 - the SQL
 - referenced table/column/index/FK context
 - deterministic findings
@@ -141,6 +174,14 @@ It returns a structured verdict, score, findings, and an optional rewrite. Respo
 SQL Lab uses the selected provider in two places: generating challenges from the chosen schema, and optionally explaining an answer after deterministic grading. Sample rows are off by default; when enabled they are capped, masked, and separated from instructions.
 
 **Privacy:** no telemetry, no hidden calls. Cloud providers are contacted only when you click **Deep review**, **Run audit with AI**, generate SQL Lab challenges, request AI feedback, or use AI chat. Local providers such as Ollama/LM Studio keep data on the machine.
+
+## Interface
+
+- **Responsive from 360px up.** The shell keeps its icon rail on narrow screens; the topbar wraps the database picker onto its own row so the page title and every control stay reachable, and the database explorer stacks its object tree above the table detail.
+- **Contrast.** Every color token passes WCAG AA against every surface in both the dark and the light theme.
+- **Keyboard and screen readers.** Dialogs trap focus, close on Escape, restore focus on exit, and cap their height so the body scrolls. The editor/results splitter is a `separator` with pointer, arrow-key, Home/End, and PageUp/PageDown support.
+- **Motion.** Animations are suppressed when the OS requests reduced motion; the spinner and progress indicator keep running because they report live state.
+- **Type.** No text renders below 10px; secondary metadata sits at 10–11px against a 14px base.
 
 ## Safety model
 
@@ -180,8 +221,10 @@ src/
                      Audit, Reports, Settings
   lib/               API client, SSE parser, formatting, events, statement client
   store/             Zustand app/workspace/UI-layout state
-tests/               Vitest unit tests (72 tests)
+tests/               Vitest unit tests (115 tests)
 scripts/smoke.ts     Read-only live verification against local MySQL/MariaDB
+scripts/rule-snapshot.ts  Rule-engine characterization snapshot (see Verification)
+scripts/ui-layout/   Headless-Chrome layout check across viewport widths
 ```
 
 ## API overview
@@ -227,13 +270,46 @@ Environment overrides:
 ## Verification
 
 ```bash
-npm test          # 72 unit tests
+npm test          # 115 unit tests
 npm run typecheck
+npm run lint      # eslint --max-warnings 0
+npm run format:check
 npm run build
 npm run smoke     # read-only live check against local MySQL/MariaDB
 ```
 
 The live smoke test defaults to `root@127.0.0.1:3306` with no password. Override with `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`.
+
+### Rule engine snapshot
+
+`npm run rules:snapshot` runs every rule module over a fixed corpus of SQL,
+schemas, accounts, and server settings, and prints a normalized JSON snapshot
+of the findings. Use it to prove that a change to the rule engine did not
+alter what the rules report:
+
+```bash
+npm run rules:snapshot > before.json
+# … change the rules …
+npm run rules:snapshot > after.json
+diff before.json after.json
+```
+
+The corpus exercises all 111 rules, so an empty diff means the rule set, the
+messages, and the severities are unchanged.
+
+### Layout check
+
+`npm run ui:layout` renders the app shell in headless Chrome at seven viewport widths (360 → 1440) and reports whether any control is clipped, crushed, or overflowing its container. It needs a Chrome/Edge install; set `CHROME_PATH` if it is not in the default location.
+
+`npm run ui:shots <label>` screenshots the running app (`npm start`) at desktop and phone widths, with the clock frozen and animations disabled so two captures of the same build are byte-identical. `npm run ui:diff <a.png> <b.png>` then reports how many pixels differ and where. Use the pair to prove a UI change is visually neutral:
+
+```bash
+npm run ui:shots before   # before the change
+# … change the UI …
+npm run build && npm start
+npm run ui:shots after
+npm run ui:diff .snapshot/before-desktop.png .snapshot/after-desktop.png
+```
 
 ### Mock AI provider (optional)
 
@@ -261,6 +337,7 @@ On a default XAMPP server you should expect the audit to flag:
 Those are real findings. The audit score for a development server can therefore be low; that is intentional, and the findings explain what to change. The security page includes a local-development advisory.
 
 MariaDB-specific handling:
+
 - `ANALYZE FORMAT=JSON` instead of MySQL's `EXPLAIN ANALYZE`
 - `max_statement_time` session guard
 - no reliance on the `sys` schema

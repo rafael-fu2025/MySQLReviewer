@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="app.css" />
+    <title>topbar overflow harness</title>
+  </head>
+  <body>
+    <!-- OLD topbar: fixed 230px combobox, text always visible -->
+    <div class="app-shell" id="old">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div class="brand-copy">
+            <div class="brand-title">MyLens</div>
+            <div class="brand-sub">MySQL Review Studio</div>
+          </div>
+        </div>
+        <div class="connection-card">
+          <div class="connection-name">
+            <span class="connection-glyph">D</span
+            ><span class="connection-copy truncate">shop_local</span>
+          </div>
+          <div class="connection-meta">8.0.36 · all databases</div>
+        </div>
+        <nav class="nav">
+          <div class="nav-label">Explore</div>
+          <a class="nav-item active"><span>W</span><span>Workspace</span></a>
+          <a class="nav-item"><span>D</span><span>Database</span></a>
+          <a class="nav-item"><span>L</span><span>SQL Lab</span></a>
+          <a class="nav-item"><span>P</span><span>Performance</span></a>
+          <a class="nav-item"><span>S</span><span>Security</span></a>
+          <a class="nav-item"><span>A</span><span>Audit</span></a>
+          <a class="nav-item"><span>R</span><span>Reports</span></a>
+          <a class="nav-item"><span>S</span><span>Settings</span></a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="text-[10px] text-muted hide-collapse">v1.1.0 · local</span>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="min-w-0 flex-1">
+            <div class="topbar-title">Workspace</div>
+            <div class="topbar-sub truncate">
+              Write, run, explain, and review SQL with server-side safety guards.
+            </div>
+          </div>
+          <div class="relative" style="width: 230px; flex-shrink: 1">
+            <button class="combo-button py-1.5 text-[11.5px]">shop_local</button>
+          </div>
+          <button class="badge cursor-pointer text-muted">Read-only</button>
+          <button class="icon-btn">R</button>
+          <button class="btn btn-secondary btn-sm">
+            <span>C</span><span>Commands</span><span class="kbd">Ctrl K</span>
+          </button>
+        </header>
+        <div class="content">
+          <div class="page"><div class="card">content</div></div>
+        </div>
+      </main>
+    </div>
+
+    <hr style="margin: 20px 0; border-color: #333" />
+
+    <!-- NEW topbar: combobox wraps to its own row below sm -->
+    <div class="app-shell" id="new">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div class="brand-copy">
+            <div class="brand-title">MyLens</div>
+            <div class="brand-sub">MySQL Review Studio</div>
+          </div>
+        </div>
+        <div class="connection-card">
+          <div class="connection-name">
+            <span class="connection-glyph">D</span
+            ><span class="connection-copy truncate">shop_local</span>
+          </div>
+          <div class="connection-meta">8.0.36 · all databases</div>
+        </div>
+        <nav class="nav">
+          <div class="nav-label">Explore</div>
+          <a class="nav-item active"><span>W</span><span>Workspace</span></a>
+          <a class="nav-item"><span>D</span><span>Database</span></a>
+          <a class="nav-item"><span>L</span><span>SQL Lab</span></a>
+          <a class="nav-item"><span>P</span><span>Performance</span></a>
+          <a class="nav-item"><span>S</span><span>Security</span></a>
+          <a class="nav-item"><span>A</span><span>Audit</span></a>
+          <a class="nav-item"><span>R</span><span>Reports</span></a>
+          <a class="nav-item"><span>S</span><span>Settings</span></a>
+        </nav>
+        <div class="sidebar-footer">
+          <span class="text-[10px] text-muted hide-collapse">v1.1.0 · local</span>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="min-w-0 flex-1">
+            <div class="topbar-title">Workspace</div>
+            <div class="topbar-sub truncate">
+              Write, run, explain, and review SQL with server-side safety guards.
+            </div>
+          </div>
+          <div
+            class="relative order-last w-full basis-full md:order-none md:w-[190px] md:basis-auto xl:w-[230px]"
+          >
+            <button class="combo-button py-1.5 text-[11.5px]">shop_local</button>
+          </div>
+          <button class="badge cursor-pointer text-muted">
+            <span class="hidden md:inline">Read-only</span>
+          </button>
+          <button class="icon-btn">R</button>
+          <button class="btn btn-secondary btn-sm">
+            <span>C</span><span class="hidden md:inline">Commands</span
+            ><span class="hidden md:inline-flex"><span class="kbd">Ctrl K</span></span>
+          </button>
+        </header>
+        <div class="content">
+          <div class="page"><div class="card">content</div></div>
+        </div>
+      </main>
+    </div>
+
+    <hr style="margin: 20px 0; border-color: #333" />
+
+    <!-- DatabasePage object tree: OLD fixed aside vs NEW stacked -->
+    <div id="db">
+      <div class="content">
+        <div class="page">
+          <div
+            class="flex min-h-[640px] flex-col gap-0 overflow-hidden rounded-2xl border border-line bg-panel/40 md:flex-row"
+          >
+            <aside
+              class="w-full shrink-0 border-b border-line-soft bg-panel/40 md:w-[270px] md:border-b-0 md:border-r"
+            >
+              <div class="border-b border-line-soft p-3">object tree</div>
+              <div class="h-[260px] overflow-auto p-2 md:h-[560px]">tables…</div>
+            </aside>
+            <div class="detail min-w-0 flex-1 p-4">
+              <div class="card">table detail columns indexes foreign keys</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <hr style="margin: 20px 0; border-color: #333" />
+
+    <!-- OLD DatabasePage: fixed 270px shrink-0 aside in a row -->
+    <div id="db-old">
+      <div class="content">
+        <div class="page">
+          <div
+            class="flex min-h-[640px] gap-0 overflow-hidden rounded-2xl border border-line bg-panel/40"
+          >
+            <aside class="shrink-0 border-r border-line-soft bg-panel/40" style="width: 270px">
+              <div class="border-b border-line-soft p-3">object tree</div>
+              <div class="h-[560px] overflow-auto p-2">tables…</div>
+            </aside>
+            <div class="detail min-w-0 flex-1 p-4">
+              <div class="card">table detail columns indexes foreign keys</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      /*
+       * The baseline (#old) must not pick up the new small-screen rules, so
+       * the original desktop values are restored for that shell only.
+       */
+      @media (max-width: 640px) {
+        #old .sidebar {
+          width: 76px;
+          flex-basis: 76px;
+          padding: 18px 14px;
+        }
+        #old .brand-mark {
+          width: 38px;
+          height: 38px;
+          border-radius: 12px;
+        }
+        #old .topbar {
+          height: 58px;
+          flex: 0 0 58px;
+          flex-wrap: nowrap;
+          gap: 14px;
+          padding: 0 20px;
+        }
+        #old .content {
+          padding: 22px 24px 40px;
+        }
+        #old .icon-btn {
+          width: 32px;
+          height: 32px;
+        }
+      }
+      body[data-variant='old'] #new,
+      body[data-variant='old'] #db,
+      body[data-variant='old'] #db-old,
+      body[data-variant='new'] #old,
+      body[data-variant='new'] #db,
+      body[data-variant='new'] #db-old {
+        display: none;
+      }
+    </style>
+
+    <pre
+      id="report"
+      style="padding: 12px; font: 12px monospace; color: #e8eef8; background: #0d1118"
+    ></pre>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const variant = params.get('variant');
+      if (variant) document.body.dataset.variant = variant;
+      const theme = params.get('theme');
+      if (theme) document.documentElement.dataset.theme = theme;
+      function crush(el) {
+        // A child is "crushed" when its content is wider than the box it got.
+        return el.scrollWidth - el.clientWidth;
+      }
+      function measure(id) {
+        const shell = document.getElementById(id);
+        const topbar = shell.querySelector('.topbar');
+        const main = shell.querySelector('.main');
+        const kids = Array.from(topbar.children);
+        const tbBox = topbar.getBoundingClientRect();
+        let clipped = 0;
+        let rightMost = 0;
+        const clippedNames = [];
+        for (const kid of kids) {
+          const r = kid.getBoundingClientRect();
+          rightMost = Math.max(rightMost, r.right);
+          if (r.right > tbBox.right + 0.5) {
+            clipped += 1;
+            clippedNames.push(
+              (kid.textContent || '').trim().slice(0, 22) ||
+                kid.tagName + '.' + (kid.className || '').toString().split(' ')[0],
+            );
+          }
+        }
+        const title = topbar.querySelector('.min-w-0.flex-1');
+        return {
+          shell: id,
+          viewport: window.innerWidth + 'x' + window.innerHeight,
+          mainWidth: Math.round(main.getBoundingClientRect().width),
+          topbarClientWidth: Math.round(topbar.clientWidth),
+          topbarScrollWidth: Math.round(topbar.scrollWidth),
+          childrenNeeded: Math.round(
+            kids.reduce((sum, k) => sum + k.getBoundingClientRect().width, 0),
+          ),
+          clippedChildren: clipped,
+          clippedNames: clippedNames,
+          overflowPx: Math.round(rightMost - tbBox.right),
+          titleWidth: title ? Math.round(title.getBoundingClientRect().width) : null,
+          titleCrush: title ? crush(title) : null,
+          children: kids.map((k) => ({
+            tag: k.tagName + '.' + (k.className || '').toString().split(' ')[0],
+            w: Math.round(k.getBoundingClientRect().width),
+            crush: crush(k),
+          })),
+        };
+      }
+      function measureDb() {
+        // DatabasePage: fixed-width aside next to a flex-1 detail pane.
+        const out = [];
+        for (const id of ['db', 'db-old']) {
+          const shell = document.getElementById(id);
+          const aside = shell.querySelector('aside');
+          const detail = shell.querySelector('.detail');
+          out.push({
+            shell: id,
+            viewport: window.innerWidth + 'x' + window.innerHeight,
+            asideWidth: Math.round(aside.getBoundingClientRect().width),
+            detailWidth: Math.round(detail.getBoundingClientRect().width),
+            detailCrush: crush(detail),
+          });
+        }
+        return out;
+      }
+      const results = [measure('old'), measure('new'), measureDb()];
+      document.getElementById('report').textContent = JSON.stringify(results, null, 2);
+      document.title = 'REPORT:' + JSON.stringify(results);
+    </script>
+  </body>
+</html>

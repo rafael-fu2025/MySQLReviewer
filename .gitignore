@@ -2,6 +2,9 @@ node_modules/
 dist/
 data/
 coverage/
+.snapshot/
+scripts/ui-layout/app.css
+scripts/ui-layout/*.png
 .env
 .env.*
 *.log
