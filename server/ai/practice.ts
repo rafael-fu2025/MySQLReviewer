@@ -141,9 +141,10 @@ function normalizeDifficulty(
   return value ?? fallback;
 }
 
-function questionKind(
-  type: PracticeQuestion['type'],
-): { executableCandidate: boolean; needsBrokenSql: boolean } {
+function questionKind(type: PracticeQuestion['type']): {
+  executableCandidate: boolean;
+  needsBrokenSql: boolean;
+} {
   return {
     executableCandidate: type === 'write-query' || type === 'fix-query',
     needsBrokenSql: type === 'fix-query' || type === 'review-query',
@@ -157,12 +158,13 @@ async function schemaTextForTables(
   maxChars: number,
 ): Promise<{ text: string; includedTables: string[] }> {
   const snapshot = await getSchemaSnapshot(profileId, database);
-  const selected = tables.length > 0
-    ? snapshot.tables.filter((table) => tables.includes(table.name))
-    : snapshot.tables
-        .slice()
-        .sort((a, b) => b.rowsEstimate - a.rowsEstimate)
-        .slice(0, 20);
+  const selected =
+    tables.length > 0
+      ? snapshot.tables.filter((table) => tables.includes(table.name))
+      : snapshot.tables
+          .slice()
+          .sort((a, b) => b.rowsEstimate - a.rowsEstimate)
+          .slice(0, 20);
   return {
     text: schemaToText(selected, maxChars),
     includedTables: selected.map((table) => table.name),
@@ -224,7 +226,7 @@ export async function generatePracticeSet(
     sampleDataText: sample,
   });
 
-  let raw = '';
+  let raw: string;
   let sawDelta = false;
   const handleDelta = (text: string): void => {
     sawDelta = true;
@@ -294,10 +296,8 @@ export async function generatePracticeSet(
     );
   }
 
-  const fallbackTopics: PracticeTopic[] =
-    request.topics.length > 0 ? request.topics : ['select'];
-  const fallbackDifficulty =
-    request.difficulty === 'mixed' ? 'medium' : request.difficulty;
+  const fallbackTopics: PracticeTopic[] = request.topics.length > 0 ? request.topics : ['select'];
+  const fallbackDifficulty = request.difficulty === 'mixed' ? 'medium' : request.difficulty;
   const tableSet = new Set(tableNames);
   const questions: PracticeQuestion[] = [];
   const dropped: string[] = [];
@@ -306,14 +306,14 @@ export async function generatePracticeSet(
     if (questions.length >= request.count) break;
     const kind = questionKind(rawQuestion.type);
     const referenceSql = rawQuestion.referenceSql?.trim() || null;
-    let execute = Boolean(kind.executableCandidate && rawQuestion.execute !== false && referenceSql);
+    let execute = Boolean(
+      kind.executableCandidate && rawQuestion.execute !== false && referenceSql,
+    );
     if (execute && referenceSql) {
       try {
         await validateReferenceSql(request.profileId, request.database, referenceSql);
       } catch (error) {
-        dropped.push(
-          `${rawQuestion.title}: ${(error as Error).message}`,
-        );
+        dropped.push(`${rawQuestion.title}: ${(error as Error).message}`);
         execute = false;
         if (kind.executableCandidate) continue;
       }
@@ -343,11 +343,11 @@ export async function generatePracticeSet(
       referenceSql,
       expectedResult: rawQuestion.expectedResult?.trim() || null,
       orderMatters: rawQuestion.orderMatters === true,
-      hints: (rawQuestion.hints ?? []).map((hint) => hint.trim()).filter(Boolean).slice(0, 5),
-      estimatedMinutes: Math.max(
-        1,
-        Math.min(120, Math.round(rawQuestion.estimatedMinutes ?? 10)),
-      ),
+      hints: (rawQuestion.hints ?? [])
+        .map((hint) => hint.trim())
+        .filter(Boolean)
+        .slice(0, 5),
+      estimatedMinutes: Math.max(1, Math.min(120, Math.round(rawQuestion.estimatedMinutes ?? 10))),
       execute: Boolean(execute && referenceSql),
     });
   }
@@ -388,7 +388,11 @@ export async function evaluatePractice(input: {
 }): Promise<PracticeEvaluation> {
   const set = await getPracticeSet(input.setId);
   if (set.profileId !== input.profileId) {
-    throw new AppError('PRACTICE_SET_FORBIDDEN', 'This practice set belongs to another connection.', 403);
+    throw new AppError(
+      'PRACTICE_SET_FORBIDDEN',
+      'This practice set belongs to another connection.',
+      403,
+    );
   }
   const question = set.questions.find((item) => item.id === input.questionId);
   if (!question) {
@@ -454,11 +458,7 @@ export async function evaluatePractice(input: {
         }
       }
       if (userResult && referenceResult) {
-        comparison = comparePracticeResults(
-          userResult,
-          referenceResult,
-          question.orderMatters,
-        );
+        comparison = comparePracticeResults(userResult, referenceResult, question.orderMatters);
         executed = true;
       }
     } else {
@@ -467,9 +467,7 @@ export async function evaluatePractice(input: {
       );
     }
   } else if (!question.execute && userSql) {
-    issues.push(
-      'This is a review/concept challenge, so your SQL was evaluated without execution.',
-    );
+    issues.push('This is a review/concept challenge, so your SQL was evaluated without execution.');
   }
 
   if (userSql) {
@@ -571,12 +569,11 @@ export async function evaluatePractice(input: {
         ? `${comparison.matchedRows} row(s) matched; ${comparison.unmatchedRows} differ.`
         : 'The answer was not executed.';
   const summary = ai?.summary || deterministicSummary;
-  const strengths =
-    ai?.strengths.length
-      ? ai.strengths
-      : comparison?.matched
-        ? ['The result matches the reference.']
-        : [];
+  const strengths = ai?.strengths.length
+    ? ai.strengths
+    : comparison?.matched
+      ? ['The result matches the reference.']
+      : [];
   const combinedIssues = [
     ...issues,
     ...(ai?.issues ?? []),

@@ -44,11 +44,9 @@ export async function getServerInfo(conn: Queryable): Promise<ServerInfo> {
   const row = rows[0] ?? {};
   const version = String(row.version ?? 'unknown');
   const comment = String(row.version_comment ?? '');
-  let uptime = 0;
+  let uptime: number;
   try {
-    const [uptimeRows] = await conn.query<Row[]>(
-      "SHOW GLOBAL STATUS LIKE 'Uptime'",
-    );
+    const [uptimeRows] = await conn.query<Row[]>("SHOW GLOBAL STATUS LIKE 'Uptime'");
     uptime = Number(uptimeRows[0]?.Value ?? 0);
   } catch {
     uptime = 0;
@@ -58,17 +56,15 @@ export async function getServerInfo(conn: Queryable): Promise<ServerInfo> {
   const flavor = detectFlavor(version, comment);
   const parts = parseVersion(version);
 
-  let performanceSchema = false;
+  let performanceSchema: boolean;
   try {
-    const [psRows] = await conn.query<Row[]>(
-      "SHOW VARIABLES LIKE 'performance_schema'",
-    );
+    const [psRows] = await conn.query<Row[]>("SHOW VARIABLES LIKE 'performance_schema'");
     performanceSchema = String(psRows[0]?.Value ?? '').toUpperCase() === 'ON';
   } catch {
     performanceSchema = false;
   }
 
-  let sysSchema = false;
+  let sysSchema: boolean;
   try {
     const [sysRows] = await conn.query<Row[]>(
       "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'sys' LIMIT 1",
@@ -136,9 +132,7 @@ export async function applyQueryGuards(
     }
   } else {
     try {
-      await conn.query('SET SESSION max_execution_time = ?', [
-        Math.trunc(settings.queryTimeoutMs),
-      ]);
+      await conn.query('SET SESSION max_execution_time = ?', [Math.trunc(settings.queryTimeoutMs)]);
       cleanupParts.push('SET SESSION max_execution_time = 0');
     } catch {
       // Variable unavailable on older MySQL versions.

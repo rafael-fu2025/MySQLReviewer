@@ -83,7 +83,7 @@ export async function deleteReport(id: string): Promise<void> {
 
 export async function listReports(): Promise<ReportSummary[]> {
   ensureDataDirs();
-  let files: string[] = [];
+  let files: string[];
   try {
     files = await fs.readdir(REPORTS_DIR);
   } catch {

@@ -108,8 +108,7 @@ function mapTableSummary(row: Row): TableSummary {
   return {
     database: str(row.TABLE_SCHEMA),
     name: str(row.TABLE_NAME),
-    type:
-      type === 'VIEW' ? 'VIEW' : type === 'SYSTEM VIEW' ? 'SYSTEM VIEW' : 'BASE TABLE',
+    type: type === 'VIEW' ? 'VIEW' : type === 'SYSTEM VIEW' ? 'SYSTEM VIEW' : 'BASE TABLE',
     engine: nullableStr(row.ENGINE),
     rowsEstimate: num(row.TABLE_ROWS),
     dataBytes: num(row.DATA_LENGTH),
@@ -247,24 +246,16 @@ function mapForeignKeys(rows: Row[], referencedBy = false): ForeignKeyInfo[] {
       fk = {
         name,
         columns: [],
-        referencedDatabase: str(
-          referencedBy ? row.TABLE_SCHEMA : row.REFERENCED_TABLE_SCHEMA,
-        ),
-        referencedTable: str(
-          referencedBy ? row.TABLE_NAME : row.REFERENCED_TABLE_NAME,
-        ),
+        referencedDatabase: str(referencedBy ? row.TABLE_SCHEMA : row.REFERENCED_TABLE_SCHEMA),
+        referencedTable: str(referencedBy ? row.TABLE_NAME : row.REFERENCED_TABLE_NAME),
         referencedColumns: [],
         onUpdate: str(row.UPDATE_RULE) || 'RESTRICT',
         onDelete: str(row.DELETE_RULE) || 'RESTRICT',
       };
       byName.set(name, fk);
     }
-    fk.columns.push(
-      str(referencedBy ? row.REFERENCED_COLUMN_NAME : row.COLUMN_NAME),
-    );
-    fk.referencedColumns.push(
-      str(referencedBy ? row.COLUMN_NAME : row.REFERENCED_COLUMN_NAME),
-    );
+    fk.columns.push(str(referencedBy ? row.REFERENCED_COLUMN_NAME : row.COLUMN_NAME));
+    fk.referencedColumns.push(str(referencedBy ? row.COLUMN_NAME : row.REFERENCED_COLUMN_NAME));
   }
   return Array.from(byName.values());
 }
@@ -380,7 +371,7 @@ export async function getTableDetail(
       [database, table],
     );
 
-    let checks: TableDetail['checks'] = [];
+    let checks: TableDetail['checks'];
     try {
       const [checkRows] = await conn.query<Row[]>(
         `SELECT tc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
@@ -400,7 +391,7 @@ export async function getTableDetail(
       checks = [];
     }
 
-    let partitions: PartitionInfo[] = [];
+    let partitions: PartitionInfo[];
     try {
       const [partitionRows] = await conn.query<Row[]>(
         `SELECT PARTITION_NAME, PARTITION_METHOD, PARTITION_EXPRESSION,
@@ -433,9 +424,7 @@ export async function getTableDetail(
       if (ddlRows.length > 0) {
         const values = Object.values(ddlRows[0]);
         const candidate = values.find(
-          (value) =>
-            typeof value === 'string' &&
-            /^(CREATE|--|ALTER)/i.test(value.trim()),
+          (value) => typeof value === 'string' && /^(CREATE|--|ALTER)/i.test(value.trim()),
         );
         createSql = candidate ? String(candidate) : null;
       }
@@ -560,7 +549,7 @@ export async function getRoutineDefinition(
       [database, name, type],
     );
     if (rows.length === 0) throw new AppError('ROUTINE_NOT_FOUND', 'Routine not found.', 404);
-    let parameters = '';
+    let parameters: string;
     try {
       const [paramRows] = await conn.query<Row[]>(
         `SELECT PARAMETER_NAME, PARAMETER_MODE, DTD_IDENTIFIER, ORDINAL_POSITION
@@ -903,7 +892,5 @@ export async function getTopTables(
       rowsEstimate: num(row.TABLE_ROWS),
       totalBytes: num(row.DATA_LENGTH) + num(row.INDEX_LENGTH),
     }))
-    .filter(
-      (table) => scope.mode === 'all' || scope.allowed.has(table.database),
-    );
+    .filter((table) => scope.mode === 'all' || scope.allowed.has(table.database));
 }
