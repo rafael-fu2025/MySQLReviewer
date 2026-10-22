@@ -1,0 +1,9 @@
+# Normalise line endings in the repository.
+#
+# Without this, a Windows checkout with the default `core.autocrlf=true`
+# rewrites every text file to CRLF, and the Prettier check (which expects
+# LF) then fails on the whole tree locally while passing on CI.
+* text=auto eol=lf
+
+# Windows scripts must stay CRLF to run correctly.
+*.bat text eol=crlf
