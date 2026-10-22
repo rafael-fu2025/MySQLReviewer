@@ -1,6 +1,6 @@
-import type { Finding } from '../../../shared/types';
+import type { DbUser, Finding } from '../../../shared/types';
 import type { SecurityData, UserPrivilegeSummary } from '../../db/security-audit';
-import { createFinding } from '../findings';
+import { defineRule, runRules, type Rule } from './descriptor';
 
 const SOCKET_PLUGINS = new Set(['unix_socket', 'auth_socket', 'socket', 'nologin']);
 const NATIVE_PLUGINS = new Set(['mysql_native_password']);
@@ -18,233 +18,296 @@ function summarizePrivileges(data: SecurityData): Map<string, UserPrivilegeSumma
   return map;
 }
 
-export function runSecurityRules(data: SecurityData): Finding[] {
-  const findings: Finding[] = [];
-  const privileges = summarizePrivileges(data);
-  const knownUsers = new Set<string>();
+export interface SecurityUserRuleInput {
+  user: DbUser;
+  summary: UserPrivilegeSummary | undefined;
+  label: string;
+}
 
-  const add = (
-    ruleId: string,
-    title: string,
-    severity: Finding['severity'],
-    message: string,
-    recommendation: string,
-    user: string,
-    host: string,
-    evidence?: string,
-  ): void => {
-    findings.push(
-      createFinding({
-        ruleId,
-        title,
-        severity,
-        category: 'security',
-        message,
-        recommendation,
-        evidence,
-        line: null,
-        object: { user, host },
-        source: 'rule',
-        confidence: 'high',
-      }),
-    );
-  };
+export const SECURITY_USER_RULES: Rule<SecurityUserRuleInput>[] = [
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.anonymous-user',
+      title: 'Anonymous MySQL account',
+      severity: 'critical',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.user === ''
+        ? {
+            message: 'An anonymous account can connect without a meaningful username.',
+            recommendation: `Drop it: DROP USER ''@'${user.host}';`,
+            evidence: label,
+          }
+        : null,
+  ),
 
-  for (const user of data.users) {
-    knownUsers.add(userKey(user.user, user.host));
-    const label = `'${user.user}'@'${user.host}'`;
-    const summary = privileges.get(userKey(user.user, user.host));
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.empty-password',
+      title: 'Account has an empty password',
+      severity: 'critical',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.user !== '' && !user.passwordSet && !SOCKET_PLUGINS.has(user.plugin.toLowerCase())
+        ? {
+            message: `${label} can authenticate without a password.`,
+            recommendation:
+              'Set a strong password immediately, or switch to a local socket plugin where appropriate.',
+            evidence: `plugin=${user.plugin || 'unknown'}`,
+          }
+        : null,
+  ),
 
-    if (user.user === '') {
-      add(
-        'security.anonymous-user',
-        'Anonymous MySQL account',
-        'critical',
-        'An anonymous account can connect without a meaningful username.',
-        `Drop it: DROP USER ''@'${user.host}';`,
-        user.user,
-        user.host,
-        label,
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.root-remote',
+      title: 'Root account can connect remotely',
+      severity: 'critical',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.user.toLowerCase() === 'root' && !LOCAL_HOSTS.has(user.host.toLowerCase())
+        ? {
+            message: `Root is allowed from host '${user.host}', which exposes the highest-privilege account to the network.`,
+            recommendation:
+              'Restrict root to localhost and create a separate least-privilege account for remote access.',
+            evidence: label,
+          }
+        : null,
+  ),
 
-    if (
-      user.user !== '' &&
-      !user.passwordSet &&
-      !SOCKET_PLUGINS.has(user.plugin.toLowerCase())
-    ) {
-      add(
-        'security.empty-password',
-        'Account has an empty password',
-        'critical',
-        `${label} can authenticate without a password.`,
-        'Set a strong password immediately, or switch to a local socket plugin where appropriate.',
-        user.user,
-        user.host,
-        `plugin=${user.plugin || 'unknown'}`,
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.wildcard-host',
+      title: 'Account uses a wildcard host',
+      severity: 'high',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.host.includes('%') || user.host === '*'
+        ? {
+            message: `${label} matches connections from any host.`,
+            recommendation:
+              'Replace the wildcard with the specific hosts or subnets that need access.',
+            evidence: label,
+            severity:
+              user.user.toLowerCase() === 'root' ? ('critical' as const) : ('high' as const),
+          }
+        : null,
+  ),
 
-    if (user.user.toLowerCase() === 'root' && !LOCAL_HOSTS.has(user.host.toLowerCase())) {
-      add(
-        'security.root-remote',
-        'Root account can connect remotely',
-        'critical',
-        `Root is allowed from host '${user.host}', which exposes the highest-privilege account to the network.`,
-        "Restrict root to localhost and create a separate least-privilege account for remote access.",
-        user.user,
-        user.host,
-        label,
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.grant-option',
+      title: 'Account can grant privileges to others',
+      severity: 'high',
+      category: 'security',
+    },
+    ({ user, summary, label }) =>
+      user.grantPriv || summary?.grantOption
+        ? {
+            message: `${label} has GRANT OPTION and can delegate privileges.`,
+            recommendation:
+              'Remove GRANT OPTION unless this is a dedicated administrative account.',
+            evidence: 'GRANT OPTION',
+          }
+        : null,
+  ),
 
-    if (user.host.includes('%') || user.host === '*') {
-      add(
-        'security.wildcard-host',
-        'Account uses a wildcard host',
-        user.user.toLowerCase() === 'root' ? 'critical' : 'high',
-        `${label} matches connections from any host.`,
-        'Replace the wildcard with the specific hosts or subnets that need access.',
-        user.user,
-        user.host,
-        label,
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.super-privilege',
+      title: 'Account has SUPER privilege',
+      severity: 'high',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.superPriv
+        ? {
+            message: `${label} has SUPER, which bypasses many server safeguards.`,
+            recommendation: 'Remove SUPER and grant only the specific privileges required.',
+            evidence: 'SUPER',
+          }
+        : null,
+  ),
 
-    if (user.grantPriv || summary?.grantOption) {
-      add(
-        'security.grant-option',
-        'Account can grant privileges to others',
-        'high',
-        `${label} has GRANT OPTION and can delegate privileges.`,
-        'Remove GRANT OPTION unless this is a dedicated administrative account.',
-        user.user,
-        user.host,
-        'GRANT OPTION',
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.file-privilege',
+      title: 'Account has FILE privilege',
+      severity: 'high',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.filePriv
+        ? {
+            message: `${label} can read or write files on the MySQL server.`,
+            recommendation:
+              'Remove FILE unless the account genuinely needs server-side file import/export.',
+            evidence: 'FILE',
+          }
+        : null,
+  ),
 
-    if (user.superPriv) {
-      add(
-        'security.super-privilege',
-        'Account has SUPER privilege',
-        'high',
-        `${label} has SUPER, which bypasses many server safeguards.`,
-        'Remove SUPER and grant only the specific privileges required.',
-        user.user,
-        user.host,
-        'SUPER',
-      );
-    }
-    if (user.filePriv) {
-      add(
-        'security.file-privilege',
-        'Account has FILE privilege',
-        'high',
-        `${label} can read or write files on the MySQL server.`,
-        'Remove FILE unless the account genuinely needs server-side file import/export.',
-        user.user,
-        user.host,
-        'FILE',
-      );
-    }
-    if (user.processPriv) {
-      add(
-        'security.process-privilege',
-        'Account can inspect all sessions',
-        'medium',
-        `${label} has PROCESS and can read other sessions' queries.`,
-        'Restrict PROCESS to monitoring accounts.',
-        user.user,
-        user.host,
-        'PROCESS',
-      );
-    }
-    if (user.shutdownPriv) {
-      add(
-        'security.shutdown-privilege',
-        'Account can shut down the server',
-        'medium',
-        `${label} has SHUTDOWN privilege.`,
-        'Remove SHUTDOWN from application accounts.',
-        user.user,
-        user.host,
-        'SHUTDOWN',
-      );
-    }
-    if (user.createUserPriv) {
-      add(
-        'security.create-user-privilege',
-        'Account can create users',
-        'medium',
-        `${label} can create or alter MySQL accounts.`,
-        'Restrict account management to dedicated administrative users.',
-        user.user,
-        user.host,
-        'CREATE USER',
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.process-privilege',
+      title: 'Account can inspect all sessions',
+      severity: 'medium',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.processPriv
+        ? {
+            message: `${label} has PROCESS and can read other sessions' queries.`,
+            recommendation: 'Restrict PROCESS to monitoring accounts.',
+            evidence: 'PROCESS',
+          }
+        : null,
+  ),
 
-    if (summary && summary.privileges.length >= 20) {
-      add(
-        'security.broad-global-privileges',
-        'Account has broad global privileges',
-        'high',
-        `${label} holds ${summary.privileges.length} global privileges.`,
-        'Review the account and reduce it to the minimum required set.',
-        user.user,
-        user.host,
-        summary.privileges.slice(0, 30).join(', '),
-      );
-    }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.shutdown-privilege',
+      title: 'Account can shut down the server',
+      severity: 'medium',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.shutdownPriv
+        ? {
+            message: `${label} has SHUTDOWN privilege.`,
+            recommendation: 'Remove SHUTDOWN from application accounts.',
+            evidence: 'SHUTDOWN',
+          }
+        : null,
+  ),
 
-    const plugin = user.plugin.toLowerCase();
-    if (plugin.includes('old_password')) {
-      add(
-        'security.old-password-plugin',
-        'Account uses an obsolete password plugin',
-        'critical',
-        `${label} uses ${user.plugin}, which is insecure and deprecated.`,
-        'Migrate the account to a modern authentication plugin and rotate the password.',
-        user.user,
-        user.host,
-        `plugin=${user.plugin}`,
-      );
-    } else if (NATIVE_PLUGINS.has(plugin) && user.passwordSet) {
-      add(
-        'security.native-password-plugin',
-        'Account uses mysql_native_password',
-        'medium',
-        `${label} uses ${user.plugin}. Newer MySQL versions default to a stronger plugin.`,
-        'Consider caching_sha2_password (MySQL 8) or ed25519 (MariaDB) after verifying client support.',
-        user.user,
-        user.host,
-        `plugin=${user.plugin}`,
-      );
-    }
-  }
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.create-user-privilege',
+      title: 'Account can create users',
+      severity: 'medium',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.createUserPriv
+        ? {
+            message: `${label} can create or alter MySQL accounts.`,
+            recommendation: 'Restrict account management to dedicated administrative users.',
+            evidence: 'CREATE USER',
+          }
+        : null,
+  ),
 
-  for (const definer of data.definers) {
-    const normalized = definer.replace(/`/g, '');
-    const [userPart, hostPart] = normalized.split('@');
-    if (!userPart) continue;
-    const key = userKey(userPart, hostPart ?? '');
-    if (knownUsers.has(key)) continue;
-    findings.push(
-      createFinding({
-        ruleId: 'security.invalid-definer',
-        title: 'Object definer does not exist',
-        severity: 'medium',
-        category: 'security',
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.broad-global-privileges',
+      title: 'Account has broad global privileges',
+      severity: 'high',
+      category: 'security',
+    },
+    ({ summary, label }) =>
+      summary && summary.privileges.length >= 20
+        ? {
+            message: `${label} holds ${summary.privileges.length} global privileges.`,
+            recommendation: 'Review the account and reduce it to the minimum required set.',
+            evidence: summary.privileges.slice(0, 30).join(', '),
+          }
+        : null,
+  ),
+
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.old-password-plugin',
+      title: 'Account uses an obsolete password plugin',
+      severity: 'critical',
+      category: 'security',
+    },
+    ({ user, label }) =>
+      user.plugin.toLowerCase().includes('old_password')
+        ? {
+            message: `${label} uses ${user.plugin}, which is insecure and deprecated.`,
+            recommendation:
+              'Migrate the account to a modern authentication plugin and rotate the password.',
+            evidence: `plugin=${user.plugin}`,
+          }
+        : null,
+  ),
+
+  defineRule<SecurityUserRuleInput>(
+    {
+      id: 'security.native-password-plugin',
+      title: 'Account uses mysql_native_password',
+      severity: 'medium',
+      category: 'security',
+    },
+    ({ user, label }) => {
+      const plugin = user.plugin.toLowerCase();
+      if (!NATIVE_PLUGINS.has(plugin) || !user.passwordSet) return null;
+      return {
+        message: `${label} uses ${user.plugin}. Newer MySQL versions default to a stronger plugin.`,
+        recommendation:
+          'Consider caching_sha2_password (MySQL 8) or ed25519 (MariaDB) after verifying client support.',
+        evidence: `plugin=${user.plugin}`,
+      };
+    },
+  ),
+];
+
+export interface SecurityDefinerRuleInput {
+  definer: string;
+  knownUsers: ReadonlySet<string>;
+}
+
+export const SECURITY_DEFINER_RULES: Rule<SecurityDefinerRuleInput>[] = [
+  defineRule<SecurityDefinerRuleInput>(
+    {
+      id: 'security.invalid-definer',
+      title: 'Object definer does not exist',
+      severity: 'medium',
+      category: 'security',
+    },
+    ({ definer, knownUsers }) => {
+      const normalized = definer.replace(/`/g, '');
+      const [userPart, hostPart] = normalized.split('@');
+      if (!userPart) return null;
+      if (knownUsers.has(userKey(userPart, hostPart ?? ''))) return null;
+      return {
         message: `A routine or view is defined by \`${definer}\`, but that account was not found.`,
         recommendation:
           'Recreate the object with a valid, minimally privileged definer, or create the missing account.',
         evidence: definer,
         object: { user: userPart, host: hostPart ?? undefined },
-        source: 'rule',
-        confidence: 'medium',
-      }),
-    );
+        confidence: 'medium' as const,
+      };
+    },
+  ),
+];
+
+export function runSecurityRules(data: SecurityData) {
+  const privileges = summarizePrivileges(data);
+  const knownUsers = new Set<string>();
+  const findings = [];
+
+  for (const user of data.users) {
+    knownUsers.add(userKey(user.user, user.host));
+    // Every account-level finding is anchored to the account it describes.
+    const accountFindings = runRules(SECURITY_USER_RULES, {
+      user,
+      summary: privileges.get(userKey(user.user, user.host)),
+      label: `'${user.user}'@'${user.host}'`,
+    }).map((finding): Finding => ({
+      ...finding,
+      object: { user: user.user, host: user.host },
+    }));
+    findings.push(...accountFindings);
+  }
+
+  for (const definer of data.definers) {
+    findings.push(...runRules(SECURITY_DEFINER_RULES, { definer, knownUsers }));
   }
 
   return findings;

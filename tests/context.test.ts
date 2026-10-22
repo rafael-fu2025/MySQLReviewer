@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildContextInfo,
-  buildRuleContext,
-  schemaToText,
-} from '../server/review/context';
+import { buildContextInfo, buildRuleContext, schemaToText } from '../server/review/context';
 import { column, schema, table } from './fixtures';
 
 const users = table('users', {
@@ -34,9 +30,7 @@ describe('review context', () => {
   it('resolves tables and aliases from a join', () => {
     const context = buildRuleContext({
       sql: 'SELECT u.id FROM users u JOIN orders o ON o.user_id = u.id',
-      database: 'shop',
       schema: schema([users, orders]),
-      server: null,
     });
     expect(context.referencedTables.sort()).toEqual(['orders', 'users']);
     expect(context.tableLookup.get('u')?.name).toBe('users');
@@ -47,9 +41,7 @@ describe('review context', () => {
   it('builds bounded context info', () => {
     const context = buildRuleContext({
       sql: 'SELECT * FROM users',
-      database: 'shop',
       schema: schema([users, orders]),
-      server: null,
     });
     const info = buildContextInfo(context.tables, 'shop');
     expect(info.tables).toHaveLength(1);
@@ -67,9 +59,7 @@ describe('review context', () => {
   it('returns an empty context for unknown tables', () => {
     const context = buildRuleContext({
       sql: 'SELECT * FROM missing',
-      database: 'shop',
       schema: schema([users]),
-      server: null,
     });
     expect(context.tables).toHaveLength(0);
   });

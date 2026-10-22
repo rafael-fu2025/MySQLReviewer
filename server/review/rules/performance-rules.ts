@@ -1,11 +1,10 @@
 import type {
-  Finding,
   PerformanceMetrics,
   ProcessInfo,
   ReplicationStatus,
   SlowQueryInfo,
 } from '../../../shared/types';
-import { createFinding } from '../findings';
+import { defineRule, runRules, type Rule } from './descriptor';
 
 export interface PerformanceRuleInput {
   metrics: PerformanceMetrics;
@@ -15,219 +14,276 @@ export interface PerformanceRuleInput {
   replication: ReplicationStatus;
 }
 
-export function runPerformanceRules(input: PerformanceRuleInput): Finding[] {
-  const findings: Finding[] = [];
-  const { metrics, variables, processlist, slowQueries, replication } = input;
+export const PERFORMANCE_RULES: Rule<PerformanceRuleInput>[] = [
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.connections-near-limit',
+      title: 'Connection usage is close to max_connections',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics, variables }) => {
+      const maxConnections = Number(variables.max_connections ?? 0);
+      if (!(maxConnections > 0 && metrics.threadsConnected / maxConnections > 0.8)) {
+        return null;
+      }
+      return {
+        message: `${metrics.threadsConnected} of ${maxConnections} connections are in use.`,
+        recommendation:
+          'Check for connection leaks or raise max_connections after reviewing memory usage.',
+        evidence: `threads_connected=${metrics.threadsConnected} max_connections=${maxConnections}`,
+      };
+    },
+  ),
 
-  const add = (
-    ruleId: string,
-    title: string,
-    severity: Finding['severity'],
-    category: Finding['category'],
-    message: string,
-    recommendation: string,
-    evidence?: string,
-  ): void => {
-    findings.push(
-      createFinding({
-        ruleId,
-        title,
-        severity,
-        category,
-        message,
-        recommendation,
-        evidence,
-        source: 'rule',
-        confidence: 'high',
-      }),
-    );
-  };
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.many-running-threads',
+      title: 'Many threads are running',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.threadsRunning > 20
+        ? {
+            message: `${metrics.threadsRunning} threads are actively executing statements.`,
+            recommendation: 'Inspect the process list for long-running or blocked queries.',
+            evidence: `threads_running=${metrics.threadsRunning}`,
+          }
+        : null,
+  ),
 
-  const maxConnections = Number(variables.max_connections ?? 0);
-  if (maxConnections > 0 && metrics.threadsConnected / maxConnections > 0.8) {
-    add(
-      'perf.connections-near-limit',
-      'Connection usage is close to max_connections',
-      'medium',
-      'performance',
-      `${metrics.threadsConnected} of ${maxConnections} connections are in use.`,
-      'Check for connection leaks or raise max_connections after reviewing memory usage.',
-      `threads_connected=${metrics.threadsConnected} max_connections=${maxConnections}`,
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.aborted-connections',
+      title: 'Many aborted connection attempts',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.abortedConnects > 100
+        ? {
+            message: `${metrics.abortedConnects.toLocaleString()} connection attempts were aborted since startup.`,
+            recommendation: 'Check credentials, network stability, and connection pool timeouts.',
+            evidence: `aborted_connects=${metrics.abortedConnects}`,
+          }
+        : null,
+  ),
 
-  if (metrics.threadsRunning > 20) {
-    add(
-      'perf.many-running-threads',
-      'Many threads are running',
-      'medium',
-      'performance',
-      `${metrics.threadsRunning} threads are actively executing statements.`,
-      'Inspect the process list for long-running or blocked queries.',
-      `threads_running=${metrics.threadsRunning}`,
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.full-joins',
+      title: 'Joins without indexes have occurred',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.selectFullJoin > 0
+        ? {
+            message: `${metrics.selectFullJoin.toLocaleString()} full joins have been executed since startup.`,
+            recommendation: 'Inspect slow queries and add indexes for join columns.',
+            evidence: `select_full_join=${metrics.selectFullJoin}`,
+          }
+        : null,
+  ),
 
-  if (metrics.abortedConnects > 100) {
-    add(
-      'perf.aborted-connections',
-      'Many aborted connection attempts',
-      'medium',
-      'performance',
-      `${metrics.abortedConnects.toLocaleString()} connection attempts were aborted since startup.`,
-      'Check credentials, network stability, and connection pool timeouts.',
-      `aborted_connects=${metrics.abortedConnects}`,
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.table-scans',
+      title: 'High number of table scans',
+      severity: 'low',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.selectScan > 1_000
+        ? {
+            message: `${metrics.selectScan.toLocaleString()} table scans have been recorded.`,
+            recommendation:
+              'Review the slow query log and add selective indexes for common predicates.',
+            evidence: `select_scan=${metrics.selectScan}`,
+          }
+        : null,
+  ),
 
-  if (metrics.selectFullJoin > 0) {
-    add(
-      'perf.full-joins',
-      'Joins without indexes have occurred',
-      'medium',
-      'performance',
-      `${metrics.selectFullJoin.toLocaleString()} full joins have been executed since startup.`,
-      'Inspect slow queries and add indexes for join columns.',
-      `select_full_join=${metrics.selectFullJoin}`,
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.temp-tables-spill',
+      title: 'Temporary tables are spilling to disk',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics }) => {
+      if (metrics.tmpTables <= 0) return null;
+      const ratio = metrics.tmpDiskTables / metrics.tmpTables;
+      if (!(ratio > 0.1)) return null;
+      return {
+        message: `${(ratio * 100).toFixed(1)}% of temporary tables were created on disk (${metrics.tmpDiskTables.toLocaleString()} of ${metrics.tmpTables.toLocaleString()}).`,
+        recommendation:
+          'Review GROUP BY/DISTINCT/UNION queries and increase tmp_table_size if appropriate.',
+        evidence: `created_tmp_disk_tables=${metrics.tmpDiskTables} created_tmp_tables=${metrics.tmpTables}`,
+      };
+    },
+  ),
 
-  if (metrics.selectScan > 1_000) {
-    add(
-      'perf.table-scans',
-      'High number of table scans',
-      'low',
-      'performance',
-      `${metrics.selectScan.toLocaleString()} table scans have been recorded.`,
-      'Review the slow query log and add selective indexes for common predicates.',
-      `select_scan=${metrics.selectScan}`,
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.buffer-pool-hit-low',
+      title: 'Low InnoDB buffer pool hit ratio',
+      severity: 'low',
+      category: 'performance',
+    },
+    ({ metrics }) => {
+      const ratio = metrics.bufferPoolHitRatio;
+      if (ratio == null || ratio >= 0.95) return null;
+      return {
+        message: `The buffer pool hit ratio is ${(ratio * 100).toFixed(2)}%.`,
+        recommendation: 'Increase innodb_buffer_pool_size or reduce the working set.',
+        evidence: `hit_ratio=${(ratio * 100).toFixed(2)}%`,
+      };
+    },
+  ),
 
-  if (metrics.tmpTables > 0) {
-    const ratio = metrics.tmpDiskTables / metrics.tmpTables;
-    if (ratio > 0.1) {
-      add(
-        'perf.temp-tables-spill',
-        'Temporary tables are spilling to disk',
-        'medium',
-        'performance',
-        `${(ratio * 100).toFixed(1)}% of temporary tables were created on disk (${metrics.tmpDiskTables.toLocaleString()} of ${metrics.tmpTables.toLocaleString()}).`,
-        'Review GROUP BY/DISTINCT/UNION queries and increase tmp_table_size if appropriate.',
-        `created_tmp_disk_tables=${metrics.tmpDiskTables} created_tmp_tables=${metrics.tmpTables}`,
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.deadlocks',
+      title: 'InnoDB deadlocks have occurred',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.innodbDeadlocks > 0
+        ? {
+            message: `${metrics.innodbDeadlocks.toLocaleString()} deadlocks have been detected since startup.`,
+            recommendation:
+              'Inspect InnoDB deadlock details and keep transactions short with consistent lock ordering.',
+            evidence: `innodb_deadlocks=${metrics.innodbDeadlocks}`,
+          }
+        : null,
+  ),
+
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.table-locks-waited',
+      title: 'Table lock waits have occurred',
+      severity: 'info',
+      category: 'performance',
+    },
+    ({ metrics }) =>
+      metrics.tableLocksWaited > 0
+        ? {
+            message: `${metrics.tableLocksWaited.toLocaleString()} table lock waits were recorded.`,
+            recommendation: 'Prefer InnoDB row-level locking and avoid long-lived table locks.',
+            evidence: `table_locks_waited=${metrics.tableLocksWaited}`,
+          }
+        : null,
+  ),
+
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.long-running-process',
+      title: 'Long-running statement',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ processlist }) => {
+      const longRunning = processlist.filter(
+        (process) =>
+          process.command !== 'Sleep' && process.command !== 'Daemon' && process.timeSeconds >= 60,
       );
-    }
-  }
+      if (longRunning.length === 0) return null;
+      return longRunning.slice(0, 5).map((process) => ({
+        message: `Session ${process.id} (${process.user}) has been running for ${process.timeSeconds}s in state ${process.state ?? 'unknown'}.`,
+        recommendation:
+          'Inspect the statement, check for locks, and consider killing it only after confirming the impact.',
+        evidence: (process.info ?? 'no statement text').slice(0, 300),
+        severity: process.timeSeconds >= 300 ? ('high' as const) : ('medium' as const),
+      }));
+    },
+  ),
 
-  if (metrics.bufferPoolHitRatio != null && metrics.bufferPoolHitRatio < 0.95) {
-    add(
-      'perf.buffer-pool-hit-low',
-      'Low InnoDB buffer pool hit ratio',
-      'low',
-      'performance',
-      `The buffer pool hit ratio is ${(metrics.bufferPoolHitRatio * 100).toFixed(2)}%.`,
-      'Increase innodb_buffer_pool_size or reduce the working set.',
-      `hit_ratio=${(metrics.bufferPoolHitRatio * 100).toFixed(2)}%`,
-    );
-  }
-
-  if (metrics.innodbDeadlocks > 0) {
-    add(
-      'perf.deadlocks',
-      'InnoDB deadlocks have occurred',
-      'medium',
-      'performance',
-      `${metrics.innodbDeadlocks.toLocaleString()} deadlocks have been detected since startup.`,
-      'Inspect InnoDB deadlock details and keep transactions short with consistent lock ordering.',
-      `innodb_deadlocks=${metrics.innodbDeadlocks}`,
-    );
-  }
-
-  if (metrics.tableLocksWaited > 0) {
-    add(
-      'perf.table-locks-waited',
-      'Table lock waits have occurred',
-      'info',
-      'performance',
-      `${metrics.tableLocksWaited.toLocaleString()} table lock waits were recorded.`,
-      'Prefer InnoDB row-level locking and avoid long-lived table locks.',
-      `table_locks_waited=${metrics.tableLocksWaited}`,
-    );
-  }
-
-  const longRunning = processlist.filter(
-    (process) =>
-      process.command !== 'Sleep' &&
-      process.command !== 'Daemon' &&
-      process.timeSeconds >= 60,
-  );
-  for (const process of longRunning.slice(0, 5)) {
-    add(
-      'perf.long-running-process',
-      'Long-running statement',
-      process.timeSeconds >= 300 ? 'high' : 'medium',
-      'performance',
-      `Session ${process.id} (${process.user}) has been running for ${process.timeSeconds}s in state ${process.state ?? 'unknown'}.`,
-      'Inspect the statement, check for locks, and consider killing it only after confirming the impact.',
-      (process.info ?? 'no statement text').slice(0, 300),
-    );
-  }
-
-  const sleeping = processlist.filter(
-    (process) => process.command === 'Sleep' && process.timeSeconds >= 600,
-  );
-  if (sleeping.length > 5) {
-    add(
-      'perf.idle-connections',
-      'Many long-lived idle connections',
-      'low',
-      'performance',
-      `${sleeping.length} sessions have been sleeping for over 10 minutes.`,
-      'Check connection pool sizing and application connection leaks.',
-      `idle_sessions=${sleeping.length}`,
-    );
-  }
-
-  if (replication.configured) {
-    if (
-      (replication.ioRunning && replication.ioRunning !== 'Yes') ||
-      (replication.sqlRunning && replication.sqlRunning !== 'Yes')
-    ) {
-      add(
-        'perf.replication-stopped',
-        'Replication thread is not running',
-        'high',
-        'performance',
-        `Replica IO=${replication.ioRunning ?? 'n/a'}, SQL=${replication.sqlRunning ?? 'n/a'}.`,
-        'Check the replica error log and resolve the replication error.',
-        `io=${replication.ioRunning} sql=${replication.sqlRunning}`,
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.idle-connections',
+      title: 'Many long-lived idle connections',
+      severity: 'low',
+      category: 'performance',
+    },
+    ({ processlist }) => {
+      const sleeping = processlist.filter(
+        (process) => process.command === 'Sleep' && process.timeSeconds >= 600,
       );
-    }
-    if (replication.lagSeconds != null && replication.lagSeconds > 60) {
-      add(
-        'perf.replication-lag',
-        'Replication lag is high',
-        'high',
-        'performance',
-        `The replica is ${replication.lagSeconds}s behind the source.`,
-        'Inspect replica load, single-threaded apply, and long transactions on the source.',
-        `seconds_behind=${replication.lagSeconds}`,
-      );
-    }
-  }
+      if (sleeping.length <= 5) return null;
+      return {
+        message: `${sleeping.length} sessions have been sleeping for over 10 minutes.`,
+        recommendation: 'Check connection pool sizing and application connection leaks.',
+        evidence: `idle_sessions=${sleeping.length}`,
+      };
+    },
+  ),
 
-  for (const query of slowQueries.slice(0, 5)) {
-    if (query.maxLatencyMs < 500) continue;
-    add(
-      'perf.slow-query',
-      'Slow query digest',
-      query.maxLatencyMs > 5_000 ? 'high' : 'medium',
-      'performance',
-      `A digest ran ${query.count.toLocaleString()}× with an average of ${query.avgLatencyMs.toFixed(1)} ms and a maximum of ${query.maxLatencyMs.toFixed(1)} ms.`,
-      'Open the statement in the workspace, inspect EXPLAIN, and add or adjust indexes.',
-      query.digestText.slice(0, 500),
-    );
-  }
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.replication-stopped',
+      title: 'Replication thread is not running',
+      severity: 'high',
+      category: 'performance',
+    },
+    ({ replication }) => {
+      if (!replication.configured) return null;
+      const ioStopped = replication.ioRunning && replication.ioRunning !== 'Yes';
+      const sqlStopped = replication.sqlRunning && replication.sqlRunning !== 'Yes';
+      if (!ioStopped && !sqlStopped) return null;
+      return {
+        message: `Replica IO=${replication.ioRunning ?? 'n/a'}, SQL=${replication.sqlRunning ?? 'n/a'}.`,
+        recommendation: 'Check the replica error log and resolve the replication error.',
+        evidence: `io=${replication.ioRunning} sql=${replication.sqlRunning}`,
+      };
+    },
+  ),
 
-  return findings;
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.replication-lag',
+      title: 'Replication lag is high',
+      severity: 'high',
+      category: 'performance',
+    },
+    ({ replication }) => {
+      if (!replication.configured) return null;
+      const lag = replication.lagSeconds;
+      if (lag == null || lag <= 60) return null;
+      return {
+        message: `The replica is ${lag}s behind the source.`,
+        recommendation:
+          'Inspect replica load, single-threaded apply, and long transactions on the source.',
+        evidence: `seconds_behind=${lag}`,
+      };
+    },
+  ),
+
+  defineRule<PerformanceRuleInput>(
+    {
+      id: 'perf.slow-query',
+      title: 'Slow query digest',
+      severity: 'medium',
+      category: 'performance',
+    },
+    ({ slowQueries }) => {
+      const hits = slowQueries
+        .slice(0, 5)
+        .filter((query) => query.maxLatencyMs >= 500)
+        .map((query) => ({
+          message: `A digest ran ${query.count.toLocaleString()}× with an average of ${query.avgLatencyMs.toFixed(1)} ms and a maximum of ${query.maxLatencyMs.toFixed(1)} ms.`,
+          recommendation:
+            'Open the statement in the workspace, inspect EXPLAIN, and add or adjust indexes.',
+          evidence: query.digestText.slice(0, 500),
+          severity: query.maxLatencyMs > 5_000 ? ('high' as const) : ('medium' as const),
+        }));
+      return hits.length > 0 ? hits : null;
+    },
+  ),
+];
+
+export function runPerformanceRules(input: PerformanceRuleInput) {
+  return runRules(PERFORMANCE_RULES, input);
 }

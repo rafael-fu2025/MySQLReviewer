@@ -3,7 +3,6 @@ import { AppError, mapDbError } from '../errors';
 import { getSettings } from '../store/settings';
 import { getSchemaSnapshot } from '../db/introspection';
 import { runExplain } from '../db/explain';
-import { getCachedServerInfo } from '../db/manager';
 import { assertSqlScope } from '../db/scope';
 import { classifySql } from './sql-classifier';
 import { buildContextInfo, buildRuleContext } from './context';
@@ -33,13 +32,8 @@ export async function runStaticReview(input: StaticReviewInput): Promise<StaticR
   const settings = await getSettings();
   const warnings: string[] = [];
   let schema = null;
-  let server = input.profileId ? getCachedServerInfo(input.profileId) : null;
 
-  if (
-    input.profileId &&
-    input.database &&
-    input.includeSchema !== false
-  ) {
+  if (input.profileId && input.database && input.includeSchema !== false) {
     try {
       schema = await getSchemaSnapshot(input.profileId, input.database);
     } catch (error) {
@@ -49,23 +43,17 @@ export async function runStaticReview(input: StaticReviewInput): Promise<StaticR
 
   const context = buildRuleContext({
     sql,
-    database: input.database ?? null,
     schema,
-    server,
-    analyzed: Boolean(input.analyze),
   });
 
-  let findings = [...runSqlRules(context), ...runQuerySchemaRules(context)];
+  const findings = [...runSqlRules(context), ...runQuerySchemaRules(context)];
   let explain: ExplainResult | null = null;
 
   if (input.includeExplain && input.profileId) {
     try {
-      explain = await runExplain(
-        input.profileId,
-        sql,
-        input.database ?? null,
-        { analyze: Boolean(input.analyze) },
-      );
+      explain = await runExplain(input.profileId, sql, input.database ?? null, {
+        analyze: Boolean(input.analyze),
+      });
       findings.push(...explain.insights);
     } catch (error) {
       warnings.push(`EXPLAIN unavailable: ${mapDbError(error).message}`);

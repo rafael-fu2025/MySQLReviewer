@@ -109,11 +109,23 @@ function slugify(value: string): string {
 }
 
 function normalizeSeverity(value: string | null | undefined): Finding['severity'] {
-  return SEVERITY_MAP[String(value ?? '').trim().toLowerCase()] ?? 'medium';
+  return (
+    SEVERITY_MAP[
+      String(value ?? '')
+        .trim()
+        .toLowerCase()
+    ] ?? 'medium'
+  );
 }
 
 function normalizeCategory(value: string | null | undefined): FindingCategory {
-  return CATEGORY_MAP[String(value ?? '').trim().toLowerCase()] ?? 'correctness';
+  return (
+    CATEGORY_MAP[
+      String(value ?? '')
+        .trim()
+        .toLowerCase()
+    ] ?? 'correctness'
+  );
 }
 
 export function extractJsonObject(text: string): unknown | null {
@@ -160,9 +172,7 @@ export function parseAiReview(text: string): ParsedAiReview | null {
   if (!parsedRaw) return null;
   const container = parsedRaw as Record<string, unknown>;
   const candidate =
-    container.review && typeof container.review === 'object'
-      ? container.review
-      : container;
+    container.review && typeof container.review === 'object' ? container.review : container;
   const parsed = AiReviewSchema.safeParse(candidate);
   if (!parsed.success) return null;
 
@@ -171,13 +181,9 @@ export function parseAiReview(text: string): ParsedAiReview | null {
     const title = (raw.title ?? '').trim() || 'AI review finding';
     const severity = normalizeSeverity(raw.severity);
     const category = normalizeCategory(raw.category);
-    const message =
-      (raw.detail ?? raw.message ?? '').trim() ||
-      title;
+    const message = (raw.detail ?? raw.message ?? '').trim() || title;
     const line =
-      raw.line != null && Number.isFinite(raw.line) && raw.line >= 1
-        ? Math.trunc(raw.line)
-        : null;
+      raw.line != null && Number.isFinite(raw.line) && raw.line >= 1 ? Math.trunc(raw.line) : null;
     findings.push({
       id: crypto.randomUUID(),
       ruleId: `ai.${slugify(title)}`,
@@ -207,9 +213,13 @@ export function parseAiReview(text: string): ParsedAiReview | null {
   const rawVerdict = String(parsed.data.verdict ?? '').toLowerCase();
   if (rawVerdict === 'pass' || rawVerdict === 'warn' || rawVerdict === 'fail') {
     verdict = rawVerdict;
-  } else if (findings.some((finding) => finding.severity === 'critical' || finding.severity === 'high')) {
+  } else if (
+    findings.some((finding) => finding.severity === 'critical' || finding.severity === 'high')
+  ) {
     verdict = 'fail';
-  } else if (findings.some((finding) => finding.severity === 'medium' || finding.severity === 'low')) {
+  } else if (
+    findings.some((finding) => finding.severity === 'medium' || finding.severity === 'low')
+  ) {
     verdict = 'warn';
   } else {
     verdict = 'pass';
@@ -285,7 +295,6 @@ async function schemaTextFor(
   profileId: string | null | undefined,
   database: string | null | undefined,
   sql: string,
-  server: ServerInfo | null,
 ): Promise<{ text: string; truncated: boolean }> {
   if (!profileId || !database) return { text: '', truncated: false };
   try {
@@ -294,9 +303,7 @@ async function schemaTextFor(
     const snapshot = await getSchemaSnapshot(profileId, database);
     const context = buildRuleContext({
       sql,
-      database,
       schema: snapshot,
-      server,
     });
     const text = schemaToText(context.tables, settings.aiContextChars);
     return {
@@ -345,12 +352,7 @@ export async function runAiReview(
     }
   }
 
-  const schema = await schemaTextFor(
-    request.profileId,
-    request.database,
-    request.sql,
-    server,
-  );
+  const schema = await schemaTextFor(request.profileId, request.database, request.sql);
 
   const messages = buildReviewMessages({
     sql: request.sql,
@@ -362,8 +364,8 @@ export async function runAiReview(
     explain,
   });
 
-  let raw = '';
-  let usage: ChatUsage | null = null;
+  let raw: string;
+  let usage: ChatUsage | null;
   let sawDelta = false;
   const handleDelta = (delta: string): void => {
     sawDelta = true;
@@ -449,14 +451,8 @@ export async function runAiChat(
       await assertSqlScope(context.profileId, context.sql, context.database ?? null);
     }
   }
-  const server =
-    context?.profileId ? getCachedServerInfo(context.profileId) : null;
-  const schema = await schemaTextFor(
-    context?.profileId,
-    context?.database,
-    context?.sql ?? '',
-    server,
-  );
+  const server = context?.profileId ? getCachedServerInfo(context.profileId) : null;
+  const schema = await schemaTextFor(context?.profileId, context?.database, context?.sql ?? '');
   const messages = buildChatMessages({
     messages: request.messages,
     sql: context?.sql,

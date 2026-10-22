@@ -1,27 +1,11 @@
 import type { IndexSuggestion, SchemaTable } from '../../shared/types';
 import type { RuleContext } from './rules/types';
-
-type AnyRecord = Record<string, unknown>;
+import { isRecord, walk } from './ast-utils';
 
 interface Candidate {
   equality: string[];
   range: string[];
   order: string[];
-}
-
-function isRecord(value: unknown): value is AnyRecord {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function walk(node: unknown, fn: (node: AnyRecord) => void): void {
-  if (!node) return;
-  if (Array.isArray(node)) {
-    for (const item of node) walk(item, fn);
-    return;
-  }
-  if (!isRecord(node)) return;
-  fn(node);
-  for (const value of Object.values(node)) walk(value, fn);
 }
 
 function addUnique(list: string[], value: string): void {
@@ -150,9 +134,7 @@ function existingIndexCovers(table: SchemaTable, columns: string[]): boolean {
   const lower = columns.map((column) => column.toLowerCase());
   return table.indexes.some((index) => {
     if (index.columns.length < lower.length) return false;
-    return lower.every(
-      (column, i) => index.columns[i].name.toLowerCase() === column,
-    );
+    return lower.every((column, i) => index.columns[i].name.toLowerCase() === column);
   });
 }
 
@@ -211,9 +193,7 @@ export function suggestIndexes(context: RuleContext): IndexSuggestion[] {
       ...candidate.order
         .filter(
           (column) =>
-            !candidate.equality.some(
-              (item) => item.toLowerCase() === column.toLowerCase(),
-            ) &&
+            !candidate.equality.some((item) => item.toLowerCase() === column.toLowerCase()) &&
             !candidate.range.some((item) => item.toLowerCase() === column.toLowerCase()),
         )
         .slice(0, 2),

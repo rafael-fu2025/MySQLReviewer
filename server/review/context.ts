@@ -4,7 +4,6 @@ import type {
   ReviewTableContext,
   SchemaSnapshot,
   SchemaTable,
-  ServerInfo,
 } from '../../shared/types';
 import { classifySql } from './sql-classifier';
 import { significantTokens, tokenize } from './tokenizer';
@@ -80,10 +79,7 @@ function collectCteNames(node: unknown, out: Set<string>): void {
 
 export interface BuildContextInput {
   sql: string;
-  database: string | null;
   schema: SchemaSnapshot | null;
-  server: ServerInfo | null;
-  analyzed?: boolean;
 }
 
 export function buildRuleContext(input: BuildContextInput): RuleContext {
@@ -137,9 +133,7 @@ export function buildRuleContext(input: BuildContextInput): RuleContext {
     if (tables.length === 0) {
       // Fallback for SQL the parser could not parse: match identifiers to schema names.
       const words = new Set(
-        tokens
-          .filter((token) => token.kind === 'word')
-          .map((token) => token.value.toLowerCase()),
+        tokens.filter((token) => token.kind === 'word').map((token) => token.value.toLowerCase()),
       );
       for (const table of input.schema.tables) {
         if (words.has(table.name.toLowerCase())) {
@@ -166,15 +160,11 @@ export function buildRuleContext(input: BuildContextInput): RuleContext {
     tokens,
     statements: classified.statements,
     asts,
-    ast: asts[0] ?? null,
     schema: input.schema,
-    database: input.database,
     tables,
     tableLookup,
     referencedTables,
     aliases,
-    server: input.server,
-    analyzed: input.analyzed === true,
   };
 }
 

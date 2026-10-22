@@ -9,6 +9,8 @@ import type {
 } from '../../shared/types';
 import { SEVERITY_ORDER } from '../../shared/types';
 
+export { severityCounts } from '../../shared/findings';
+
 export interface FindingInput {
   ruleId: string;
   title: string;
@@ -74,23 +76,10 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
     if (nextRank < existingRank) map.set(key, finding);
   }
   return Array.from(map.values()).sort((a, b) => {
-    const severities =
-      SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    const severities = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
     if (severities !== 0) return severities;
     return a.ruleId.localeCompare(b.ruleId);
   });
-}
-
-export function severityCounts(findings: Finding[]): Record<Severity, number> {
-  const counts: Record<Severity, number> = {
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-    info: 0,
-  };
-  for (const finding of findings) counts[finding.severity] += 1;
-  return counts;
 }
 
 export function groupFindings(findings: Finding[], maxInstances = 25): FindingGroup[] {
@@ -116,8 +105,7 @@ export function groupFindings(findings: Finding[], maxInstances = 25): FindingGr
     }
   }
   return Array.from(groups.values()).sort((a, b) => {
-    const severities =
-      SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+    const severities = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
     if (severities !== 0) return severities;
     if (a.count !== b.count) return b.count - a.count;
     return a.title.localeCompare(b.title);

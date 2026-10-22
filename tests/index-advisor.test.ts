@@ -50,9 +50,7 @@ function usersTable(withCompositeIndex = false) {
 function suggest(withCompositeIndex: boolean) {
   const context = buildRuleContext({
     sql: "SELECT id FROM users WHERE email = 'a' ORDER BY status LIMIT 10",
-    database: 'shop',
     schema: schema([usersTable(withCompositeIndex)]),
-    server: null,
   });
   return suggestIndexes(context);
 }
