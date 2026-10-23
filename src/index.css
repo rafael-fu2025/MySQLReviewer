@@ -1508,11 +1508,38 @@ a:hover {
   display: flex;
   flex-direction: column;
 }
+.modal.closing {
+  animation: fadeOut 0.18s ease both;
+}
 .modal.wide {
   max-width: 880px;
 }
 .modal.narrow {
   max-width: 440px;
+}
+
+/* Bottom sheet: edge to edge, anchored to the bottom, sliding in and out. */
+.modal-sheet {
+  max-width: 100%;
+  border-radius: 18px 18px 0 0;
+  border-bottom: 0;
+  animation: sheetUp 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform;
+}
+.modal-sheet.closing {
+  animation: sheetDown 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+.modal-backdrop.closing {
+  animation: fadeOut 0.2s ease both;
+  pointer-events: none;
+}
+.sheet-grabber {
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-muted) 45%, transparent);
+  flex: 0 0 auto;
 }
 .modal-head {
   display: flex;
@@ -1832,6 +1859,30 @@ a:hover {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheetDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 @keyframes shimmer {
@@ -2496,7 +2547,9 @@ a:hover {
   }
   .fade-in,
   .modal,
-  .modal-backdrop {
+  .modal-backdrop,
+  .modal-sheet,
+  .modal-sheet-backdrop {
     animation: none !important;
   }
   .spin,
@@ -2602,12 +2655,16 @@ a:hover {
 /* ---------------------------------------------------------------- */
 
 .sheet-head {
+  padding: 0 18px 10px;
+  border-bottom: 1px solid var(--color-line-soft);
+  flex: 0 0 auto;
+}
+.sheet-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px 10px;
-  border-bottom: 1px solid var(--color-line-soft);
+  padding-top: 12px;
 }
 .sheet-title {
   font-size: 15px;

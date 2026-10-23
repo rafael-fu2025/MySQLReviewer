@@ -331,6 +331,9 @@ export function SearchInput({
 /* Modal                                                               */
 /* ------------------------------------------------------------------ */
 
+/** How long the panel stays mounted after it starts closing. */
+const MODAL_EXIT_MS = 220;
+
 export function Modal({
   open,
   onClose,
@@ -345,6 +348,7 @@ export function Modal({
   footerClassName,
   backdropStyle,
   panelStyle,
+  variant = 'center',
 }: {
   open: boolean;
   onClose: () => void;
@@ -365,6 +369,8 @@ export function Modal({
   backdropStyle?: CSSProperties;
   /** Inline styles for the dialog panel element. */
   panelStyle?: CSSProperties;
+  /** `sheet` anchors the panel to the bottom of the screen and slides it. */
+  variant?: 'center' | 'sheet';
 }) {
   const dialogId = useId();
   const titleId = `${dialogId}-title`;
@@ -376,6 +382,21 @@ export function Modal({
   const modalRef = useRef<HTMLDivElement | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
+  const [wasOpen, setWasOpen] = useState(open);
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
+
+  // Adjusting state as `open` changes keeps the panel mounted through its
+  // exit animation, so it can slide away instead of vanishing.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setMounted(true);
+      setClosing(false);
+    } else {
+      setClosing(true);
+    }
+  }
 
   // Keep the latest handler without writing to a ref during render.
   useEffect(() => {
@@ -383,7 +404,16 @@ export function Modal({
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!closing) return;
+    const timer = window.setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, MODAL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+
+  useEffect(() => {
+    if (!mounted) return;
     previousFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const modal = modalRef.current;
@@ -430,12 +460,16 @@ export function Modal({
       window.removeEventListener('keydown', onKey);
       previousFocus.current?.focus?.();
     };
-  }, [open]);
+  }, [mounted]);
 
-  if (!open) return null;
+  if (!mounted) return null;
   return createPortal(
     <div
-      className="modal-backdrop"
+      className={cn(
+        'modal-backdrop',
+        variant === 'sheet' && 'modal-sheet-backdrop',
+        closing && 'closing',
+      )}
       style={backdropStyle}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -444,7 +478,13 @@ export function Modal({
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={cn('modal', size === 'wide' && 'wide', size === 'narrow' && 'narrow')}
+        className={cn(
+          'modal',
+          size === 'wide' && 'wide',
+          size === 'narrow' && 'narrow',
+          variant === 'sheet' && 'modal-sheet',
+          closing && 'closing',
+        )}
         style={panelStyle}
         role="dialog"
         aria-modal="true"

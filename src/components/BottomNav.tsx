@@ -80,18 +80,18 @@ export function BottomNav({
         open={sheetOpen}
         onClose={closeSheet}
         ariaLabel="More sections"
+        variant="sheet"
         backdropStyle={{ alignItems: 'flex-end', padding: 0 }}
-        panelStyle={{
-          maxWidth: 560,
-          borderRadius: '18px 18px 0 0',
-          maxHeight: '78vh',
-        }}
+        panelStyle={{ maxHeight: '80vh' }}
         header={
           <div className="sheet-head">
-            <div className="sheet-title">More</div>
-            <IconButton label="Close" onClick={closeSheet}>
-              <X size={16} />
-            </IconButton>
+            <div className="sheet-grabber" aria-hidden="true" />
+            <div className="sheet-title-row">
+              <div className="sheet-title">More</div>
+              <IconButton label="Close" onClick={closeSheet}>
+                <X size={16} />
+              </IconButton>
+            </div>
           </div>
         }
         bodyClassName="sheet-body"

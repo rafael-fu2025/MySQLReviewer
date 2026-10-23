@@ -154,7 +154,8 @@ export function CommandPalette() {
     }
   }
 
-  if (!open) return null;
+  // The modal keeps itself mounted through its exit animation, so this
+  // component must not unmount the moment `open` goes false.
 
   const activate = (item: PaletteItem | undefined): void => {
     if (!item) return;
