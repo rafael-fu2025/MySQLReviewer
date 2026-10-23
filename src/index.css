@@ -1518,8 +1518,37 @@ a:hover {
   max-width: 440px;
 }
 
-/* Bottom sheet: edge to edge, anchored to the bottom, sliding in and out. */
+/*
+ * Bottom sheet: edge to edge, anchored to the bottom, sliding in and out.
+ *
+ * The panel is fixed to the viewport rather than laid out in the backdrop.
+ * The backdrop is a scroll container, and a transformed child that overflows
+ * it makes the browser scroll the backdrop to reveal the auto-focused
+ * control. That scroll cancels the slide out, so the sheet appears to fade
+ * instead of rising. Fixing the panel keeps it out of the backdrop's
+ * scrollable overflow, and moving the blur to a pseudo-element leaves the
+ * backdrop free of filters, which would otherwise make it the containing
+ * block for the fixed panel.
+ */
+.modal-sheet-backdrop {
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+}
+.modal-sheet-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 5, 8, 0.7);
+  backdrop-filter: blur(5px);
+  z-index: 0;
+}
 .modal-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
   max-width: 100%;
   border-radius: 18px 18px 0 0;
   border-bottom: 0;
