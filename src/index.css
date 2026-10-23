@@ -2620,6 +2620,18 @@ a:hover {
   .page {
     gap: 14px;
   }
+  /*
+   * The editor still scrolls sideways, so a long line stays reachable. Only
+   * the bar itself goes: on a phone it costs ten pixels of vertical space,
+   * which the editor can least afford, and reads as a stray stripe.
+   */
+  .editor-wrap .cm-scroller {
+    scrollbar-width: none;
+  }
+  .editor-wrap .cm-scroller::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
 }
 
 /* ---------------------------------------------------------------- */
