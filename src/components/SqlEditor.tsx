@@ -240,7 +240,17 @@ export function SqlEditor({
   );
 
   const extensions = useMemo(
-    () => [sqlExtension, highlightExtension, tabSizeExtension, ...lintExtensions, keymapExtension],
+    () => [
+      // Long statements continue on the next line instead of running off the
+      // edge of the editor. `basicSetup` has no lineWrapping option, so the
+      // extension has to be added directly.
+      EditorView.lineWrapping,
+      sqlExtension,
+      highlightExtension,
+      tabSizeExtension,
+      ...lintExtensions,
+      keymapExtension,
+    ],
     [keymapExtension, lintExtensions, sqlExtension],
   );
 

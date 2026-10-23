@@ -2621,9 +2621,9 @@ a:hover {
     gap: 14px;
   }
   /*
-   * The editor still scrolls sideways, so a long line stays reachable. Only
-   * the bar itself goes: on a phone it costs ten pixels of vertical space,
-   * which the editor can least afford, and reads as a stray stripe.
+   * The editor wraps long lines, so it never scrolls sideways. Its
+   * scrollbars go on phones anyway: they cost width the editor can least
+   * afford, and a swipe still scrolls.
    */
   .editor-wrap .cm-scroller {
     scrollbar-width: none;
