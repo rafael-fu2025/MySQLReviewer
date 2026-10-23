@@ -321,25 +321,28 @@ export function SchemaSidebar({
                       const expanded = Boolean(expandedTables[table.name]);
                       return (
                         <div key={table.name}>
-                          <div
-                            className="tree-item group"
-                            onClick={() => onInsert(table.name)}
-                            title={`Insert ${table.name}`}
-                          >
+                          <div className="tree-item group">
+                            {/*
+                              In a challenge the table name is a reference, not
+                              something to paste, so the name opens the columns
+                              instead of inserting it. The columns themselves
+                              still insert when tapped.
+                            */}
                             <button
                               type="button"
-                              className="-ml-1 shrink-0 rounded p-0.5 text-muted transition hover:bg-panel-3 hover:text-ink"
-                              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${table.name}`}
+                              className="flex min-w-0 flex-1 items-center gap-1.5 text-left transition hover:text-ink"
                               aria-expanded={expanded}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleTable(table.name);
-                              }}
+                              title={`${expanded ? 'Collapse' : 'Expand'} ${table.name}`}
+                              onClick={() => toggleTable(table.name)}
                             >
-                              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                              {expanded ? (
+                                <ChevronDown size={11} className="-ml-1 shrink-0 text-muted" />
+                              ) : (
+                                <ChevronRight size={11} className="-ml-1 shrink-0 text-muted" />
+                              )}
+                              <Table2 size={12} className="shrink-0 text-muted" />
+                              <span className="truncate">{table.name}</span>
                             </button>
-                            <Table2 size={12} className="shrink-0 text-muted" />
-                            <span className="truncate">{table.name}</span>
                             {table.rowsEstimate > 0 ? (
                               <span className="tree-rows">{formatRows(table.rowsEstimate)}</span>
                             ) : null}
@@ -348,10 +351,7 @@ export function SchemaSidebar({
                                 type="button"
                                 className="shrink-0 rounded px-1 py-0.5 text-[10px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
                                 title={`Preview 5 rows of ${table.name}`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  onPreviewTable(table.name);
-                                }}
+                                onClick={() => onPreviewTable(table.name)}
                               >
                                 Preview 5 rows
                               </button>
@@ -361,10 +361,7 @@ export function SchemaSidebar({
                                 type="button"
                                 className="ml-1 shrink-0 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
                                 title="Open table details"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openObject(table.name);
-                                }}
+                                onClick={() => openObject(table.name)}
                               >
                                 <ExternalLink size={10} />
                               </button>
