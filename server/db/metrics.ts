@@ -247,7 +247,7 @@ async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo
       .sort((a, b) => b.maxMs - a.maxMs)
       .slice(0, 20)
       .map((item) => ({
-        digest: crypto.createHash('sha1').update(item.normalized).digest('hex').slice(0, 16),
+        digest: crypto.createHash('sha256').update(item.normalized).digest('hex').slice(0, 16),
         digestText: item.normalized,
         schemaName: null,
         count: item.count,

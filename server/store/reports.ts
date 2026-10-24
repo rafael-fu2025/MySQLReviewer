@@ -95,7 +95,7 @@ export async function listReports(): Promise<ReportSummary[]> {
     if (!file.endsWith('.json')) continue;
     const id = file.slice(0, -'.json'.length);
     seen.add(id);
-    const full = path.join(REPORTS_DIR, file);
+    const full = path.join(REPORTS_DIR, path.basename(file));
     try {
       const stat = await fs.stat(full);
       const cached = summaryCache.get(id);
