@@ -507,7 +507,9 @@ export function ReviewPanel({
                     </div>
                   </div>
                   <pre className="code-block mt-2">{ai.rewrite.sql}</pre>
-                  <div className="mt-2 text-[11.5px] text-muted">{ai.rewrite.explanation}</div>
+                  {ai.rewrite.explanation ? (
+                    <div className="mt-2 text-[11.5px] text-muted">{ai.rewrite.explanation}</div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -529,7 +531,7 @@ export function ReviewPanel({
                   icon={<Copy size={12} />}
                   onClick={async () => {
                     const ok = await navigator.clipboard
-                      .writeText(ai.markdown || ai.summary)
+                      .writeText(ai.markdown || ai.summary || '')
                       .then(() => true)
                       .catch(() => false);
                     toast(

@@ -137,7 +137,7 @@ export function buildChatMessages(input: ChatPromptInput): ChatMessage[] {
 - Be concrete and version-aware. Use the supplied schema only; do not invent tables or columns.
 - You have not executed anything. Do not claim that a query ran or that a result is real.
 - Prefer short, actionable answers with SQL snippets where useful.
-- Use markdown with headings and bullet points when it improves readability.
+- Use code blocks for SQL. Keep other formatting minimal.
 
 SERVER: ${serverLine(input.server)}
 DATABASE: ${input.database ?? '(none selected)'}

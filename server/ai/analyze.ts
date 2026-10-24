@@ -63,7 +63,7 @@ const AiReviewSchema = z
 interface ParsedAiReview {
   verdict: AiReview['verdict'];
   score: number | null;
-  summary: string;
+  summary?: string;
   findings: Finding[];
   rewrite: AiReview['rewrite'];
 }
@@ -191,9 +191,7 @@ export function parseAiReview(text: string): ParsedAiReview | null {
       severity,
       category,
       message,
-      recommendation:
-        (raw.recommendation ?? '').trim() ||
-        'Review the suggestion against the schema and verify it with EXPLAIN before changing production code.',
+      recommendation: (raw.recommendation ?? '').trim() || undefined,
       evidence: (raw.evidence ?? '').trim() || undefined,
       line,
       column: null,
@@ -230,15 +228,13 @@ export function parseAiReview(text: string): ParsedAiReview | null {
       ? Math.max(0, Math.min(100, Math.round(parsed.data.score)))
       : null;
 
-  const summary = (parsed.data.summary ?? '').trim() || 'AI review completed.';
+  const summary = (parsed.data.summary ?? '').trim() || undefined;
   const rewriteSql = parsed.data.rewrite?.sql?.trim();
   const rewrite =
     rewriteSql && rewriteSql.length <= 50_000
       ? {
           sql: rewriteSql,
-          explanation:
-            (parsed.data.rewrite?.explanation ?? '').trim() ||
-            'The reviewer suggested this rewrite.',
+          explanation: (parsed.data.rewrite?.explanation ?? '').trim() || undefined,
         }
       : null;
 

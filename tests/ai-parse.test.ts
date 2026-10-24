@@ -78,4 +78,18 @@ describe('AI review parsing', () => {
     expect(parsed?.score).toBe(100);
     expect(parsed?.rewrite).toBeNull();
   });
+
+  it('omits absent summary, recommendation, and rewrite explanation instead of filling them', () => {
+    const parsed = parseAiReview(
+      JSON.stringify({
+        verdict: 'warn',
+        findings: [{ title: 'Risky', severity: 'medium', detail: 'Be careful' }],
+        rewrite: { sql: 'SELECT 1', explanation: '' },
+      }),
+    );
+    expect(parsed?.summary).toBeUndefined();
+    expect(parsed?.findings[0].recommendation).toBeUndefined();
+    expect(parsed?.rewrite?.sql).toBe('SELECT 1');
+    expect(parsed?.rewrite?.explanation).toBeUndefined();
+  });
 });

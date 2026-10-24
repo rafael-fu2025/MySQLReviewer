@@ -64,7 +64,7 @@ export function FindingCard({
         </div>
       ) : null}
       <div className="finding-message">{finding.message}</div>
-      {!compact ? (
+      {!compact && finding.recommendation ? (
         <div className="finding-rec">
           <span className="font-semibold text-ink-soft">Fix:</span> {finding.recommendation}
         </div>
@@ -165,7 +165,7 @@ function filterFindings(
       finding.title.toLowerCase().includes(needle) ||
       finding.message.toLowerCase().includes(needle) ||
       finding.ruleId.toLowerCase().includes(needle) ||
-      finding.recommendation.toLowerCase().includes(needle)
+      (finding.recommendation ?? '').toLowerCase().includes(needle)
     );
   });
 }

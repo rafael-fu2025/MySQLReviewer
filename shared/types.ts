@@ -24,7 +24,8 @@ export interface Finding {
   severity: Severity;
   category: FindingCategory;
   message: string;
-  recommendation: string;
+  /** AI findings may omit a recommendation; rules always provide one. */
+  recommendation?: string;
   evidence?: string;
   line?: number | null;
   column?: number | null;
@@ -546,7 +547,8 @@ export interface AiReviewRequest {
 
 export interface AiRewrite {
   sql: string;
-  explanation: string;
+  /** Optional; omitted when the model gave no explanation. */
+  explanation?: string;
 }
 
 export interface AiReview {
@@ -555,7 +557,8 @@ export interface AiReview {
   model: string;
   verdict: 'pass' | 'warn' | 'fail' | 'unknown';
   score: number | null;
-  summary: string;
+  /** Optional; omitted when the model gave no summary. */
+  summary?: string;
   findings: Finding[];
   rewrite: AiRewrite | null;
   markdown: string;
