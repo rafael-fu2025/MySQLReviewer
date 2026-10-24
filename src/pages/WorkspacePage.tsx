@@ -82,7 +82,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
       ) : null}
 
       {result ? (
-        <div className="stat-grid">
+        <div className="stat-grid stat-grid-4">
           <div className="stat">
             <div className="stat-label">Statement</div>
             <div className="stat-value text-[13px] uppercase">{result.kind}</div>
@@ -865,6 +865,7 @@ export function WorkspacePage() {
             >
               Review
             </Button>
+            <div className="toolbar-sep" aria-hidden="true" />
             <Button variant="ghost" size="sm" icon={<Wand2 size={12} />} onClick={formatCurrent}>
               Format
             </Button>

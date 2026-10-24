@@ -182,6 +182,29 @@ practiceRouter.get(
   }),
 );
 
+/**
+ * The graded answers of one set. The client uses this to rebuild the answered
+ * state after a reload, so the attempt history has to be readable per set and
+ * not only through the profile-wide listing.
+ */
+practiceRouter.get(
+  '/sets/:id/attempts',
+  asyncHandler(async (req, res) => {
+    const id = param(req, 'id');
+    const query = parseQuery(AnswersQuery, req);
+    const set = await getPracticeSet(id);
+    if (!canRevealPracticeAnswers(set, query.profileId)) {
+      throw new AppError(
+        'PRACTICE_SET_FORBIDDEN',
+        'This practice set belongs to another connection.',
+        403,
+      );
+    }
+    const attempts = await listPracticeAttemptsForSet(query.profileId, set.id);
+    res.json({ data: attempts.map(toPublicPracticeAttempt) });
+  }),
+);
+
 practiceRouter.get(
   '/progress',
   asyncHandler(async (req, res) => {

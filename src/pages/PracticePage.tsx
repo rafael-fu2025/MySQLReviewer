@@ -13,7 +13,6 @@ import {
   PanelRight,
   PanelRightClose,
   RefreshCw,
-  Settings2,
   Sparkles,
   Target,
   Trash2,
@@ -32,7 +31,7 @@ import type {
   QueryResult,
 } from '@shared/types';
 import { PRACTICE_DIFFICULTIES, PRACTICE_TOPICS } from '@shared/types';
-import { useAppStore } from '@/store/app-store';
+import { useAppStore, BOOT_PATH } from '@/store/app-store';
 import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { formatDate } from '@/lib/format';
@@ -83,6 +82,7 @@ const CHALLENGE_COUNTS = [5, 10, 15, 20, 25];
 
 const DRAFT_PREFIX = 'mylens.practice.draft';
 const SCHEMA_PANEL_KEY = 'mylens.practice.schemaPanel';
+const LAST_SET_PREFIX = 'mylens.practice.lastSet';
 
 function quoteIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
@@ -128,8 +128,66 @@ function writeDraft(profileId: string, setId: string, drafts: Record<string, Pra
   }
 }
 
+function lastSetKey(profileId: string): string {
+  return `${LAST_SET_PREFIX}.${profileId}`;
+}
+
+/** The set that was open last, so a reload lands on the same challenge set. */
+function readLastSetId(profileId: string): string | null {
+  try {
+    return localStorage.getItem(lastSetKey(profileId));
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSetId(profileId: string, setId: string | null): void {
+  try {
+    const key = lastSetKey(profileId);
+    if (setId) localStorage.setItem(key, setId);
+    else localStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable (private mode, quota); the restore is a convenience.
+  }
+}
+
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
+}
+
+/** The saved challenge sets, so a previous one can be picked up again. */
+function RecentSetsCard({
+  sets,
+  onPick,
+}: {
+  sets: PracticeSetPublic[];
+  onPick: (item: PracticeSetPublic) => void;
+}) {
+  if (sets.length === 0) return null;
+  return (
+    <Card className="p-4">
+      <div className="section-title mb-2">Recent challenge sets</div>
+      <div className="flex flex-col gap-1.5">
+        {sets.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
+            onClick={() => onPick(item)}
+          >
+            <FlaskConical size={13} className="text-muted" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[11px] text-ink-soft">
+                {item.database} · {item.questions.length} challenges
+              </span>
+              <span className="block text-[10px] text-muted">{formatDate(item.createdAt)}</span>
+            </span>
+            <Badge tone="neutral">{item.model}</Badge>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
 }
 
 function topicLabel(topic: PracticeTopic): string {
@@ -294,6 +352,18 @@ export function PracticePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isLargeViewport, schemaDrawerOpen, toggleSchemaPanel]);
 
+  // The challenge view is three columns: the challenge itself (brief, editor,
+  // result), the database tables and the question tracker. The tables and the
+  // tracker keep their own width on the right, and the tree scrolls inside the
+  // table panel instead of resizing the editor.
+  const stageColumns = cn(
+    'grid grid-cols-1 gap-4',
+    schemaPanelOpen && navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_300px_224px]',
+    schemaPanelOpen && !navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_300px]',
+    !schemaPanelOpen && navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_224px]',
+    !schemaPanelOpen && !navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)]',
+  );
+
   const answeredCount = useMemo(
     () =>
       practiceSet
@@ -425,6 +495,39 @@ export function PracticePage() {
     }
   };
 
+  /**
+   * Rebuild the answered state of a set from the recorded attempts. The server
+   * owns the graded answers, so a reload has to bring them back instead of
+   * leaving only the generated questions.
+   */
+  const loadAttempts = async (setId: string): Promise<void> => {
+    if (!activeProfileId) return;
+    try {
+      const attempts = await dbApi.practiceSetAttempts(setId, activeProfileId);
+      if (activeSetId.current !== setId) return;
+      setAnswers((previous) => {
+        const next = { ...previous };
+        // Attempts are stored newest first, so the first hit for a question is
+        // its most recent grade. A grade made in this session wins over it.
+        for (const attempt of attempts) {
+          if (next[attempt.questionId]?.evaluation) continue;
+          next[attempt.questionId] = {
+            sql: attempt.userSql,
+            answer: attempt.userAnswer,
+            evaluation: {
+              ...attempt.evaluation,
+              referenceSql: null,
+              referenceResult: null,
+            },
+          };
+        }
+        return next;
+      });
+    } catch {
+      // The recorded grades are supplementary; the set still works without them.
+    }
+  };
+
   const activateSet = (next: PracticeSetPublic | null): void => {
     activeSetId.current = next?.id ?? null;
     persistedSetId.current = null;
@@ -450,8 +553,38 @@ export function PracticePage() {
         );
       }
     }
-    if (next) void loadAnswers(next.id);
+    if (next) {
+      // Remember the set per connection so a reload lands on the same set with
+      // its graded answers.
+      writeLastSetId(activeProfileId ?? next.profileId, next.id);
+      void loadAnswers(next.id);
+      void loadAttempts(next.id);
+    }
   };
+
+  // Restore the set that was open last. Without this the answered questions
+  // would only come back after the set is picked from the recent list again.
+  // Only a reload of the practice page restores it: jumping to SQL Lab from
+  // somewhere else lands on the hub, so a new set can still be generated.
+  const restoredSetProfile = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeProfileId || practiceSet) return;
+    if (restoredSetProfile.current === activeProfileId) return;
+    restoredSetProfile.current = activeProfileId;
+    if (BOOT_PATH !== '/practice') return;
+    const lastId = readLastSetId(activeProfileId);
+    if (!lastId) return;
+    void dbApi
+      .practiceSets(activeProfileId, 50)
+      .then((sets) => {
+        const found = sets.find((item) => item.id === lastId);
+        if (found) activateSet(found);
+      })
+      .catch(() => undefined);
+    // `activateSet` changes on every render; the guard above keeps it to one
+    // restore per connection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProfileId, practiceSet]);
 
   const loadProgress = async (): Promise<void> => {
     if (!activeProfileId) return;
@@ -462,6 +595,16 @@ export function PracticePage() {
       // Supplementary UI.
     }
   };
+
+  // The saved sets are listed on the hub, so they have to be there before the
+  // setup modal is opened.
+  useEffect(() => {
+    if (!activeProfileId) return;
+    void dbApi
+      .practiceSets(activeProfileId, 5)
+      .then((sets) => setRecentSets(sets))
+      .catch(() => undefined);
+  }, [activeProfileId]);
 
   const generate = async (): Promise<void> => {
     if (!activeProfileId || !selectedDatabase) {
@@ -664,6 +807,15 @@ export function PracticePage() {
       await dbApi.clearPracticeAttempts(activeProfileId);
       setClearConfirm(false);
       setAnswerMaterial({});
+      // The server is the source of truth for graded answers, so the client
+      // drops them too. The text stays and is kept as a draft.
+      setAnswers((previous) => {
+        const next: Record<string, AnswerState> = {};
+        for (const [questionId, value] of Object.entries(previous)) {
+          next[questionId] = { ...value, evaluation: null, duplicate: false };
+        }
+        return next;
+      });
       await loadProgress();
       toast('Practice attempts cleared.', 'success');
     } catch (err) {
@@ -688,7 +840,7 @@ export function PracticePage() {
   }
 
   return (
-    <div className="page">
+    <div className={cn('page', !practiceSet && 'page-centered')}>
       {practiceSet ? (
         <div className="practice-toolbar">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -713,10 +865,11 @@ export function PracticePage() {
             <Button
               variant="secondary"
               size="sm"
-              icon={<Settings2 size={12} />}
+              icon={<Sparkles size={12} />}
               onClick={openSetup}
+              title="Generate another challenge set"
             >
-              Lab setup
+              New challenges
             </Button>
           </div>
         </div>
@@ -729,7 +882,17 @@ export function PracticePage() {
               <Badge tone="mint">
                 <Target size={10} /> {selectedDatabase}
               </Badge>
-              <Button variant="primary" size="sm" icon={<Sparkles size={12} />} onClick={openSetup}>
+              {/*
+               * The empty state below already carries the primary "Generate
+               * challenges" action, so the header keeps a secondary shortcut
+               * rather than a second orange button for the same thing.
+               */}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Sparkles size={12} />}
+                onClick={openSetup}
+              >
                 Generate challenges
               </Button>
             </>
@@ -755,7 +918,7 @@ export function PracticePage() {
         </div>
       ) : null}
 
-      <div className={cn('practice-stage', !navigatorOpen && 'practice-stage-wide')}>
+      <div className="practice-stage">
         <Modal
           open={setupOpen}
           onClose={closeSetup}
@@ -1031,203 +1194,177 @@ export function PracticePage() {
                 )}
               </Card>
 
-              {recentSets.length > 0 ? (
-                <Card className="p-4">
-                  <div className="section-title mb-2">Recent challenge sets</div>
-                  <div className="flex flex-col gap-1.5">
-                    {recentSets.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
-                        onClick={() => {
-                          activateSet(item);
-                          setSetupOpen(false);
-                        }}
-                      >
-                        <FlaskConical size={13} className="text-muted" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[11px] text-ink-soft">
-                            {item.database} · {item.questions.length} challenges
-                          </span>
-                          <span className="block text-[10px] text-muted">
-                            {formatDate(item.createdAt)}
-                          </span>
-                        </span>
-                        <Badge tone="neutral">{item.model}</Badge>
-                      </button>
-                    ))}
-                  </div>
-                </Card>
-              ) : null}
+              <RecentSetsCard
+                sets={recentSets}
+                onPick={(item) => {
+                  activateSet(item);
+                  setSetupOpen(false);
+                }}
+              />
             </div>
           </div>
         </Modal>
 
         <div className="practice-main">
           {!practiceSet ? (
-            <EmptyState
-              icon={<Target size={26} />}
-              title="No challenge set yet"
-              copy="Choose tables and topics, then generate a set. You can answer with SQL or a written explanation, depending on the challenge."
-              action={
-                <Button variant="primary" icon={<Sparkles size={13} />} onClick={openSetup}>
-                  Generate a challenge set
-                </Button>
-              }
-            />
+            <>
+              <EmptyState
+                icon={<Target size={26} />}
+                title="No challenge set yet"
+                copy="Choose tables and topics, then generate a set. You can answer with SQL or a written explanation, depending on the challenge."
+                action={
+                  <Button variant="primary" icon={<Sparkles size={13} />} onClick={openSetup}>
+                    Generate challenges
+                  </Button>
+                }
+              />
+              <div className="mt-3">
+                <RecentSetsCard sets={recentSets} onPick={(item) => activateSet(item)} />
+              </div>
+            </>
           ) : question ? (
             <>
-              <Card className="p-4 practice-question">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="ember">
-                    {activeIndex + 1} / {practiceSet.questions.length}
-                  </Badge>
-                  <Badge tone="neutral">{question.type.replace('-', ' ')}</Badge>
-                  <Badge
-                    tone={
-                      question.difficulty === 'easy'
-                        ? 'mint'
-                        : question.difficulty === 'hard'
-                          ? 'danger'
-                          : 'warn'
-                    }
-                  >
-                    {question.difficulty}
-                  </Badge>
-                  {question.topics.map((topic) => (
-                    <Badge key={topic} tone="neutral">
-                      {topicLabel(topic)}
-                    </Badge>
-                  ))}
-                  {flaggedCurrent ? (
-                    <Badge tone="warn">
-                      <Flag size={9} /> flagged
-                    </Badge>
-                  ) : null}
-                  <span className="ml-auto text-[10px] text-muted">
-                    ~{question.estimatedMinutes} min · {question.schemaTables.join(', ')}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-pressed={schemaPanelVisible}
-                    title="Toggle schema browser (Ctrl/Cmd+B)"
-                    icon={<PanelRight size={12} />}
-                    onClick={toggleSchemaPanel}
-                  >
-                    Schema
-                    <span className="hidden xl:inline-flex">
-                      <Kbd>Ctrl B</Kbd>
-                    </span>
-                  </Button>
-                </div>
-
-                <h2 className="mt-3 text-[19px] font-extrabold tracking-tight">{question.title}</h2>
-                <div className="mt-2 whitespace-pre-wrap text-[12.5px] leading-6 text-ink-soft">
-                  {question.scenario}
-                </div>
-
-                {question.brokenSql ? (
-                  <div className="mt-3">
-                    <div className="mono-label mb-1">
-                      {question.type === 'fix-query'
-                        ? 'Broken / inefficient query'
-                        : 'Query to review'}
-                    </div>
-                    <CodeBlock text={question.brokenSql} className="max-h-52 text-[11px]" />
-                  </div>
-                ) : null}
-
-                {question.hints.length > 0 ? (
-                  <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-2.5 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <Lightbulb size={11} className="text-warn" />
-                      <span className="text-[10.5px] font-semibold tracking-wide text-warn uppercase">
-                        Hints
+              {/*
+               * The challenge workspace is three columns: the challenge itself
+               * (brief, editor, result), the database tables and the question
+               * tracker. The tables and the tracker stay pinned to the right.
+               */}
+              <div className={stageColumns}>
+                <div className="flex min-w-0 flex-col gap-3">
+                  <Card className="p-4 practice-question">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="ember">
+                        {activeIndex + 1} / {practiceSet.questions.length}
+                      </Badge>
+                      <Badge tone="neutral">{question.type.replace('-', ' ')}</Badge>
+                      <Badge
+                        tone={
+                          question.difficulty === 'easy'
+                            ? 'mint'
+                            : question.difficulty === 'hard'
+                              ? 'danger'
+                              : 'warn'
+                        }
+                      >
+                        {question.difficulty}
+                      </Badge>
+                      {question.topics.map((topic) => (
+                        <Badge key={topic} tone="neutral">
+                          {topicLabel(topic)}
+                        </Badge>
+                      ))}
+                      {flaggedCurrent ? (
+                        <Badge tone="warn">
+                          <Flag size={9} /> flagged
+                        </Badge>
+                      ) : null}
+                      <span className="ml-auto text-[10px] text-muted">
+                        ~{question.estimatedMinutes} min · {question.schemaTables.join(', ')}
                       </span>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="ml-auto h-6 px-2 text-[10.5px]"
-                        onClick={() =>
-                          setHintsShown((value) => Math.min(question.hints.length, value + 1))
-                        }
-                        disabled={hintsShown >= question.hints.length}
+                        aria-pressed={schemaPanelVisible}
+                        title="Toggle schema browser (Ctrl/Cmd+B)"
+                        icon={<PanelRight size={12} />}
+                        onClick={toggleSchemaPanel}
                       >
-                        {hintsShown === 0 ? 'Show a hint' : 'Another hint'}
+                        Schema
+                        <span className="hidden xl:inline-flex">
+                          <Kbd>Ctrl B</Kbd>
+                        </span>
                       </Button>
                     </div>
-                    {question.hints.slice(0, hintsShown).map((hint, index) => (
-                      <div key={index} className="mt-1 text-[11px] leading-5 text-ink-soft">
-                        {index + 1}. {hint}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
 
-                <div className="mt-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      {question.type === 'write-query' || question.type === 'fix-query' ? (
-                        <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
-                          <SqlEditor
-                            value={current.sql}
-                            onChange={(value) => updateCurrent({ sql: value })}
-                            schema={schema}
-                            profileId={activeProfileId}
-                            database={pinnedDatabase}
-                            liveLint={settings.liveLint}
-                            onRun={() => void runQuery(current.sql)}
-                            onRunSelection={() => void runQuery(current.sql)}
-                            onReview={() => undefined}
-                            onReady={(view) => {
-                              editorView.current = view;
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <Field
-                          label={
-                            question.type === 'review-query'
-                              ? 'Explain the issues you find'
-                              : 'Your answer, design notes, or explanation'
-                          }
-                        >
-                          <Textarea
-                            className="min-h-[220px]"
-                            value={current.answer}
-                            onChange={(event) => updateCurrent({ answer: event.target.value })}
-                            placeholder={
-                              question.type === 'review-query'
-                                ? 'List the problems, why they matter, and how you would fix them…'
-                                : 'Write your reasoning and any SQL/DDL you would use…'
-                            }
-                          />
-                        </Field>
-                      )}
+                    <h2 className="mt-3 text-[19px] font-extrabold tracking-tight">
+                      {question.title}
+                    </h2>
+                    <div className="mt-2 whitespace-pre-wrap text-[12.5px] leading-6 text-ink-soft">
+                      {question.scenario}
                     </div>
 
-                    {schemaPanelOpen ? (
-                      <aside className="hidden w-[280px] shrink-0 overflow-hidden rounded-xl border border-line-soft bg-panel lg:flex lg:min-h-[280px] lg:flex-col xl:w-[320px]">
-                        <SchemaSidebar
-                          variant="panel"
-                          className="min-h-0 flex-1"
-                          database={practiceSet?.database ?? pinnedDatabase}
-                          profileId={activeProfileId}
-                          onInsert={insertFromSchema}
-                          onPreviewTable={previewTable}
-                        />
-                      </aside>
+                    {question.brokenSql ? (
+                      <div className="mt-3">
+                        <div className="mono-label mb-1">
+                          {question.type === 'fix-query'
+                            ? 'Broken / inefficient query'
+                            : 'Query to review'}
+                        </div>
+                        <CodeBlock text={question.brokenSql} className="max-h-52 text-[11px]" />
+                      </div>
                     ) : null}
-                  </div>
 
-                  {runError ? <div className="callout danger mt-2">{runError}</div> : null}
+                    {question.hints.length > 0 ? (
+                      <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-2.5 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <Lightbulb size={11} className="text-warn" />
+                          <span className="text-[10.5px] font-semibold tracking-wide text-warn uppercase">
+                            Hints
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto h-6 px-2 text-[10.5px]"
+                            onClick={() =>
+                              setHintsShown((value) => Math.min(question.hints.length, value + 1))
+                            }
+                            disabled={hintsShown >= question.hints.length}
+                          >
+                            {hintsShown === 0 ? 'Show a hint' : 'Another hint'}
+                          </Button>
+                        </div>
+                        {question.hints.slice(0, hintsShown).map((hint, index) => (
+                          <div key={index} className="mt-1 text-[11px] leading-5 text-ink-soft">
+                            {index + 1}. {hint}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </Card>
+
+                  {question.type === 'write-query' || question.type === 'fix-query' ? (
+                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
+                      <SqlEditor
+                        value={current.sql}
+                        onChange={(value) => updateCurrent({ sql: value })}
+                        schema={schema}
+                        profileId={activeProfileId}
+                        database={pinnedDatabase}
+                        liveLint={settings.liveLint}
+                        onRun={() => void runQuery(current.sql)}
+                        onRunSelection={() => void runQuery(current.sql)}
+                        onReview={() => undefined}
+                        onReady={(view) => {
+                          editorView.current = view;
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40 p-3">
+                      <Field
+                        label={
+                          question.type === 'review-query'
+                            ? 'Explain the issues you find'
+                            : 'Your answer, design notes, or explanation'
+                        }
+                      >
+                        <Textarea
+                          className="min-h-[220px]"
+                          value={current.answer}
+                          onChange={(event) => updateCurrent({ answer: event.target.value })}
+                          placeholder={
+                            question.type === 'review-query'
+                              ? 'List the problems, why they matter, and how you would fix them…'
+                              : 'Write your reasoning and any SQL/DDL you would use…'
+                          }
+                        />
+                      </Field>
+                    </div>
+                  )}
+
+                  {runError ? <div className="callout danger">{runError}</div> : null}
                   {runResult ? (
-                    <details
-                      open
-                      className="mt-2 rounded-xl border border-line-soft bg-panel-2/40 p-2"
-                    >
+                    <details open className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
                       <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
                         Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
                       </summary>
@@ -1236,246 +1373,340 @@ export function PracticePage() {
                       </div>
                     </details>
                   ) : null}
-                </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="primary"
-                    icon={submitting ? <Spinner size={12} /> : <CheckCircle2 size={13} />}
-                    onClick={() => void evaluate()}
-                    loading={submitting}
-                  >
-                    Submit answer
-                  </Button>
-                  {question.type === 'review-query' || question.type === 'concept' ? (
-                    <span className="text-[10px] text-muted">
-                      This answer is graded without execution.
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-muted">
-                      {running
-                        ? 'Running the query…'
-                        : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Submit grades it.`}
-                    </span>
-                  )}
-                </div>
-              </Card>
-
-              {/* Released by the server only after this question was attempted. */}
-              {reference ? (
-                <Card className="p-4">
-                  <details>
-                    <summary className="cursor-pointer text-[11px] font-semibold text-muted">
-                      Reference solution
-                    </summary>
-                    {reference.brokenSql && question.type !== 'fix-query' ? (
-                      <>
-                        <div className="mono-label mt-2">Query under review</div>
-                        <CodeBlock text={reference.brokenSql} className="mt-1 text-[11px]" />
-                      </>
-                    ) : null}
-                    {reference.referenceSql ? (
-                      <CodeBlock text={reference.referenceSql} className="mt-2 text-[11px]" />
-                    ) : (
-                      <div className="mt-2 text-[11px] text-muted">
-                        This challenge has no reference SQL; compare with the feedback above.
-                      </div>
-                    )}
-                    {reference.expectedResult ? (
-                      <div className="mt-2 text-[11px] text-muted">
-                        Expected: {reference.expectedResult}
-                      </div>
-                    ) : null}
-                    {reference.orderMatters ? (
-                      <div className="mt-2">
-                        <Badge tone="neutral">row order matters</Badge>
-                      </div>
-                    ) : null}
-                  </details>
-                </Card>
-              ) : null}
-
-              {evaluation ? (
-                <Card className="p-4">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                    <ScoreRing score={evaluation.scores.overall} size={112} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={verdictTone(evaluation.verdict)}>
-                          {evaluation.verdict === 'not-executed'
-                            ? 'reviewed'
-                            : evaluation.verdict.replace('-', ' ')}
-                        </Badge>
-                        {evaluation.executed ? (
-                          <Badge tone="mint">executed read-only</Badge>
-                        ) : (
-                          <Badge tone="warn">not executed</Badge>
-                        )}
-                        {current.duplicate ? (
-                          <Badge tone="info">already submitted · not counted again</Badge>
-                        ) : null}
-                        <span className="ml-auto text-[10px] text-muted">
-                          {evaluation.executed
-                            ? 'result compared with the reference'
-                            : 'graded from your written answer'}
-                        </span>
-                      </div>
-                      <div className="mt-2 text-[12.5px] text-ink-soft">{evaluation.summary}</div>
-                      <div className="practice-score-grid mt-3">
-                        <div className="stat">
-                          <div className="stat-label">Correctness</div>
-                          <div className="stat-value">{evaluation.scores.correctness}</div>
-                        </div>
-                        <div className="stat">
-                          <div className="stat-label">Performance</div>
-                          <div className="stat-value">{evaluation.scores.performance}</div>
-                        </div>
-                        <div className="stat">
-                          <div className="stat-label">Style</div>
-                          <div className="stat-value">{evaluation.scores.style}</div>
-                        </div>
-                      </div>
-                      <details className="score-explainer mt-2">
-                        <summary>
-                          <Info size={11} /> How this score is calculated
-                        </summary>
-                        <div className="score-explainer-body">
-                          Correctness is 60% of the overall score and comes from comparing your
-                          result with the reference (column count, row multiset, and order when
-                          required). Performance is 25% from static rules and EXPLAIN. Style is 15%
-                          from readability rules. A truncated comparison caps correctness at 90;
-                          non-executed answers use the AI evaluation only.
-                        </div>
-                      </details>
-                    </div>
-                  </div>
-
-                  {evaluation.comparison ? (
-                    <div className="mt-4">
-                      <div className="section-title mb-2">Result comparison</div>
-                      <ComparisonView comparison={evaluation.comparison} />
-                    </div>
-                  ) : null}
-
-                  {evaluation.strengths.length > 0 || evaluation.issues.length > 0 ? (
-                    <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                      {evaluation.strengths.length > 0 ? (
-                        <div className="rounded-xl border border-mint/20 bg-mint/5 p-3">
-                          <div className="section-title mb-1 text-mint">What worked</div>
-                          {evaluation.strengths.map((item, index) => (
-                            <div key={index} className="text-[11.5px] text-ink-soft">
-                              • {item}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      {evaluation.issues.length > 0 ? (
-                        <div className="rounded-xl border border-warn/20 bg-warn/5 p-3">
-                          <div className="section-title mb-1 text-warn">What to fix</div>
-                          {evaluation.issues.map((item, index) => (
-                            <div key={index} className="text-[11.5px] text-ink-soft">
-                              • {item}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  <div className="callout mt-4 flex items-start gap-2">
-                    <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
-                    <div>
-                      <div className="font-semibold text-ink">Next hint</div>
-                      <div className="text-[11.5px] text-muted">{evaluation.nextHint}</div>
-                    </div>
-                  </div>
-
-                  {evaluation.aiFeedback ? (
-                    <div className="mt-4">
-                      <div className="section-title mb-2">AI feedback</div>
-                      <Markdown>{evaluation.aiFeedback}</Markdown>
-                    </div>
-                  ) : null}
-
-                  {evaluation.findings.length > 0 ? (
-                    <div className="mt-4">
-                      <div className="section-title mb-2">Rule findings on your answer</div>
-                      <FindingsList
-                        findings={evaluation.findings}
-                        compact
-                        showFilters={false}
-                        emptyTitle="No rule findings"
-                      />
-                    </div>
-                  ) : null}
-
-                  {evaluation.explain ? (
-                    <details className="mt-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
-                      <summary className="cursor-pointer text-[11px] font-semibold text-muted">
-                        EXPLAIN plan for your answer
-                      </summary>
-                      <div className="mt-2">
-                        <ExplainPanel explain={evaluation.explain} analyzing={false} />
-                      </div>
-                    </details>
-                  ) : null}
-
-                  {evaluation.userResult || evaluation.referenceResult ? (
-                    <div className="mt-4 flex flex-col gap-2">
-                      {evaluation.userResult ? (
-                        <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                          <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
-                            Your result
-                          </summary>
-                          <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
-                            <ResultsGrid result={evaluation.userResult} />
-                          </div>
-                        </details>
-                      ) : null}
-                      {evaluation.referenceResult ? (
-                        <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                          <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
-                            Reference result
-                          </summary>
-                          <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
-                            <ResultsGrid result={evaluation.referenceResult} />
-                          </div>
-                        </details>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={<ArrowLeft size={12} />}
-                      onClick={() => goTo(activeIndex - 1)}
-                      disabled={activeIndex === 0}
-                    >
-                      Previous
-                    </Button>
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="primary"
-                      size="sm"
-                      onClick={() => goTo(activeIndex + 1)}
-                      disabled={activeIndex >= practiceSet.questions.length - 1}
+                      icon={submitting ? <Spinner size={12} /> : <CheckCircle2 size={13} />}
+                      onClick={() => void evaluate()}
+                      loading={submitting}
                     >
-                      Next challenge <ArrowRight size={12} />
+                      Submit answer
                     </Button>
+                    {question.type === 'review-query' || question.type === 'concept' ? (
+                      <span className="text-[10px] text-muted">
+                        This answer is graded without execution.
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted">
+                        {running
+                          ? 'Running the query…'
+                          : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Submit grades it.`}
+                      </span>
+                    )}
+                  </div>
+                  {/* Released by the server only after this question was attempted. */}
+                  {reference ? (
+                    <Card className="p-4">
+                      <details>
+                        <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+                          Reference solution
+                        </summary>
+                        {reference.brokenSql && question.type !== 'fix-query' ? (
+                          <>
+                            <div className="mono-label mt-2">Query under review</div>
+                            <CodeBlock text={reference.brokenSql} className="mt-1 text-[11px]" />
+                          </>
+                        ) : null}
+                        {reference.referenceSql ? (
+                          <CodeBlock text={reference.referenceSql} className="mt-2 text-[11px]" />
+                        ) : (
+                          <div className="mt-2 text-[11px] text-muted">
+                            This challenge has no reference SQL; compare with the feedback above.
+                          </div>
+                        )}
+                        {reference.expectedResult ? (
+                          <div className="mt-2 text-[11px] text-muted">
+                            Expected: {reference.expectedResult}
+                          </div>
+                        ) : null}
+                        {reference.orderMatters ? (
+                          <div className="mt-2">
+                            <Badge tone="neutral">row order matters</Badge>
+                          </div>
+                        ) : null}
+                      </details>
+                    </Card>
+                  ) : null}
+
+                  {evaluation ? (
+                    <Card className="p-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                        <ScoreRing score={evaluation.scores.overall} size={112} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone={verdictTone(evaluation.verdict)}>
+                              {evaluation.verdict === 'not-executed'
+                                ? 'reviewed'
+                                : evaluation.verdict.replace('-', ' ')}
+                            </Badge>
+                            {evaluation.executed ? (
+                              <Badge tone="mint">executed read-only</Badge>
+                            ) : (
+                              <Badge tone="warn">not executed</Badge>
+                            )}
+                            {current.duplicate ? (
+                              <Badge tone="info">already submitted · not counted again</Badge>
+                            ) : null}
+                            <span className="ml-auto text-[10px] text-muted">
+                              {evaluation.executed
+                                ? 'result compared with the reference'
+                                : 'graded from your written answer'}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-[12.5px] text-ink-soft">
+                            {evaluation.summary}
+                          </div>
+                          <div className="practice-score-grid mt-3">
+                            <div className="stat">
+                              <div className="stat-label">Correctness</div>
+                              <div className="stat-value">{evaluation.scores.correctness}</div>
+                            </div>
+                            <div className="stat">
+                              <div className="stat-label">Performance</div>
+                              <div className="stat-value">{evaluation.scores.performance}</div>
+                            </div>
+                            <div className="stat">
+                              <div className="stat-label">Style</div>
+                              <div className="stat-value">{evaluation.scores.style}</div>
+                            </div>
+                          </div>
+                          <details className="score-explainer mt-2">
+                            <summary>
+                              <Info size={11} /> How this score is calculated
+                            </summary>
+                            <div className="score-explainer-body">
+                              Correctness is 60% of the overall score and comes from comparing your
+                              result with the reference (column count, row multiset, and order when
+                              required). Performance is 25% from static rules and EXPLAIN. Style is
+                              15% from readability rules. A truncated comparison caps correctness at
+                              90; non-executed answers use the AI evaluation only.
+                            </div>
+                          </details>
+                        </div>
+                      </div>
+
+                      {evaluation.comparison ? (
+                        <div className="mt-4">
+                          <div className="section-title mb-2">Result comparison</div>
+                          <ComparisonView comparison={evaluation.comparison} />
+                        </div>
+                      ) : null}
+
+                      {evaluation.strengths.length > 0 || evaluation.issues.length > 0 ? (
+                        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                          {evaluation.strengths.length > 0 ? (
+                            <div className="rounded-xl border border-mint/20 bg-mint/5 p-3">
+                              <div className="section-title mb-1 text-mint">What worked</div>
+                              {evaluation.strengths.map((item, index) => (
+                                <div key={index} className="text-[11.5px] text-ink-soft">
+                                  • {item}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {evaluation.issues.length > 0 ? (
+                            <div className="rounded-xl border border-warn/20 bg-warn/5 p-3">
+                              <div className="section-title mb-1 text-warn">What to fix</div>
+                              {evaluation.issues.map((item, index) => (
+                                <div key={index} className="text-[11.5px] text-ink-soft">
+                                  • {item}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      <div className="callout mt-4 flex items-start gap-2">
+                        <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
+                        <div>
+                          <div className="font-semibold text-ink">Next hint</div>
+                          <div className="text-[11.5px] text-muted">{evaluation.nextHint}</div>
+                        </div>
+                      </div>
+
+                      {evaluation.aiFeedback ? (
+                        <div className="mt-4">
+                          <div className="section-title mb-2">AI feedback</div>
+                          <Markdown>{evaluation.aiFeedback}</Markdown>
+                        </div>
+                      ) : null}
+
+                      {evaluation.findings.length > 0 ? (
+                        <div className="mt-4">
+                          <div className="section-title mb-2">Rule findings on your answer</div>
+                          <FindingsList
+                            findings={evaluation.findings}
+                            compact
+                            showFilters={false}
+                            emptyTitle="No rule findings"
+                          />
+                        </div>
+                      ) : null}
+
+                      {evaluation.explain ? (
+                        <details className="mt-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
+                          <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+                            EXPLAIN plan for your answer
+                          </summary>
+                          <div className="mt-2">
+                            <ExplainPanel explain={evaluation.explain} analyzing={false} />
+                          </div>
+                        </details>
+                      ) : null}
+
+                      {evaluation.userResult || evaluation.referenceResult ? (
+                        <div className="mt-4 flex flex-col gap-2">
+                          {evaluation.userResult ? (
+                            <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
+                              <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                                Your result
+                              </summary>
+                              <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                                <ResultsGrid result={evaluation.userResult} />
+                              </div>
+                            </details>
+                          ) : null}
+                          {evaluation.referenceResult ? (
+                            <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
+                              <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                                Reference result
+                              </summary>
+                              <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                                <ResultsGrid result={evaluation.referenceResult} />
+                              </div>
+                            </details>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={<ArrowLeft size={12} />}
+                          onClick={() => goTo(activeIndex - 1)}
+                          disabled={activeIndex === 0}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => goTo(activeIndex + 1)}
+                          disabled={activeIndex >= practiceSet.questions.length - 1}
+                        >
+                          Next challenge <ArrowRight size={12} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto"
+                          onClick={() => {
+                            updateCurrent({ evaluation: null, duplicate: false });
+                          }}
+                        >
+                          Try again
+                        </Button>
+                      </div>
+                    </Card>
+                  ) : null}
+                </div>
+
+                {schemaPanelOpen ? (
+                  /*
+                   * The panel hugs its content and scrolls the tree inside a
+                   * bounded box, so it stays a panel next to the taller first
+                   * column instead of stretching down with the results.
+                   *
+                   * h-0 + min-h-full keeps the wrapper out of the row's height
+                   * calculation: without it the panel would decide how tall the
+                   * row is, and expanding a table would resize the editor.
+                   */
+                  <aside className="hidden h-0 min-h-full lg:flex lg:flex-col">
+                    <div className="sticky top-4 flex flex-col overflow-hidden rounded-xl border border-line-soft bg-panel">
+                      <SchemaSidebar
+                        variant="panel"
+                        compact
+                        treeMaxHeight="min(400px, calc(100vh - 22rem))"
+                        className="min-h-0"
+                        database={practiceSet?.database ?? pinnedDatabase}
+                        profileId={activeProfileId}
+                        onInsert={insertFromSchema}
+                        onPreviewTable={previewTable}
+                      />
+                    </div>
+                  </aside>
+                ) : null}
+
+                {practiceSet && navigatorOpen ? (
+                  <aside className="practice-nav self-start" aria-label="Question navigator">
+                    <div className="practice-nav-head">
+                      <ListChecks size={13} className="text-ember" />
+                      <span>Questions</span>
+                      <span className="practice-nav-count">
+                        {answeredCount}/{practiceSet.questions.length}
+                      </span>
+                      <IconButton
+                        label="Hide question navigator"
+                        nativeTitle={false}
+                        onClick={() => setNavigatorOpen(false)}
+                      >
+                        <PanelRightClose size={12} />
+                      </IconButton>
+                    </div>
+                    <div className="practice-nav-grid">
+                      {practiceSet.questions.map((item, index) => {
+                        const answered = Boolean(answers[item.id]?.evaluation);
+                        const itemFlagged = Boolean(flagged[item.id]);
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={cn(
+                              'practice-nav-box',
+                              answered && 'answered',
+                              index === activeIndex && 'active',
+                              itemFlagged && 'flagged',
+                            )}
+                            onClick={() => goTo(index)}
+                            aria-label={`Question ${index + 1}${answered ? ', answered' : ', unanswered'}${itemFlagged ? ', flagged' : ''}`}
+                            title={item.title}
+                          >
+                            {index + 1}
+                            {itemFlagged ? (
+                              <Flag size={8} className="practice-nav-flag" fill="currentColor" />
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="practice-nav-legend">
+                      <span>
+                        <i className="practice-nav-dot answered" /> answered
+                      </span>
+                      <span>
+                        <i className="practice-nav-dot" /> unanswered
+                      </span>
+                      <span>
+                        <Flag size={9} /> flagged
+                      </span>
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="ml-auto"
+                      className={cn('practice-nav-flag-btn', flaggedCurrent && 'text-warn')}
+                      icon={<Flag size={11} fill={flaggedCurrent ? 'currentColor' : 'none'} />}
                       onClick={() => {
-                        updateCurrent({ evaluation: null, duplicate: false });
+                        if (question) toggleFlag(question.id);
                       }}
                     >
-                      Try again
+                      {flaggedCurrent ? 'Flagged for review' : 'Flag this question'}
                     </Button>
-                  </div>
-                </Card>
-              ) : null}
+                  </aside>
+                ) : null}
+              </div>
             </>
           ) : null}
         </div>
@@ -1514,73 +1745,6 @@ export function PracticePage() {
               </div>
             </aside>
           </div>
-        ) : null}
-
-        {practiceSet && navigatorOpen ? (
-          <aside className="practice-nav" aria-label="Question navigator">
-            <div className="practice-nav-head">
-              <ListChecks size={13} className="text-ember" />
-              <span>Questions</span>
-              <span className="practice-nav-count">
-                {answeredCount}/{practiceSet.questions.length}
-              </span>
-              <IconButton
-                label="Hide question navigator"
-                nativeTitle={false}
-                onClick={() => setNavigatorOpen(false)}
-              >
-                <PanelRightClose size={12} />
-              </IconButton>
-            </div>
-            <div className="practice-nav-grid">
-              {practiceSet.questions.map((item, index) => {
-                const answered = Boolean(answers[item.id]?.evaluation);
-                const itemFlagged = Boolean(flagged[item.id]);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={cn(
-                      'practice-nav-box',
-                      answered && 'answered',
-                      index === activeIndex && 'active',
-                      itemFlagged && 'flagged',
-                    )}
-                    onClick={() => goTo(index)}
-                    aria-label={`Question ${index + 1}${answered ? ', answered' : ', unanswered'}${itemFlagged ? ', flagged' : ''}`}
-                    title={item.title}
-                  >
-                    {index + 1}
-                    {itemFlagged ? (
-                      <Flag size={8} className="practice-nav-flag" fill="currentColor" />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="practice-nav-legend">
-              <span>
-                <i className="practice-nav-dot answered" /> answered
-              </span>
-              <span>
-                <i className="practice-nav-dot" /> unanswered
-              </span>
-              <span>
-                <Flag size={9} /> flagged
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn('practice-nav-flag-btn', flaggedCurrent && 'text-warn')}
-              icon={<Flag size={11} fill={flaggedCurrent ? 'currentColor' : 'none'} />}
-              onClick={() => {
-                if (question) toggleFlag(question.id);
-              }}
-            >
-              {flaggedCurrent ? 'Flagged for review' : 'Flag this question'}
-            </Button>
-          </aside>
         ) : null}
       </div>
 

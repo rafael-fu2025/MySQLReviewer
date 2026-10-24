@@ -364,7 +364,7 @@ export function AuditPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <div className="flex max-h-[420px] flex-col gap-1.5 overflow-auto pr-1">
+              <div className="scroll-fade-bottom flex max-h-[420px] flex-col gap-1.5 overflow-auto pr-1">
                 {filteredDatabases.map((database) => (
                   <button
                     key={database.name}

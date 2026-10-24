@@ -27,6 +27,7 @@ import {
   Spinner,
   Tabs,
 } from '@/components/ui';
+import { cn } from '@/lib/utils';
 
 /** Export is per report, so only that report's buttons go busy. */
 function isExporting(exporting: string | null, reportId: string): boolean {
@@ -118,7 +119,7 @@ export function ReportsPage() {
   };
 
   return (
-    <div className="page">
+    <div className={cn('page', reports.length === 0 && !loading && !loadError && 'page-centered')}>
       <PageHeader
         title="Reports"
         subtitle="Saved audits and AI-assisted query reviews, exportable as Markdown, HTML, or JSON."

@@ -205,10 +205,21 @@ a:hover {
   flex-basis: 76px;
 }
 
+/*
+ * The lockup is a grid, not a flex row. Sharing one row with the collapse
+ * toggle left the tagline only ~116px, which wrapped "MySQL Review Studio"
+ * onto two lines. The tagline now spans the full width on its own row and
+ * always sets on a single line.
+ */
 .brand {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'mark title toggle'
+    'mark sub   sub';
   align-items: center;
-  gap: 11px;
+  column-gap: 11px;
+  row-gap: 1px;
   padding: 2px 6px;
   border-radius: 10px;
   cursor: pointer;
@@ -219,6 +230,7 @@ a:hover {
 }
 
 .brand-mark {
+  grid-area: mark;
   width: 38px;
   height: 38px;
   border-radius: 12px;
@@ -235,6 +247,11 @@ a:hover {
   flex: 0 0 auto;
 }
 
+.brand-copy {
+  grid-area: title;
+  min-width: 0;
+}
+
 .brand-title {
   font-weight: 760;
   font-size: 17px;
@@ -242,11 +259,15 @@ a:hover {
   line-height: 1.1;
 }
 .brand-sub {
+  grid-area: sub;
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-muted);
   margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav {
@@ -436,6 +457,15 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+/*
+ * A page whose only content is an empty state sat in the top third of the
+ * viewport with a large void under it. `page-centered` lets the block take
+ * the full height of the scroll area and settles it in the middle.
+ */
+.page.page-centered {
+  min-height: 100%;
+  justify-content: center;
 }
 
 .page-header {
@@ -1093,6 +1123,22 @@ a:hover {
   background: color-mix(in oklab, var(--color-panel) 62%, transparent);
   flex-wrap: wrap;
 }
+/*
+ * The quiet utilities sat in the middle of the row in the same muted colour
+ * disabled buttons use, with no surface of their own, so they read as inert.
+ * The rule lifts their resting colour, and the separator gives the editor
+ * utilities their own group instead of trailing the statement actions.
+ */
+.toolbar .btn-ghost {
+  color: color-mix(in oklab, var(--color-ink) 60%, var(--color-muted));
+}
+.toolbar-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-line);
+}
 
 .statusbar {
   height: 26px;
@@ -1305,10 +1351,45 @@ a:hover {
 /* Stats / cards                                                    */
 /* ---------------------------------------------------------------- */
 
+/*
+ * `auto-fit` picked a column count that had nothing to do with how many tiles
+ * there were, so a six-tile row broke into four plus two with a hole beside
+ * it, and the row below was ragged at some widths and not others. The
+ * modifiers pin the column count to a divisor of the tile count, so every row
+ * fills evenly at every width.
+ */
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
+}
+.stat-grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.stat-grid-6 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 640px) {
+  .stat-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .stat-grid-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1400px) {
+  .stat-grid-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+/*
+ * A list capped at a fixed height cut its last row through the middle of the
+ * text, which read as a rendering fault rather than as "there is more below".
+ * The mask fades the cut edge.
+ */
+.scroll-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
 }
 .stat {
   border: 1px solid var(--color-line-soft);
@@ -1855,11 +1936,20 @@ a:hover {
     flex-basis: 76px;
   }
   .sidebar .brand-copy,
+  .sidebar .brand-sub,
   .sidebar .nav-item span,
   .sidebar .connection-copy,
   .sidebar .nav-label,
   .sidebar-footer .hide-collapse {
     display: none;
+  }
+  .sidebar .brand {
+    grid-template-columns: auto;
+    grid-template-areas:
+      'mark'
+      'toggle';
+    justify-items: center;
+    row-gap: 7px;
   }
   .sidebar .nav-item {
     justify-content: center;
@@ -2050,7 +2140,25 @@ a:hover {
 /* ---------------------------------------------------------------- */
 
 .brand-toggle {
+  grid-area: toggle;
   margin-left: auto;
+}
+
+/*
+ * Collapsed to a rail, the lockup becomes a single centred column: the mark
+ * on top, the expand toggle underneath. The tagline has no room at this
+ * width, so it is hidden along with the wordmark.
+ */
+.sidebar-collapsed .brand {
+  grid-template-columns: auto;
+  grid-template-areas:
+    'mark'
+    'toggle';
+  justify-items: center;
+  row-gap: 7px;
+}
+.sidebar-collapsed .brand-sub {
+  display: none;
 }
 
 .sidebar-collapsed {
@@ -2408,13 +2516,9 @@ a:hover {
   letter-spacing: -0.02em;
 }
 .practice-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 224px;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: start;
-}
-.practice-stage-wide {
-  grid-template-columns: minmax(0, 1fr);
 }
 .practice-main {
   min-width: 0;
@@ -2530,15 +2634,7 @@ a:hover {
   justify-content: flex-start;
   font-size: 10.5px;
 }
-@media (max-width: 1100px) {
-  .practice-stage {
-    grid-template-columns: minmax(0, 1fr) 200px;
-  }
-}
 @media (max-width: 980px) {
-  .practice-stage {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .practice-nav {
     position: static;
     order: -1;
@@ -2661,6 +2757,7 @@ a:hover {
 }
 
 .bottom-nav-item {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
   min-height: 48px;
@@ -2682,9 +2779,26 @@ a:hover {
     color 0.15s ease,
     background 0.15s ease;
 }
+/*
+ * The active item used to carry a 12% ember wash over the canvas, which read
+ * as a muddy brown block and was the loudest thing in the bar. The state is
+ * now the ember label plus a short rule above the icon: unmistakable, and it
+ * leaves the bar flat.
+ */
 .bottom-nav-item.active {
   color: var(--color-ember);
-  background: color-mix(in oklab, var(--color-ember) 12%, transparent);
+  background: color-mix(in oklab, var(--color-ember) 6%, transparent);
+}
+.bottom-nav-item.active::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 16px;
+  height: 2px;
+  margin-left: -8px;
+  border-radius: 2px;
+  background: var(--color-ember);
 }
 .bottom-nav-item:focus-visible {
   outline: 2px solid var(--color-ember);

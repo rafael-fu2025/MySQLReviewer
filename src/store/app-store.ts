@@ -17,6 +17,13 @@ import { api, ApiError, setApiToken, setUnauthorizedHandler } from '@/lib/api';
 
 const ACTIVE_KEY = 'mylens.activeProfile';
 
+/**
+ * The route the app was opened at. A client side navigation does not change it,
+ * so it tells a reload of a page apart from a jump to that page from another
+ * part of the app.
+ */
+export const BOOT_PATH = typeof window === 'undefined' ? '/' : window.location.pathname;
+
 export interface Toast {
   id: string;
   message: string;

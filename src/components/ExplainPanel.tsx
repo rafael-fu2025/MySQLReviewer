@@ -49,7 +49,7 @@ export function ExplainPanel({
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="stat-grid">
+      <div className="stat-grid stat-grid-4">
         <div className="stat">
           <div className="stat-label">Plan nodes</div>
           <div className="stat-value">{rows.length}</div>

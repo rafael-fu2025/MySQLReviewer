@@ -36,6 +36,14 @@ export interface SchemaSidebarProps {
   profileId?: string | null;
   className?: string;
   variant?: 'sidebar' | 'panel';
+  /**
+   * Panel variant only: hug the content instead of filling the column, and
+   * scroll the tree inside a bounded box. Used where the panel sits next to a
+   * taller column and must not stretch to match it.
+   */
+  compact?: boolean;
+  /** Maximum height of the scrollable tree in the compact panel variant. */
+  treeMaxHeight?: string;
   /** Renders a compact "Preview 5 rows" action next to each table. */
   onPreviewTable?: (table: string) => void;
 }
@@ -63,6 +71,8 @@ export function SchemaSidebar({
   profileId = null,
   className,
   variant = 'sidebar',
+  compact = false,
+  treeMaxHeight = '320px',
   onPreviewTable,
 }: SchemaSidebarProps) {
   const navigate = useNavigate();
@@ -489,7 +499,9 @@ export function SchemaSidebar({
   return (
     <div
       className={cn(
-        isPanel ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'schema-side',
+        isPanel
+          ? cn('flex h-full min-h-0 flex-col overflow-hidden', compact && 'h-auto')
+          : 'schema-side',
         className,
       )}
     >
@@ -539,9 +551,15 @@ export function SchemaSidebar({
       </div>
 
       {isPanel ? (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="pb-3">{tree}</div>
-        </ScrollArea>
+        compact ? (
+          <div className="overflow-auto pb-3" style={{ maxHeight: treeMaxHeight }}>
+            {tree}
+          </div>
+        ) : (
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="pb-3">{tree}</div>
+          </ScrollArea>
+        )
       ) : (
         <div className="min-h-0 flex-1 overflow-auto pb-3">{tree}</div>
       )}

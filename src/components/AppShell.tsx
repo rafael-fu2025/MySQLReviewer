@@ -77,6 +77,21 @@ const PAGE_META: Record<string, { title: string; sub: string }> = {
   },
 };
 
+/**
+ * Routes whose page renders its own heading. Those pages state their name and
+ * their description once, in the body, so the top bar does not repeat them
+ * with a second, slightly different wording. On a phone the duplicate block
+ * cost about a tenth of the viewport.
+ */
+const SELF_TITLED_ROUTES = new Set([
+  '/practice',
+  '/performance',
+  '/security',
+  '/audit',
+  '/reports',
+  '/settings',
+]);
+
 function formatCountdown(ms: number): string {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -135,6 +150,7 @@ export function AppShell() {
     (location.pathname.startsWith('/reports/')
       ? { title: 'Report', sub: 'Saved audit details and exports.' }
       : { title: 'MyLens', sub: '' });
+  const showMeta = !SELF_TITLED_ROUTES.has(location.pathname);
 
   const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
   const remaining = unlockedUntil ? unlockedUntil - now : 0;
@@ -198,7 +214,6 @@ export function AppShell() {
           </div>
           <div className="brand-copy">
             <div className="brand-title">MyLens</div>
-            <div className="brand-sub">MySQL Review Studio</div>
           </div>
           <Tooltip
             label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -216,6 +231,7 @@ export function AppShell() {
               {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
             </IconButton>
           </Tooltip>
+          <div className="brand-sub">MySQL Review Studio</div>
         </div>
 
         <Tooltip
@@ -325,10 +341,16 @@ export function AppShell() {
 
       <main className="main">
         <header className="topbar">
-          <div className="min-w-0 flex-1">
-            <div className="topbar-title">{meta.title}</div>
-            <div className="topbar-sub truncate">{meta.sub}</div>
-          </div>
+          {showMeta ? (
+            <div className="min-w-0 flex-1">
+              <div className="topbar-title">{meta.title}</div>
+              <div className="topbar-sub truncate">{meta.sub}</div>
+            </div>
+          ) : (
+            // The page states its own heading, so the bar holds only the
+            // global controls. The spacer keeps them right-aligned.
+            <div className="min-w-0 flex-1" aria-hidden="true" />
+          )}
 
           <Combobox
             options={databaseOptions}

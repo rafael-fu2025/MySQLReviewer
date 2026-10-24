@@ -220,6 +220,16 @@ export const dbApi = {
     );
   },
 
+  /**
+   * The graded answers of one set, so the answered state survives a reload.
+   * Only the owning profile can read them.
+   */
+  practiceSetAttempts(setId: string, profileId: string): Promise<PracticeAttemptPublic[]> {
+    return api.get<PracticeAttemptPublic[]>(
+      `/api/practice/sets/${encodeURIComponent(setId)}/attempts?profileId=${encodeURIComponent(profileId)}`,
+    );
+  },
+
   practiceEvaluate(payload: PracticeEvaluateRequest): Promise<PracticeEvaluation> {
     return api.post<PracticeEvaluation>('/api/practice/evaluate', payload);
   },

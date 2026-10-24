@@ -662,7 +662,7 @@ function TableDetailView({
 
       {tab === 'overview' ? (
         <div className="flex flex-col gap-3">
-          <div className="stat-grid">
+          <div className="stat-grid stat-grid-6">
             <StatCard
               label="Estimated rows"
               value={formatNumber(summary.rowsEstimate)}
@@ -1491,7 +1491,7 @@ export function DatabasePage() {
                   </>
                 }
               />
-              <div className="stat-grid">
+              <div className="stat-grid stat-grid-6">
                 <StatCard
                   label="Tables"
                   value={objects?.tables.length ?? '—'}

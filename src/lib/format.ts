@@ -20,7 +20,18 @@ export function formatDuration(ms: number | null | undefined): string {
   if (ms < 1) return `${(ms * 1000).toFixed(0)} µs`;
   if (ms < 1000) return `${ms.toFixed(ms < 10 ? 1 : 0)} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`;
-  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+  // Past an hour, minutes stop being readable: an uptime of 34 hours used to
+  // print as "2072m 41s". Each tier rounds once, so a carry never reaches 60.
+  if (ms < 3_600_000) {
+    const totalSeconds = Math.round(ms / 1000);
+    return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+  }
+  if (ms < 86_400_000) {
+    const totalMinutes = Math.round(ms / 60_000);
+    return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+  }
+  const totalHours = Math.round(ms / 3_600_000);
+  return `${Math.floor(totalHours / 24)}d ${totalHours % 24}h`;
 }
 
 export function formatDate(value: string | null | undefined): string {

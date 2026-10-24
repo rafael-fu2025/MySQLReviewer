@@ -30,6 +30,7 @@ import {
   ConfirmDialog,
   EmptyState,
   PageHeader,
+  SectionTitle,
   Spinner,
   StatCard,
   Tabs,
@@ -37,7 +38,15 @@ import {
 import { cn } from '@/lib/utils';
 
 function Sparkline({ values, color = '#ff8a3d' }: { values: number[]; color?: string }) {
-  if (values.length < 2) return <div className="h-[42px]" />;
+  // Fewer than two samples cannot draw a line. A flat baseline says so
+  // instead of leaving a hole the height of the chart.
+  if (values.length < 2) {
+    return (
+      <div className="flex h-[42px] items-end" aria-hidden="true">
+        <div className="h-px w-full bg-line-soft" />
+      </div>
+    );
+  }
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
   const points = values
@@ -249,26 +258,20 @@ export function PerformancePage() {
       ) : snapshot && metrics ? (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Card className="p-3">
-              <StatCard
-                label="Queries / second"
-                value={metrics.qps.toFixed(1)}
-                sub={`${formatNumber(metrics.queries)} total`}
-                icon={<Zap size={14} />}
-                tone="ember"
-              />
-              <Sparkline values={history.map((item) => item.qps)} />
-            </Card>
-            <Card className="p-3">
-              <StatCard
-                label="Threads"
-                value={`${metrics.threadsConnected} / ${metrics.threadsRunning}`}
-                sub="connected / running"
-                icon={<Activity size={14} />}
-                tone="info"
-              />
-              <Sparkline values={history.map((item) => item.threadsRunning)} color="#60a5fa" />
-            </Card>
+            <StatCard
+              label="Queries / second"
+              value={metrics.qps.toFixed(1)}
+              sub={`${formatNumber(metrics.queries)} total`}
+              icon={<Zap size={14} />}
+              tone="ember"
+            />
+            <StatCard
+              label="Threads"
+              value={`${metrics.threadsConnected} / ${metrics.threadsRunning}`}
+              sub="connected / running"
+              icon={<Activity size={14} />}
+              tone="info"
+            />
             <StatCard
               label="Buffer pool hit"
               value={
@@ -309,6 +312,31 @@ export function PerformancePage() {
               sub={`max used ${formatNumber(metrics.maxUsedConnections)} connections`}
             />
           </div>
+
+          {/*
+           * The trends used to live inside the first two tiles, which left
+           * those tiles a different size and surface from the other six and
+           * reserved an empty 42px band before any sample arrived. They get
+           * their own panel now, so every tile in the row is the same tile.
+           */}
+          {history.length > 1 ? (
+            <Card className="p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <SectionTitle>Throughput trend</SectionTitle>
+                <span className="text-[10.5px] text-muted">last {history.length} samples</span>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <div className="stat-label">Queries / second</div>
+                  <Sparkline values={history.map((item) => item.qps)} />
+                </div>
+                <div>
+                  <div className="stat-label">Threads running</div>
+                  <Sparkline values={history.map((item) => item.threadsRunning)} color="#60a5fa" />
+                </div>
+              </div>
+            </Card>
+          ) : null}
 
           <Tabs
             items={[
