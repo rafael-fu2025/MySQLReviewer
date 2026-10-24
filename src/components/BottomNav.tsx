@@ -79,7 +79,7 @@ export function BottomNav({
       <Modal
         open={sheetOpen}
         onClose={closeSheet}
-        ariaLabel="More sections"
+        ariaLabel="More"
         variant="sheet"
         backdropStyle={{ alignItems: 'flex-end', padding: 0 }}
         panelStyle={{ maxHeight: '80vh' }}

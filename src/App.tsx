@@ -90,7 +90,7 @@ function BootError({ message }: { message: string }) {
               window.location.href = 'http://127.0.0.1:5174';
             }}
           >
-            Open dev UI
+            Open the local server page
           </Button>
         </div>
         <div className="mt-4 text-[11px] leading-5 text-muted">

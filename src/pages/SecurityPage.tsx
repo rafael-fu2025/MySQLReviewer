@@ -33,6 +33,10 @@ function userLabel(user: DbUser): string {
 export function SecurityPage() {
   const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
+  const activeProfileHost = useAppStore(
+    (state) => state.profiles.find((profile) => profile.id === state.activeProfileId)?.host ?? null,
+  );
+  const detectedXampp = useAppStore((state) => state.detectedXampp);
   const toast = useAppStore((state) => state.toast);
   const [data, setData] = useState<SecurityAuditResult | null>(null);
   // Bumping the request counter reloads the audit; the loading flag and the
@@ -228,17 +232,17 @@ export function SecurityPage() {
         />
       </div>
 
-      <div className="callout info flex items-start gap-2">
-        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-        <div>
-          <div className="font-semibold text-ink">This is a local XAMPP server.</div>
-          <div className="mt-0.5 text-[11.5px] text-muted">
-            Passwordless root accounts and wildcard binding are convenient on a laptop but unsafe on
-            a network. Set passwords, restrict accounts to localhost, and keep MySQL bound to
-            127.0.0.1 when you are not intentionally sharing it.
+      {detectedXampp && (activeProfileHost === '127.0.0.1' || activeProfileHost === 'localhost') ? (
+        <div className="callout info flex items-start gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <div>
+            <div className="font-semibold text-ink">This is a local XAMPP server.</div>
+            <div className="mt-0.5 text-[11.5px] text-muted">
+              Passwordless root and wildcard binding are unsafe outside localhost.
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <Card className="overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line-soft p-3">

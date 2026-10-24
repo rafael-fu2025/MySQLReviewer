@@ -525,7 +525,7 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   danger = false,
   loading = false,
 }: {
@@ -534,7 +534,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   title: string;
   message: ReactNode;
-  confirmLabel?: string;
+  confirmLabel: string;
   danger?: boolean;
   loading?: boolean;
 }) {
@@ -793,7 +793,7 @@ export function ScoreRing({
       <div className="score-num" style={{ fontSize: size * 0.26 }}>
         {score == null ? '—' : score}
       </div>
-      <div className="score-grade">{grade ?? 'SCORE'}</div>
+      {grade ? <div className="score-grade">{grade}</div> : null}
     </div>
   );
 }

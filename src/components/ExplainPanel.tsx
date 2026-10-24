@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Activity, AlertTriangle, ChevronRight, FileSearch, Timer, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ChevronRight, FileSearch, Zap } from 'lucide-react';
 import type { ExplainNode, ExplainResult } from '@shared/types';
 import { formatDuration, formatNumber } from '@/lib/format';
 import { FindingCard } from './Findings';
@@ -85,7 +85,7 @@ export function ExplainPanel({
           <Button
             variant="secondary"
             size="sm"
-            icon={analyzing ? <Timer size={12} className="spin" /> : <Zap size={12} />}
+            icon={<Zap size={12} />}
             onClick={onAnalyze}
             loading={analyzing}
             className="ml-auto"

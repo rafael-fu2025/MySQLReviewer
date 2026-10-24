@@ -168,7 +168,7 @@ export function CommandPalette() {
     <Modal
       open={open}
       onClose={() => setOpen(false)}
-      ariaLabel="Command palette"
+      ariaLabel="Commands"
       header={
         <div className="border-b border-line-soft p-3">
           <input

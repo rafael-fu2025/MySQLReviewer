@@ -15,6 +15,7 @@ import {
   Search,
   Table2,
   X,
+  Zap,
 } from 'lucide-react';
 import type {
   ColumnInfo,
@@ -552,7 +553,7 @@ function DataPreview({
           variant="ghost"
           size="sm"
           className="ml-auto"
-          icon={loading ? <Spinner size={12} /> : <RefreshCw size={12} />}
+          icon={<RefreshCw size={12} />}
           onClick={() => void load(filters, orderBy, orderDir, limit)}
           loading={loading}
         >
@@ -626,7 +627,7 @@ function TableDetailView({
           <Button
             variant="ghost"
             size="sm"
-            icon={refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
+            icon={<RefreshCw size={12} />}
             onClick={onRefresh}
             loading={refreshing}
           >
@@ -881,7 +882,7 @@ function TableDetailView({
       {tab === 'triggers' ? (
         <div className="flex flex-col gap-2">
           {detail.triggers.length === 0 ? (
-            <EmptyState icon={<SparklesIcon />} title="No triggers" />
+            <EmptyState icon={<Zap size={22} />} title="No triggers" />
           ) : (
             detail.triggers.map((trigger) => (
               <Card key={trigger.name} className="p-3">
@@ -904,10 +905,6 @@ function TableDetailView({
       ) : null}
     </div>
   );
-}
-
-function SparklesIcon() {
-  return <RefreshCw size={22} />;
 }
 
 /** Identity of a table-detail request: profile + database + table. */
@@ -1450,7 +1447,7 @@ export function DatabasePage() {
                     <Button
                       variant="secondary"
                       size="sm"
-                      icon={objectsLoading ? <Spinner size={12} /> : <RefreshCw size={12} />}
+                      icon={<RefreshCw size={12} />}
                       onClick={() => setObjectsRequest((value) => value + 1)}
                       loading={objectsLoading}
                     >

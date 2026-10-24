@@ -162,6 +162,7 @@ export function ReportsPage() {
           <Input
             className="input-search py-1.5 text-[11.5px]"
             placeholder="Search reports…"
+            aria-label="Search reports"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />

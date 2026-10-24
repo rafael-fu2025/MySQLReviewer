@@ -143,6 +143,7 @@ export function FindingFilters({
           value={search}
           onChange={(event) => onSearch(event.target.value)}
           placeholder="Filter findings…"
+          aria-label="Filter findings"
         />
       </div>
     </div>

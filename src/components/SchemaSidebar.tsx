@@ -546,6 +546,7 @@ export function SchemaSidebar({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter tables and views…"
+            aria-label="Filter tables and views"
           />
         </div>
       </div>

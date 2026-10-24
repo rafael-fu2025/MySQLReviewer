@@ -460,6 +460,7 @@ export function PerformancePage() {
                     value={processFilter}
                     onChange={(event) => setProcessFilter(event.target.value)}
                     placeholder="Filter by user, host, database, state…"
+                    aria-label="Filter sessions"
                   />
                 </div>
                 <Button
@@ -591,6 +592,7 @@ export function PerformancePage() {
                     value={variableFilter}
                     onChange={(event) => setVariableFilter(event.target.value)}
                     placeholder="Filter variables…"
+                    aria-label="Filter variables"
                   />
                 </div>
                 <Badge>{filteredVariables.length} variables</Badge>

@@ -44,22 +44,6 @@ import { cn } from '@/lib/utils';
 const SPLITTER_MIN = 20;
 const SPLITTER_MAX = 78;
 
-/**
- * "last run" label for the status bar. The statement started `executionMs`
- * ago, so the label only depends on the duration the server reported — the
- * clock is never read while rendering.
- */
-function lastRunLabel(executionMs: number): string {
-  const seconds = Math.floor(executionMs / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function MessagesPanel({ tab }: { tab: QueryTab }) {
   const result = tab.result;
   return (
@@ -1034,8 +1018,8 @@ export function WorkspacePage() {
             <span>row cap {settings.rowLimit}</span>
             <span className="ml-auto">
               {activeTab.result
-                ? `last run ${lastRunLabel(activeTab.result.executionMs)}`
-                : 'ctrl+enter run · ctrl+shift+enter selection · ctrl+shift+r review'}
+                ? `runtime ${formatDuration(activeTab.result.executionMs)}`
+                : 'Ctrl+Enter run · Ctrl+Shift+Enter selection · Ctrl+Shift+R review'}
             </span>
           </div>
         </div>

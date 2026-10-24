@@ -68,6 +68,7 @@ export function WorkspaceModals({
           <Input
             className="text-[12px]"
             placeholder="Filter history…"
+            aria-label="Filter history"
             value={historySearch}
             onChange={(event) => onHistorySearch(event.target.value)}
           />
