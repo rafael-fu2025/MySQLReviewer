@@ -220,7 +220,7 @@ export function ReviewPanel({
       <EmptyState
         icon={<ScanSearch size={22} />}
         title="No review yet"
-        copy="Run Review to check this statement with deterministic rules, schema context, and optional EXPLAIN insights."
+        copy="Run Review to check this statement."
         action={
           <Button variant="primary" icon={<ScanSearch size={14} />} onClick={onRunReview}>
             Review this statement
@@ -239,7 +239,7 @@ export function ReviewPanel({
         <ScoreRing score={review.score.score} grade={review.score.grade} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-bold">Deterministic review</span>
+            <span className="text-[13px] font-bold">Rule review</span>
             <Badge tone="neutral">{countLabel(review.findings.length, 'finding')}</Badge>
             {review.context.database ? <Badge tone="ember">{review.context.database}</Badge> : null}
             {review.context.truncated ? <Badge tone="warn">context truncated</Badge> : null}
@@ -307,7 +307,7 @@ export function ReviewPanel({
             findings={review.findings}
             onJumpToLine={onJumpToLine}
             emptyTitle="No deterministic findings"
-            emptyCopy="The rule engine did not find anything. Use Explain or an AI review for a second opinion."
+            emptyCopy="No rule findings."
           />
 
           {review.suggestions.length > 0 ? (
@@ -547,10 +547,7 @@ export function ReviewPanel({
           ) : !aiRunning && providers.length > 0 ? (
             <div className="callout mint flex items-start gap-2">
               <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-mint" />
-              <span>
-                AI review is optional. It receives the SQL, referenced schema, deterministic
-                findings, and (if enabled) the EXPLAIN plan — only when you click Deep review.
-              </span>
+              <span>Deep review sends the SQL and schema to the selected provider.</span>
             </div>
           ) : null}
 
@@ -579,8 +576,7 @@ export function ReviewPanel({
               <div className="mt-2 flex max-h-[340px] flex-col gap-2 overflow-auto pr-1">
                 {chatMessages.length === 0 && !chatDraft ? (
                   <div className="rounded-xl border border-line-soft bg-panel-2/40 px-3 py-4 text-[11.5px] text-muted">
-                    Ask why a rule fired, how an index would change the plan, or whether a rewrite
-                    is safe. The current SQL and referenced schema are included as context.
+                    Ask why a rule fired or whether a rewrite is safe.
                   </div>
                 ) : null}
                 {chatMessages.map((message, index) => (

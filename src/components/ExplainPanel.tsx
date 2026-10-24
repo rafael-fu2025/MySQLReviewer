@@ -39,7 +39,7 @@ export function ExplainPanel({
       <EmptyState
         icon={<FileSearch size={22} />}
         title="No plan yet"
-        copy="Run Explain to see how MySQL executes the current statement, or use Review for a combined rule + plan analysis."
+        copy="Run Explain to see the execution plan."
       />
     );
   }
@@ -104,7 +104,7 @@ export function ExplainPanel({
       ) : (
         <div className="callout mint flex items-center gap-2">
           <AlertTriangle size={14} className="text-mint" />
-          No obvious plan red flags. Still check row estimates against real data.
+          No plan issues found.
         </div>
       )}
 

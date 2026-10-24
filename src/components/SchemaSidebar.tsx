@@ -360,7 +360,7 @@ export function SchemaSidebar({
                               <button
                                 type="button"
                                 className="shrink-0 rounded px-1 py-0.5 text-[10px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
-                                title={`Preview 5 rows of ${table.name}`}
+                                title={table.name}
                                 onClick={() => onPreviewTable(table.name)}
                               >
                                 Preview 5 rows
@@ -391,7 +391,7 @@ export function SchemaSidebar({
                         key={table.name}
                         className="tree-item group"
                         onClick={() => onInsert(table.name)}
-                        title={`Insert ${table.name} · click the arrow to open details`}
+                        title={`Insert ${table.name}`}
                       >
                         <Table2 size={12} className="shrink-0 text-muted" />
                         <span>{table.name}</span>
@@ -415,9 +415,7 @@ export function SchemaSidebar({
                     ))
                   )}
                   {filteredTables.length > 400 ? (
-                    <div className="px-2 py-2 text-[10px] text-muted">
-                      Showing the first 400 objects. Refine the search.
-                    </div>
+                    <div className="px-2 py-2 text-[10px] text-muted">Showing first 400.</div>
                   ) : null}
                 </div>
               </CollapsibleContent>

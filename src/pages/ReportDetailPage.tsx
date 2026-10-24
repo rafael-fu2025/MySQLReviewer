@@ -134,8 +134,8 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
         <FindingsHint findings={review.findings} />
         <FindingsList
           findings={review.findings}
-          emptyTitle="No deterministic findings"
-          emptyCopy="The rule engine did not find a problem in this statement."
+          emptyTitle="No rule findings"
+          emptyCopy="No problems found in this statement."
         />
       </Card>
 

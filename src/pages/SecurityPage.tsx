@@ -351,7 +351,7 @@ export function SecurityPage() {
         <FindingsList
           findings={data.findings}
           emptyTitle="No security findings"
-          emptyCopy="The visible accounts and configuration did not trigger any security rules."
+          emptyCopy="No rules matched."
         />
       </Card>
 

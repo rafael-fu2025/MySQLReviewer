@@ -207,8 +207,7 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
 
       {result.truncated ? (
         <div className="border-b border-warn/20 bg-warn/5 px-3 py-2 text-[11px] text-warn">
-          The result reached the configured row cap ({formatNumber(result.rowCount)} rows). Add a
-          LIMIT, narrow the predicate, or raise the cap in Settings.
+          Result capped at {formatNumber(result.rowCount)} rows — adjust the cap in Settings.
         </div>
       ) : null}
 
@@ -306,7 +305,7 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
           onRevealRef.current?.();
         }}
         title="Reveal sensitive values?"
-        message="This re-runs the current statement without masking credential-like columns. Only continue in a private environment; the result may contain passwords, tokens, or personal data."
+        message="Re-runs the statement with sensitive columns unmasked. The result may contain credentials or personal data."
         confirmLabel="Reveal values"
         danger
       />

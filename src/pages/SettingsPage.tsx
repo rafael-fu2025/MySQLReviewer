@@ -488,8 +488,7 @@ export function SettingsPage() {
                 </div>
                 <div className="text-[14px] font-bold">No AI provider configured</div>
                 <div className="max-w-md text-[12px] text-muted">
-                  Add OpenAI, OpenRouter, DeepSeek, Groq, Anthropic, Gemini, Ollama, LM Studio, or
-                  any custom OpenAI-compatible endpoint. Deterministic reviews work without AI.
+                  Reviews work without AI; add a provider for AI feedback.
                 </div>
                 <Button
                   variant="primary"
@@ -585,7 +584,7 @@ export function SettingsPage() {
               <div>
                 <div className="text-[12px] font-semibold">Live lint</div>
                 <div className="mt-0.5 text-[10.5px] text-muted">
-                  Run static rules while you type. Adds at most one review request per pause.
+                  Adds at most one review request per typing pause.
                 </div>
               </div>
               <Switch
@@ -598,7 +597,7 @@ export function SettingsPage() {
               <div>
                 <div className="text-[12px] font-semibold">Include schema by default</div>
                 <div className="mt-0.5 text-[10.5px] text-muted">
-                  Give the reviewer table, column, index, and foreign-key context.
+                  Sends table and index context with reviews.
                 </div>
               </div>
               <Switch
@@ -609,11 +608,7 @@ export function SettingsPage() {
                 }
               />
             </div>
-            <Field
-              label="AI context budget (characters)"
-              hint="Schema and plan text are truncated to this budget before sending."
-              error={numericErrors.aiContextChars}
-            >
+            <Field label="AI context budget (characters)" error={numericErrors.aiContextChars}>
               <Input
                 type="number"
                 inputMode="numeric"
@@ -660,10 +655,9 @@ export function SettingsPage() {
               <div className="section-title">Read-only by default</div>
             </div>
             <div className="callout mint text-[11.5px]">
-              SELECT, SHOW, DESCRIBE, and EXPLAIN run freely. DML, DDL, and administrative
-              statements require typing <span className="font-mono">UNLOCK WRITES</span> for a
-              15-minute per-connection window. Destructive statements add a second confirmation.
-              This cannot be disabled in the UI.
+              Read-only statements run freely. DML, DDL, and administrative statements require
+              typing <span className="font-mono">UNLOCK WRITES</span> for a 15-minute per-connection
+              window.
             </div>
           </Card>
           <Card className="p-4">
@@ -672,10 +666,8 @@ export function SettingsPage() {
               <div>
                 <div className="text-[12px] font-semibold">Mask sensitive columns</div>
                 <div className="mt-0.5 max-w-xl text-[10.5px] leading-4 text-muted">
-                  Credential-like columns (password, token, secret, API key, private key, session
-                  id, card number, SSN) are masked before results reach the browser. You can reveal
-                  them per query after a confirmation. This is a safety net, not a substitute for
-                  database grants.
+                  Masks credential-like columns in results; they can be revealed per statement after
+                  a confirmation. Not a substitute for grants.
                 </div>
               </div>
               <Switch
@@ -718,11 +710,7 @@ export function SettingsPage() {
                   aria-invalid={Boolean(numericErrors.queryTimeoutMs)}
                 />
               </Field>
-              <Field
-                label="Cell size cap (characters)"
-                hint="Long text and binary values are truncated in the result grid."
-                error={numericErrors.cellMaxChars}
-              >
+              <Field label="Cell size cap (characters)" error={numericErrors.cellMaxChars}>
                 <Input
                   type="number"
                   inputMode="numeric"

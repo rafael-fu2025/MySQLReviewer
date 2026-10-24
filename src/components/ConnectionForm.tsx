@@ -417,8 +417,7 @@ export function ConnectionForm({
             />
             {testDatabases.length === 0 ? (
               <div className="text-[10px] text-muted">
-                Test the connection to load the server’s databases. The saved selection remains
-                editable.
+                Test the connection to load the server’s databases.
               </div>
             ) : null}
             <Checkbox

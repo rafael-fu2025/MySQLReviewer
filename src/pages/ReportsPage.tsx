@@ -122,7 +122,7 @@ export function ReportsPage() {
     <div className={cn('page', reports.length === 0 && !loading && !loadError && 'page-centered')}>
       <PageHeader
         title="Reports"
-        subtitle="Saved audits and AI-assisted query reviews, exportable as Markdown, HTML, or JSON."
+        subtitle="Saved audits and query reviews."
         actions={
           <Button
             variant="secondary"

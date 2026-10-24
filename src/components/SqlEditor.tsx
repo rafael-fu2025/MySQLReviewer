@@ -291,7 +291,7 @@ export function SqlEditor({
         onReady(view);
       }}
       onChange={handleChange}
-      placeholder="-- MySQL runs here. Press Ctrl+Enter to execute."
+      placeholder="-- Write SQL here"
     />
   );
 }

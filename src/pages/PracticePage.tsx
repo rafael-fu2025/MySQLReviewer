@@ -35,6 +35,7 @@ import { useAppStore, BOOT_PATH } from '@/store/app-store';
 import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { formatDate } from '@/lib/format';
+import { selectDatabaseHint } from '@/lib/copy';
 import { SqlEditor } from '@/components/SqlEditor';
 import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { Markdown } from '@/components/Markdown';
@@ -731,10 +732,10 @@ export function PracticePage() {
       void loadAnswers(practiceSet.id);
       toast(
         result.verdict === 'correct'
-          ? 'Correct. Nicely done.'
+          ? 'Correct.'
           : result.verdict === 'close'
-            ? 'Close. Review the differences and try again.'
-            : 'Answer reviewed. Read the feedback and reference.',
+            ? 'Close.'
+            : 'Reviewed.',
         result.verdict === 'correct' ? 'success' : result.verdict === 'close' ? 'info' : 'warn',
       );
     } catch (err) {
@@ -826,14 +827,11 @@ export function PracticePage() {
   if (!activeProfileId || !selectedDatabase) {
     return (
       <div className="page">
-        <PageHeader
-          title="SQL Lab"
-          subtitle="Reviewer-style challenges generated from your own schema."
-        />
+        <PageHeader title="SQL Lab" subtitle="Challenges generated from your schema." />
         <EmptyState
           icon={<FlaskConical size={24} />}
           title="Select a database first"
-          copy="Choose a database in the top bar. SQL Lab uses its schema to generate grounded challenges."
+          copy={selectDatabaseHint}
         />
       </div>
     );
@@ -870,7 +868,7 @@ export function PracticePage() {
       ) : (
         <PageHeader
           title="SQL Lab"
-          subtitle="Generate reviewer-style problems, answer them, and compare with a reference solution. SQL answers run read-only; DML/DDL and concept answers are graded without execution."
+          subtitle="Generate challenges, answer them, and compare with a reference solution."
           actions={
             <>
               <Badge tone="mint">
@@ -1033,12 +1031,12 @@ export function PracticePage() {
                 </div>
 
                 <Checkbox
-                  label="Include a few masked sample rows"
+                  label="Include masked sample rows"
                   checked={includeSampleData}
                   onChange={setIncludeSampleData}
                 />
                 <Checkbox
-                  label="Use AI feedback after deterministic grading"
+                  label="Add AI feedback after grading"
                   checked={includeAi}
                   onChange={setIncludeAi}
                 />
@@ -1060,10 +1058,7 @@ export function PracticePage() {
                     </Button>
                   ) : null}
                 </div>
-                <div className="text-[10px] leading-4 text-muted">
-                  Challenges are grounded in the selected schema. The reference SQL is validated
-                  read-only before it is accepted. Nothing in the database is modified.
-                </div>
+                <div className="text-[10px] leading-4 text-muted">Queries run read-only.</div>
                 {error ? (
                   <div className="callout danger flex items-start gap-2 text-[11px]">
                     <XCircle size={13} className="mt-0.5 shrink-0" />
@@ -1074,7 +1069,7 @@ export function PracticePage() {
                   <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3">
                     <div className="flex items-center gap-2 text-[11px] text-muted">
                       <Spinner size={13} />
-                      Designing challenges from {selectedDatabase}…
+                      Generating challenges from {selectedDatabase}…
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1182,8 +1177,7 @@ export function PracticePage() {
                   </div>
                 ) : (
                   <div className="text-[11px] text-muted">
-                    Your topic mastery appears here after you submit answers. The lab tracks
-                    attempts locally for this connection.
+                    Attempt stats appear after you submit answers.
                   </div>
                 )}
               </Card>
@@ -1205,7 +1199,7 @@ export function PracticePage() {
               <EmptyState
                 icon={<Target size={26} />}
                 title="No challenge set yet"
-                copy="Choose tables and topics, then generate a set. You can answer with SQL or a written explanation, depending on the challenge."
+                copy="Choose tables and topics, then generate a set."
                 action={
                   <Button variant="primary" icon={<Sparkles size={13} />} onClick={openSetup}>
                     Generate challenges
@@ -1459,11 +1453,9 @@ export function PracticePage() {
                               <Info size={11} /> How this score is calculated
                             </summary>
                             <div className="score-explainer-body">
-                              Correctness is 60% of the overall score and comes from comparing your
-                              result with the reference (column count, row multiset, and order when
-                              required). Performance is 25% from static rules and EXPLAIN. Style is
-                              15% from readability rules. A truncated comparison caps correctness at
-                              90; non-executed answers use the AI evaluation only.
+                              Correctness 60% (result comparison) · performance 25% (rules and
+                              EXPLAIN) · style 15% (readability). Non-executed answers use the AI
+                              evaluation only.
                             </div>
                           </details>
                         </div>
@@ -1503,10 +1495,7 @@ export function PracticePage() {
 
                       <div className="callout mt-4 flex items-start gap-2">
                         <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
-                        <div>
-                          <div className="font-semibold text-ink">Next hint</div>
-                          <div className="text-[11.5px] text-muted">{evaluation.nextHint}</div>
-                        </div>
+                        <div className="text-[11.5px] text-ink-soft">{evaluation.nextHint}</div>
                       </div>
 
                       {evaluation.aiFeedback ? (
@@ -1736,7 +1725,7 @@ export function PracticePage() {
         onClose={() => setClearConfirm(false)}
         onConfirm={() => void clearAttempts()}
         title="Clear practice attempts?"
-        message="This removes the local attempt history and topic mastery for this connection. Saved challenge sets remain."
+        message="Removes attempt history for this connection. Saved sets remain."
         confirmLabel="Clear attempts"
         danger
       />

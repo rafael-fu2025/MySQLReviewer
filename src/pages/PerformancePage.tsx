@@ -411,9 +411,7 @@ export function PerformancePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-muted">
-                    This server is not configured as a replica. Replication checks are skipped.
-                  </div>
+                  <div className="text-[11px] text-muted">Not configured as a replica.</div>
                 )}
               </Card>
 
@@ -618,7 +616,7 @@ export function PerformancePage() {
               </div>
               {filteredVariables.length > 800 ? (
                 <div className="border-t border-line-soft px-3 py-2 text-[10px] text-muted">
-                  Showing the first 800 matches. Refine the filter.
+                  Showing first 800 of {filteredVariables.length}.
                 </div>
               ) : null}
             </Card>

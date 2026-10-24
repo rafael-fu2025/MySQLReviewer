@@ -357,13 +357,13 @@ export function FindingsHint({ findings }: { findings: Finding[] }) {
   const critical = findings.filter(
     (finding) => finding.severity === 'critical' || finding.severity === 'high',
   ).length;
+  if (critical === 0) return null;
   return (
     <div className="callout flex items-start gap-2">
       <AlertTriangle size={15} className="mt-0.5 shrink-0 text-ember" />
       <div>
-        {critical > 0
-          ? `${critical} high-impact finding${critical === 1 ? '' : 's'} need attention before you run this in production.`
-          : 'Review the findings below, then verify any rewrite against EXPLAIN.'}
+        {critical} critical or high finding{critical === 1 ? '' : 's'} need attention before you run
+        this in production.
       </div>
     </div>
   );

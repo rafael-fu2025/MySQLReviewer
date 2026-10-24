@@ -74,12 +74,12 @@ function ProfileCard({
             <span className="truncate text-[14px] font-bold tracking-tight">{profile.name}</span>
             {active ? <Badge tone="mint">active</Badge> : null}
           </div>
-          <div className="mt-1 font-mono text-[10.5px] text-muted">
+          <div className="mt-1 font-mono text-[11px] text-muted">
             {profile.user}@{profile.host}:{profile.port}
             {profile.database ? ` / ${profile.database}` : ''}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 opacity-60 transition group-hover:opacity-100">
+        <div className="flex shrink-0 items-center gap-1 opacity-80 transition group-hover:opacity-100">
           <IconButton label="Edit connection" onClick={onEdit}>
             <Edit3 size={14} />
           </IconButton>
@@ -242,7 +242,7 @@ export function ConnectPage() {
 
   return (
     <div className="h-screen overflow-auto">
-      <div className="mx-auto max-w-[1180px] px-5 py-8 sm:px-8">
+      <main className="mx-auto max-w-[1180px] px-5 py-8 sm:px-8">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="brand-mark" style={{ width: 42, height: 42 }}>
@@ -250,7 +250,7 @@ export function ConnectPage() {
             </div>
             <div>
               <div className="text-[18px] font-extrabold tracking-tight">MyLens</div>
-              <div className="text-[10px] uppercase tracking-[0.16em] text-muted">
+              <div className="text-[10.5px] uppercase tracking-[0.16em] text-muted">
                 MySQL Review Studio
               </div>
             </div>
@@ -260,13 +260,13 @@ export function ConnectPage() {
           </div>
         </header>
 
-        <div className="hero-grid mt-7">
+        <div className="hero-grid mt-8">
           <div className="hero-panel">
             <div className="relative z-10">
-              <h1 className="text-[23px] font-extrabold tracking-tight">
+              <h1 className="text-2xl font-extrabold tracking-tight">
                 Connect to your MySQL server
               </h1>
-              <p className="mt-2 max-w-xl text-[12.5px] leading-6 text-muted">
+              <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-muted">
                 Pick a connection to browse schemas, run statements, and review plans.
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
@@ -301,31 +301,31 @@ export function ConnectPage() {
               <div className="text-[13px] font-bold">This machine</div>
             </div>
             <div className="divider" />
-            <div className="flex flex-col gap-2.5 text-[11.5px]">
+            <div className="flex flex-col gap-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">XAMPP detected</span>
-                <span className="font-mono text-[10.5px]">
+                <span className="font-mono text-[11px]">
                   {detectedXampp ? detectedXampp.path : 'not detected'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">MySQL port</span>
-                <span className="font-mono text-[10.5px]">{detectedXampp?.port ?? 3306}</span>
+                <span className="font-mono text-[11px]">{detectedXampp?.port ?? 3306}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">Node runtime</span>
-                <span className="font-mono text-[10.5px]">{nodeVersion}</span>
+                <span className="font-mono text-[11px]">{nodeVersion}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted">Data directory</span>
-                <span className="max-w-[190px] truncate font-mono text-[10.5px]" title={dataDir}>
+                <span className="max-w-[190px] truncate font-mono text-[11px]" title={dataDir}>
                   {dataDir}
                 </span>
               </div>
             </div>
             <div className="divider" />
-            <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3 text-[11px] leading-5 text-muted">
-              <div className="mb-1 flex items-center gap-1.5 font-semibold text-ink-soft">
+            <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3 text-xs leading-relaxed text-muted">
+              <div className="mb-1 flex items-center gap-2 font-semibold text-ink-soft">
                 <Lock size={12} className="text-mint" /> Safety model
               </div>
               The API binds to 127.0.0.1, validates the Host/Origin, and requires a per-boot token.
@@ -334,10 +334,10 @@ export function ConnectPage() {
             </div>
             {activeProfileId && server ? (
               <div className="rounded-xl border border-mint/25 bg-mint/5 p-3">
-                <div className="flex items-center gap-2 text-[11.5px] font-semibold text-mint">
+                <div className="flex items-center gap-2 text-xs font-semibold text-mint">
                   <Zap size={13} /> Connected
                 </div>
-                <div className="mt-1 font-mono text-[10px] text-muted">
+                <div className="mt-1 font-mono text-[11px] text-muted">
                   {server.version} · {server.flavor}
                 </div>
                 <div className="mt-2 flex gap-2">
@@ -375,12 +375,7 @@ export function ConnectPage() {
           {error ? (
             <div className="callout danger mt-3 flex items-start gap-2">
               <Lock size={14} className="mt-0.5 shrink-0" />
-              <div>
-                {error}
-                <div className="mt-1 text-[11px] text-muted">
-                  Make sure MySQL is running in XAMPP and that the user can connect from this host.
-                </div>
-              </div>
+              <div>{error}</div>
             </div>
           ) : null}
 
@@ -410,11 +405,11 @@ export function ConnectPage() {
               }}
             >
               <Plus size={20} />
-              <span className="text-[12px] font-semibold">New connection</span>
+              <span className="text-xs font-semibold">New connection</span>
             </button>
           </div>
         </section>
-      </div>
+      </main>
 
       <Modal
         open={formOpen}

@@ -237,7 +237,7 @@ export function AppShell() {
         <Tooltip
           label={
             activeProfile
-              ? `${activeProfile.name}${server ? ` · ${server.version}` : ''} · click to switch`
+              ? `${activeProfile.name}${server ? ` · ${server.version}` : ''}`
               : 'Choose a connection'
           }
           side="right"
@@ -268,7 +268,7 @@ export function AppShell() {
             <div className="connection-meta">
               {server
                 ? `${server.version} · ${scoped ? `${activeProfile?.allowedDatabases.length ?? 0} DB scope` : 'all databases'}`
-                : 'Click to choose a connection'}
+                : '—'}
             </div>
           </div>
         </Tooltip>

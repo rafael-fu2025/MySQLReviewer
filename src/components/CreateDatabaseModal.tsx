@@ -98,10 +98,7 @@ export function CreateDatabaseModal({
   const charsetOptions = charsets.map((item) => ({
     value: item.charset,
     label: item.charset,
-    description:
-      item.charset === 'utf8mb4'
-        ? 'Unicode, including emoji'
-        : `${item.collations.length} collations`,
+    description: `${item.collations.length} collations`,
   }));
 
   const collationOptions = collations.map((item) => ({
@@ -199,8 +196,7 @@ export function CreateDatabaseModal({
                   {result.grantSql}
                 </pre>
                 <div className="mt-2 text-[10px] leading-4 text-muted">
-                  Replace the password placeholder and run this with an administrative account if
-                  you want a dedicated user restricted to this database.
+                  Replace the password placeholder before running this as an admin.
                 </div>
               </div>
             ) : null}
