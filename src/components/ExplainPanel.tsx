@@ -90,7 +90,7 @@ export function ExplainPanel({
             loading={analyzing}
             className="ml-auto"
           >
-            Run ANALYZE (executes)
+            Run ANALYZE (runs the query)
           </Button>
         ) : null}
       </div>

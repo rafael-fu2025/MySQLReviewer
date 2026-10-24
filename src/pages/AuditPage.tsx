@@ -235,14 +235,14 @@ export function AuditPage() {
     <div className="page">
       <PageHeader
         title="Audit"
-        subtitle="Run every deterministic check against the selected databases, with transparent coverage and an optional AI executive summary."
+        subtitle="Run all checks against the selected databases."
         actions={
           <>
             <Badge tone="neutral">
               <Database size={10} /> {selected.size} selected · {totalTables} tables
             </Badge>
             <Button variant="ghost" size="sm" icon={<RefreshCw size={12} />} onClick={loadPast}>
-              Past audits
+              Refresh
             </Button>
           </>
         }
@@ -308,7 +308,7 @@ export function AuditPage() {
             <div className="mt-3 rounded-xl border border-line-soft bg-panel-2/40 p-3">
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles size={13} className="text-ember" />
-                <span className="text-[11.5px] font-semibold">AI summary stream</span>
+                <span className="text-[11.5px] font-semibold">AI summary</span>
               </div>
               <Markdown>{aiText}</Markdown>
             </div>
@@ -331,7 +331,7 @@ export function AuditPage() {
               icon={<ChevronRight size={12} />}
               onClick={() => navigate(`/reports/${report.id}`)}
             >
-              Open saved report
+              Open report
             </Button>
             <Badge tone="mint" className="ml-auto">
               <CheckCircle2 size={10} /> complete in {formatDuration(report.durationMs)}
@@ -411,11 +411,7 @@ export function AuditPage() {
                 <div className="mt-3 border-t border-line-soft pt-3">
                   {providers.length > 0 ? (
                     <div className="flex flex-col gap-2">
-                      <Checkbox
-                        label="AI executive summary"
-                        checked={includeAi}
-                        onChange={setIncludeAi}
-                      />
+                      <Checkbox label="AI summary" checked={includeAi} onChange={setIncludeAi} />
                       {includeAi ? (
                         <div className="grid grid-cols-1 gap-2">
                           <Field label="Provider">
@@ -467,7 +463,7 @@ export function AuditPage() {
                   disabled={selected.size === 0}
                   onClick={() => void startAudit()}
                 >
-                  Run full audit
+                  Run audit
                 </Button>
                 <div className="mt-2 text-center text-[10px] text-muted">
                   Read-only — schema, indexes, accounts, configuration, and query performance.

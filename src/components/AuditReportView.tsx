@@ -39,10 +39,12 @@ export function AuditReportView({ report }: { report: AuditReport }) {
           <ScoreRing score={report.score.score} grade={report.score.grade} size={126} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="ember">audit</Badge>
-              <Badge tone={report.ai ? 'info' : 'neutral'}>
-                <Sparkles size={10} /> {report.ai ? 'AI summary' : 'deterministic'}
-              </Badge>
+              <Badge tone="ember">Audit</Badge>
+              {report.ai ? (
+                <Badge tone="info">
+                  <Sparkles size={10} /> AI summary
+                </Badge>
+              ) : null}
               <span className="font-mono text-[10px] text-muted">
                 {formatDate(report.createdAt)}
               </span>
@@ -130,7 +132,7 @@ export function AuditReportView({ report }: { report: AuditReport }) {
         <Card className="p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Sparkles size={14} className="text-ember" />
-            <div className="section-title">AI executive summary</div>
+            <div className="section-title">AI summary</div>
             <Badge tone="neutral" className="ml-auto">
               {report.ai.providerName} · {report.ai.model}
             </Badge>

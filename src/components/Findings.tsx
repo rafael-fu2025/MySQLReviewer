@@ -103,7 +103,7 @@ export function FindingFilters({
           className={cn('badge cursor-pointer', severity === 'all' && 'badge-ember')}
           onClick={() => onSeverity('all')}
         >
-          all {findings.length}
+          All {findings.length}
         </button>
         {SEVERITY_ORDER.filter((item) => counts[item] > 0).map((item) => (
           <button
@@ -336,7 +336,7 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
                   ))}
                   {group.count > group.instances.length ? (
                     <div className="text-[11px] text-muted">
-                      … {group.count - group.instances.length} more instance(s) not shown.
+                      … and {group.count - group.instances.length} more not shown.
                     </div>
                   ) : null}
                 </div>

@@ -849,7 +849,7 @@ function TableDetailView({
       {tab === 'ddl' ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <div className="section-title">Create statement</div>
+            <div className="section-title">DDL</div>
             <div className="ml-auto flex gap-1">
               {detail.createSql ? <CopyButton text={detail.createSql} label="Copy DDL" /> : null}
               {detail.createSql ? (
@@ -1254,11 +1254,11 @@ export function DatabasePage() {
                     ? `${objects.tables.length} tables · ${objects.views.length} views`
                     : objectsError
                       ? 'unavailable'
-                      : 'loading…'}
+                      : 'Loading…'}
                 </div>
               </div>
               <IconButton
-                label="Refresh objects"
+                label="Refresh schema"
                 onClick={() => setObjectsRequest((value) => value + 1)}
               >
                 {objectsLoading ? <Spinner size={13} /> : <RefreshCw size={13} />}

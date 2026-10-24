@@ -63,7 +63,7 @@ export function CommandPalette() {
       },
       {
         id: 'database',
-        label: 'Database explorer',
+        label: 'Database',
         group: 'Navigate',
         path: '/database',
         icon: 'database',
@@ -82,7 +82,7 @@ export function CommandPalette() {
       { id: 'settings', label: 'Settings', group: 'Navigate', path: '/settings', icon: 'settings' },
       {
         id: 'create-database',
-        label: 'Create a database',
+        label: 'Create database',
         group: 'Actions',
         icon: 'plus',
         run: () => navigate('/database?create=1'),

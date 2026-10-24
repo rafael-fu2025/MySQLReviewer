@@ -204,7 +204,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
     { key: 'security', label: 'Accounts & privileges', status: 'pending' },
     { key: 'config', label: 'Server configuration', status: 'pending' },
     { key: 'performance', label: 'Performance telemetry', status: 'pending' },
-    ...(input.ai ? [{ key: 'ai', label: 'AI executive summary', status: 'pending' as const }] : []),
+    ...(input.ai ? [{ key: 'ai', label: 'AI summary', status: 'pending' as const }] : []),
     { key: 'finalize', label: 'Scoring & report', status: 'pending' },
   ];
   const stepMap = new Map(steps.map((step) => [step.key, step]));
@@ -432,7 +432,7 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
 
   let ai: AiReview | null = null;
   if (input.ai) {
-    emit(93, 'Requesting AI executive summary.');
+    emit(93, 'Requesting AI summary.');
     startStep('ai');
     const aiStarted = Date.now();
     try {

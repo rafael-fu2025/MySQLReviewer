@@ -79,7 +79,7 @@ describe('report export', () => {
     expect(markdown).toContain('**70/100** (grade C)');
     expect(markdown).toContain('Schema snapshot');
     expect(markdown).toContain('security.empty-password');
-    expect(markdown).toContain('## AI executive summary');
+    expect(markdown).toContain('## AI summary');
   });
 
   it('escapes HTML from findings and AI markdown', () => {

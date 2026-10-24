@@ -43,10 +43,10 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
           <ScoreRing score={review.score.score} grade={review.score.grade} size={116} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">review</Badge>
+              <Badge tone="info">Review</Badge>
               {report.ai ? (
                 <Badge tone="info">
-                  <Sparkles size={9} /> AI
+                  <Sparkles size={9} /> AI summary
                 </Badge>
               ) : null}
               <span className="font-mono text-[10px] text-muted">
@@ -103,7 +103,9 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
         <div className="section-title mb-2">Statement</div>
         <CodeBlock text={report.sql} className="max-h-72" />
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted">
-          <Badge tone="neutral">{review.statements.length} statement(s)</Badge>
+          <Badge tone="neutral">
+            {review.statements.length} statement{review.statements.length === 1 ? '' : 's'}
+          </Badge>
           {review.context.tables.length > 0 ? (
             <span>
               Context tables: {review.context.tables.map((table) => table.table).join(', ')}
@@ -164,7 +166,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
         <Card className="p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Sparkles size={14} className="text-ember" />
-            <div className="section-title">AI review</div>
+            <div className="section-title">AI summary</div>
             <Badge tone="neutral" className="ml-auto">
               {report.ai.providerName} · {report.ai.model} · {report.ai.verdict}
             </Badge>
@@ -287,11 +289,11 @@ export function ReportDetailPage() {
           icon={<ArrowLeft size={13} />}
           onClick={() => navigate('/reports')}
         >
-          Reports
+          Back to reports
         </Button>
         <span className="font-mono text-[10px] text-muted">{report.id}</span>
         <Badge tone={report.kind === 'audit' ? 'ember' : 'info'} className="ml-auto">
-          {report.kind}
+          {report.kind === 'audit' ? 'Audit' : 'Review'}
         </Badge>
       </div>
       {report.kind === 'audit' ? (

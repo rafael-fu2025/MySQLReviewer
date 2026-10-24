@@ -195,17 +195,13 @@ export function PerformancePage() {
   if (!activeProfileId) {
     return (
       <div className="page">
-        <PageHeader
-          title="Performance"
-          subtitle="A live snapshot of server throughput, sessions, slow work, and configuration."
-        />
+        <PageHeader title="Performance" subtitle="Live throughput, sessions, and configuration." />
         <EmptyState
           icon={<Database size={24} />}
           title="Connect to a database"
-          copy="Performance metrics are read live from the active connection. Choose a profile to see throughput, sessions, slow queries, and server variables."
           action={
             <Button variant="primary" onClick={() => navigate('/connect')}>
-              Connect to a database
+              Connect
             </Button>
           }
         />
@@ -469,7 +465,7 @@ export function PerformancePage() {
                   icon={paused ? <Play size={12} /> : <Pause size={12} />}
                   onClick={() => setPaused((value) => !value)}
                 >
-                  {paused ? 'Resume polling' : 'Pause polling'}
+                  {paused ? 'Resume' : 'Pause'}
                 </Button>
               </div>
               <div className="overflow-auto">

@@ -300,7 +300,7 @@ export function AppShell() {
 
         <div className="sidebar-footer">
           <Tooltip
-            label={defaultProvider ? `AI · ${defaultProvider.name}` : 'Configure AI'}
+            label={defaultProvider ? `AI · ${defaultProvider.name}` : 'Add provider'}
             side="right"
             block
             disabled={!compactSidebar}
@@ -312,7 +312,7 @@ export function AppShell() {
             >
               <Sparkles size={16} className={defaultProvider ? 'text-ember' : ''} />
               <span className="truncate">
-                {defaultProvider ? defaultProvider.name : 'Configure AI'}
+                {defaultProvider ? defaultProvider.name : 'Add provider'}
               </span>
               {defaultProvider ? (
                 <span className="nav-badge">
@@ -430,7 +430,7 @@ export function AppShell() {
       <BottomNav
         items={primaryNav}
         overflow={overflowNav}
-        aiLabel={defaultProvider ? defaultProvider.name : 'Configure AI'}
+        aiLabel={defaultProvider ? defaultProvider.name : 'Add provider'}
         aiActive={Boolean(defaultProvider)}
         theme={theme}
         onToggleTheme={() => void setTheme(theme === 'light' ? 'dark' : 'light')}

@@ -7,7 +7,8 @@ import type {
   TestConnectionResult,
 } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
-import { Button, Checkbox, CopyButton, Field, IconButton, Input, Spinner } from './ui';
+import { notExecutedBadge } from '@/lib/copy';
+import { Button, Checkbox, CopyButton, Field, IconButton, Input } from './ui';
 import { cn } from '@/lib/utils';
 import { MultiSelect } from './Combobox';
 
@@ -189,7 +190,7 @@ export function ConnectionForm({
 
   const previewGrant = async (): Promise<void> => {
     if (!profile) {
-      setError('Save the profile first, then preview the least-privilege GRANT SQL.');
+      setError('Save the connection first, then preview the least-privilege GRANT SQL.');
       return;
     }
     if (form.allowedDatabases.length === 0) {
@@ -426,8 +427,7 @@ export function ConnectionForm({
               onChange={(value) => set('allowServerWideInsights', value)}
             />
             <div className="text-[10px] leading-4 text-muted">
-              The profile allowlist is a workflow guardrail. A restricted MySQL user and grants are
-              the real security boundary.
+              Grants, not this list, are the security boundary.
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -441,14 +441,14 @@ export function ConnectionForm({
               </Button>
               {!profile ? (
                 <span className="text-[10px] text-muted">
-                  Save the profile first to generate SQL for a new user.
+                  Save the connection first to generate SQL for a new user.
                 </span>
               ) : null}
             </div>
             {grantSql ? (
               <div className="rounded-lg border border-line-soft bg-canvas/50 p-2">
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="mono-label">Least-privilege SQL · not executed</span>
+                  <span className="mono-label">Least-privilege SQL · {notExecutedBadge}</span>
                   <CopyButton text={grantSql} label="Copy" />
                 </div>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink-soft">
@@ -573,14 +573,14 @@ export function ConnectionForm({
         <Button
           type="button"
           variant="secondary"
-          icon={testing ? <Spinner size={13} /> : <PlugZap size={13} />}
+          icon={<PlugZap size={13} />}
           onClick={runTest}
           loading={testing}
         >
-          Test connection
+          Test
         </Button>
         <Button type="submit" variant="primary" loading={saving}>
-          {profile ? 'Save changes' : 'Add connection'}
+          {profile ? 'Save connection' : 'Add connection'}
         </Button>
       </div>
     </form>

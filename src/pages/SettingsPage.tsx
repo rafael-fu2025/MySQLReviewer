@@ -27,6 +27,12 @@ import type {
 import { APP_VERSION } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
+import {
+  compatLine,
+  deleteConnectionConfirmLabel,
+  deleteConnectionMessage,
+  deleteConnectionTitle,
+} from '@/lib/copy';
 import { formatRelative } from '@/lib/format';
 import { ConnectionForm } from '@/components/ConnectionForm';
 import { ProviderForm } from '@/components/ProviderForm';
@@ -236,7 +242,7 @@ export function SettingsPage() {
         await refreshProfiles();
       } catch (error) {
         toast(
-          `The profile list could not be refreshed: ${error instanceof Error ? error.message : String(error)}`,
+          `The connection list could not be refreshed: ${error instanceof Error ? error.message : String(error)}`,
           'warn',
         );
       }
@@ -376,7 +382,7 @@ export function SettingsPage() {
       {tab === 'connections' ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="section-title">Connection profiles</div>
+            <div className="section-title">Connections</div>
             <Button
               variant="primary"
               size="sm"
@@ -490,7 +496,7 @@ export function SettingsPage() {
                   icon={<Plus size={13} />}
                   onClick={() => setProviderModal({ open: true, provider: null })}
                 >
-                  Add your first provider
+                  Add provider
                 </Button>
               </div>
             </Card>
@@ -680,15 +686,6 @@ export function SettingsPage() {
                 }
               />
             </div>
-            <div className="mt-3 flex justify-end">
-              <Button
-                variant="primary"
-                loading={savingSettings}
-                onClick={() => void saveSettings()}
-              >
-                Save masking setting
-              </Button>
-            </div>
           </Card>
           <Card className="p-4">
             <div className="section-title mb-3">Query limits</div>
@@ -804,7 +801,7 @@ export function SettingsPage() {
             <div className="flex flex-col gap-2 text-[11.5px]">
               {[
                 ['Data directory', boot?.dataDir ?? '—'],
-                ['Connection profiles', String(profiles.length)],
+                ['Connections', String(profiles.length)],
                 ['AI providers', String(providers.length)],
                 ['Saved reports', String(reports.length)],
                 ['Node runtime', boot?.nodeVersion ?? '—'],
@@ -885,7 +882,7 @@ export function SettingsPage() {
         subtitle={
           connectionModal.profile
             ? connectionModal.profile.name
-            : 'Works with XAMPP, MySQL 5.7/8.x, and MariaDB 10.x.'
+            : `Works with XAMPP (${compatLine}).`
         }
         size="wide"
       >
@@ -937,13 +934,9 @@ export function SettingsPage() {
         open={Boolean(deletingConnection)}
         onClose={() => setDeletingConnection(null)}
         onConfirm={() => void deleteConnection()}
-        title="Delete connection?"
-        message={
-          deletingConnection
-            ? `Remove “${deletingConnection.name}” from MyLens. The MySQL server and its data are untouched.`
-            : ''
-        }
-        confirmLabel="Delete connection"
+        title={deleteConnectionTitle}
+        message={deletingConnection ? deleteConnectionMessage(deletingConnection.name) : ''}
+        confirmLabel={deleteConnectionConfirmLabel}
         danger
         loading={Boolean(busy)}
       />

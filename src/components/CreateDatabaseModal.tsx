@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Database, KeyRound, Unlock } from 'lucide-react';
 import type { CharsetInfo, ConnectionProfile, CreateDatabaseResult } from '@shared/types';
 import { dbApi } from '@/lib/db-api';
+import { notExecutedBadge } from '@/lib/copy';
 import { useAppStore } from '@/store/app-store';
 import { ApiError } from '@/lib/api';
 import { UnlockDialog } from './UnlockDialog';
@@ -181,7 +182,7 @@ export function CreateDatabaseModal({
               <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
               <div className="text-[11px] text-muted">
                 Charset {charset} · collation {result.database.collation ?? collation}
-                {result.scopeUpdated ? ' · added to this profile’s allowed databases' : ''}
+                {result.scopeUpdated ? ' · added to this connection’s allowed databases' : ''}
               </div>
             </div>
             {result.grantSql ? (
@@ -190,7 +191,7 @@ export function CreateDatabaseModal({
                   <KeyRound size={13} className="text-ember" />
                   <span className="text-[12px] font-semibold">Least-privilege GRANT SQL</span>
                   <Badge tone="warn" className="ml-auto">
-                    review only · not executed
+                    {notExecutedBadge}
                   </Badge>
                   <CopyButton text={result.grantSql} label="Copy SQL" />
                 </div>

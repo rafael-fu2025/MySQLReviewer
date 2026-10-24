@@ -82,7 +82,7 @@ export function reportToMarkdown(report: AnyReport): string {
   lines.push('');
 
   if (report.kind === 'audit' && report.ai?.markdown) {
-    lines.push('## AI executive summary');
+    lines.push('## AI summary');
     lines.push('');
     lines.push(report.ai.markdown);
     lines.push('');
@@ -327,7 +327,7 @@ export function reportToHtml(report: AnyReport): string {
   body += `<section class="score"><div class="score-value">${score.score}</div><div><div class="grade">Grade ${escapeHtml(score.grade)}</div><div class="meta">${total} findings · ${score.counts.critical} critical · ${score.counts.high} high · ${score.counts.medium} medium · ${score.counts.low} low · ${score.counts.info} info</div></div></section>`;
 
   if (report.kind === 'audit' && report.ai?.markdown) {
-    body += `<section><h2>AI executive summary</h2><div class="markdown">${markdownToHtml(report.ai.markdown)}</div></section>`;
+    body += `<section><h2>AI summary</h2><div class="markdown">${markdownToHtml(report.ai.markdown)}</div></section>`;
   }
 
   if (report.kind === 'audit') {

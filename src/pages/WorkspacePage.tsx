@@ -30,6 +30,7 @@ import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { onWorkspace, type WorkspaceAction } from '@/lib/events';
 import { formatDuration, sqlPreview } from '@/lib/format';
+import { selectDatabaseHint } from '@/lib/copy';
 import { SqlEditor } from '@/components/SqlEditor';
 import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { ResultsGrid } from '@/components/ResultsGrid';
@@ -783,7 +784,7 @@ export function WorkspacePage() {
                 </button>
               </div>
             ))}
-            <IconButton label="New query tab" onClick={() => createTab()}>
+            <IconButton label="New statement tab" onClick={() => createTab()}>
               <Plus size={14} />
             </IconButton>
           </div>
@@ -885,8 +886,7 @@ export function WorkspacePage() {
 
           {!selectedDatabase ? (
             <div className="border-b border-warn/20 bg-warn/5 px-3 py-1.5 text-[10.5px] text-warn">
-              No database selected. Statements that rely on the default database may fail — choose
-              one in the top bar.
+              No database selected — {selectDatabaseHint}
             </div>
           ) : null}
 
@@ -960,7 +960,7 @@ export function WorkspacePage() {
                 activeTab.running ? (
                   <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted">
                     <Spinner size={16} />
-                    Executing…
+                    Running…
                   </div>
                 ) : activeTab.result ? (
                   <ResultsGrid result={activeTab.result} onReveal={revealSensitiveValues} />

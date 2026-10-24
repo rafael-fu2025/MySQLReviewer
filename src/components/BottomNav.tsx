@@ -127,7 +127,7 @@ export function BottomNav({
 
         <button type="button" className="sheet-item" onClick={onToggleTheme}>
           {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
-          <span>{theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}</span>
+          <span>{theme === 'light' ? 'Dark theme' : 'Light theme'}</span>
         </button>
       </Modal>
     </>

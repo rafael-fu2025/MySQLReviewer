@@ -193,10 +193,9 @@ export function ReportsPage() {
           <EmptyState
             icon={<FileText size={24} />}
             title="No reports yet"
-            copy="Run a full audit or save an AI review to keep it here."
             action={
               <Button variant="primary" onClick={() => navigate('/audit')}>
-                Run an audit
+                Run audit
               </Button>
             }
           />
@@ -204,7 +203,6 @@ export function ReportsPage() {
           <EmptyState
             icon={<Search size={24} />}
             title="No reports match this filter"
-            copy={`None of the ${reports.length} saved report${reports.length === 1 ? '' : 's'} match the current tab and search.`}
             action={
               <Button variant="secondary" onClick={clearFilters}>
                 Clear filters
@@ -220,10 +218,12 @@ export function ReportsPage() {
                 <ScoreRing score={report.score} grade={report.grade} size={68} stroke={6} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone={report.kind === 'audit' ? 'ember' : 'info'}>{report.kind}</Badge>
+                    <Badge tone={report.kind === 'audit' ? 'ember' : 'info'}>
+                      {report.kind === 'audit' ? 'Audit' : 'Review'}
+                    </Badge>
                     {report.hasAi ? (
                       <Badge tone="info">
-                        <Sparkles size={9} /> AI
+                        <Sparkles size={9} /> AI summary
                       </Badge>
                     ) : null}
                   </div>
@@ -259,7 +259,7 @@ export function ReportsPage() {
                   onClick={() => void doExport(report, 'md')}
                   disabled={isExporting(exporting, report.id)}
                 >
-                  MD
+                  Markdown
                 </Button>
                 <Button
                   variant="ghost"

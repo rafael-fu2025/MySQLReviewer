@@ -348,12 +348,9 @@ export function ReviewPanel({
           {providers.length === 0 ? (
             <div className="callout info flex flex-wrap items-center gap-2">
               <Sparkles size={14} />
-              <span className="flex-1">
-                Add an AI provider to get a second opinion, rewrite suggestions, and a structured
-                deep review.
-              </span>
+              <span className="flex-1">Add a provider to enable deep review.</span>
               <Button size="sm" variant="secondary" onClick={onConfigureAi}>
-                Configure AI
+                Add provider
               </Button>
             </div>
           ) : (
@@ -402,7 +399,7 @@ export function ReviewPanel({
                   onChange={setIncludeExplain}
                 />
                 <Checkbox
-                  label="Run ANALYZE (executes the query)"
+                  label="Include ANALYZE (runs the query)"
                   checked={analyze}
                   onChange={setAnalyze}
                   disabled={!includeExplain}
@@ -627,7 +624,7 @@ export function ReviewPanel({
                 <Input
                   value={chatInput}
                   onChange={(event) => setChatInput(event.target.value)}
-                  placeholder="Ask about this query…"
+                  placeholder="Ask about this statement…"
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.shiftKey) {
                       event.preventDefault();

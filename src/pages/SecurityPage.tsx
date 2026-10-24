@@ -123,10 +123,9 @@ export function SecurityPage() {
         <EmptyState
           icon={<Database size={24} />}
           title="Connect to a database"
-          copy="The security audit reads accounts, grants, and server settings from the active connection. Choose a profile to run it."
           action={
             <Button variant="primary" onClick={() => navigate('/connect')}>
-              Connect to a database
+              Connect
             </Button>
           }
         />
@@ -161,7 +160,7 @@ export function SecurityPage() {
           icon={<ShieldAlert size={24} />}
           title="Security audit unavailable"
           copy={error ?? 'The server did not return security data.'}
-          action={<Button onClick={refresh}>Try again</Button>}
+          action={<Button onClick={refresh}>Retry</Button>}
         />
       </div>
     );
@@ -178,11 +177,11 @@ export function SecurityPage() {
     <div className="page">
       <PageHeader
         title="Security"
-        subtitle="Account inventory, authentication posture, privilege flags, and server-side security settings."
+        subtitle="Accounts, grants, authentication, and configuration risk."
         actions={
           <>
             <Badge tone={critical > 0 ? 'danger' : 'mint'}>
-              {critical} high-impact finding{critical === 1 ? '' : 's'}
+              {critical} critical or high finding{critical === 1 ? '' : 's'}
             </Badge>
             <Button
               variant="secondary"
@@ -387,7 +386,6 @@ export function SecurityPage() {
           setGrants(null);
         }}
         title={grantsFor ? `Grants · ${userLabel(grantsFor)}` : 'Grants'}
-        subtitle="Effective privileges from information_schema privilege tables."
         size="wide"
       >
         {grantsLoading ? (

@@ -860,10 +860,10 @@ export function PracticePage() {
               icon={<ListChecks size={12} />}
               onClick={() => setNavigatorOpen((value) => !value)}
             >
-              {navigatorOpen ? 'Hide questions' : 'Questions'}
+              {navigatorOpen ? 'Hide challenges' : 'Challenges'}
             </Button>
             <Button variant="secondary" size="sm" icon={<Sparkles size={12} />} onClick={openSetup}>
-              New challenges
+              Generate challenges
             </Button>
           </div>
         </div>
@@ -929,13 +929,13 @@ export function PracticePage() {
               {providers.length === 0 ? (
                 <div className="callout info mb-3 flex flex-wrap items-center gap-2">
                   <Sparkles size={14} />
-                  <span className="flex-1">Add an AI provider to generate challenges.</span>
+                  <span className="flex-1">Add a provider to generate challenges.</span>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => navigate('/settings?tab=ai')}
                   >
-                    Configure AI
+                    Add provider
                   </Button>
                 </div>
               ) : null}
@@ -1590,7 +1590,7 @@ export function PracticePage() {
                             updateCurrent({ evaluation: null, duplicate: false });
                           }}
                         >
-                          Try again
+                          Retry
                         </Button>
                       </div>
                     </Card>

@@ -16,6 +16,12 @@ import type { ConnectionProfile, TestConnectionResult } from '@shared/types';
 import { APP_VERSION } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api, ApiError } from '@/lib/api';
+import {
+  compatLine,
+  deleteConnectionConfirmLabel,
+  deleteConnectionMessage,
+  deleteConnectionTitle,
+} from '@/lib/copy';
 import { formatRelative } from '@/lib/format';
 import { ConnectionForm } from '@/components/ConnectionForm';
 import {
@@ -261,8 +267,7 @@ export function ConnectPage() {
                 Connect to your MySQL server
               </h1>
               <p className="mt-2 max-w-xl text-[12.5px] leading-6 text-muted">
-                Choose a profile to explore schemas, run safe queries, review EXPLAIN plans, audit
-                access, and practice with SQL Lab.
+                Pick a connection to browse schemas, run statements, and review plans.
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
                 <Button
@@ -274,7 +279,7 @@ export function ConnectPage() {
                     setFormOpen(true);
                   }}
                 >
-                  Add a connection
+                  New connection
                 </Button>
                 {activeProfileId && server ? (
                   <Button
@@ -351,7 +356,7 @@ export function ConnectPage() {
         <section className="mt-8">
           <PageHeader
             title="Connections"
-            subtitle="The seeded XAMPP profile is ready. Add a profile for any other MySQL or MariaDB server."
+            subtitle={`A seeded XAMPP connection is ready; add one for any other server (${compatLine}).`}
             actions={
               <Button
                 variant="secondary"
@@ -415,7 +420,7 @@ export function ConnectPage() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         title={editing ? 'Edit connection' : 'New connection'}
-        subtitle={editing ? editing.name : 'Works with XAMPP, MySQL 5.7/8.x, and MariaDB 10.x.'}
+        subtitle={editing ? editing.name : `Works with XAMPP (${compatLine}).`}
         size="wide"
       >
         <ConnectionForm
@@ -503,13 +508,9 @@ export function ConnectPage() {
         open={Boolean(deleting)}
         onClose={() => setDeleting(null)}
         onConfirm={() => void removeProfile()}
-        title="Delete connection?"
-        message={
-          deleting
-            ? `Remove “${deleting.name}” from MyLens. The MySQL server and its data are not touched.`
-            : ''
-        }
-        confirmLabel="Delete connection"
+        title={deleteConnectionTitle}
+        message={deleting ? deleteConnectionMessage(deleting.name) : ''}
+        confirmLabel={deleteConnectionConfirmLabel}
         danger
         loading={deletingBusy}
       />

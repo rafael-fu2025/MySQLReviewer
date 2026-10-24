@@ -3,7 +3,7 @@ import { CheckCircle2, Sparkles, XCircle } from 'lucide-react';
 import type { AiProvider, AiProviderInput, AiProviderPreset } from '@shared/types';
 import { AI_PROVIDER_PRESETS } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
-import { Button, Checkbox, Field, Input, Spinner, Switch, Textarea } from './ui';
+import { Button, Checkbox, Field, Input, Switch, Textarea } from './ui';
 import { cn } from '@/lib/utils';
 import { Combobox } from './Combobox';
 
@@ -381,11 +381,11 @@ export function ProviderForm({
         <Button
           type="button"
           variant="secondary"
-          icon={testing ? <Spinner size={13} /> : <Sparkles size={13} />}
+          icon={<Sparkles size={13} />}
           onClick={test}
           loading={testing}
         >
-          Test provider
+          Test
         </Button>
         <Button type="submit" variant="primary" loading={saving}>
           {provider ? 'Save provider' : 'Add provider'}

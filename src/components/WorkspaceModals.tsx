@@ -109,7 +109,7 @@ export function WorkspaceModals({
                       icon={<Plus size={11} />}
                       onClick={() => onLoadHistory(entry, true)}
                     >
-                      New tab
+                      Load in new tab
                     </Button>
                   </div>
                 </div>

@@ -285,12 +285,12 @@ export function SchemaSidebar({
 
   const summary =
     pinnedLoading && !objects
-      ? 'loading schema…'
+      ? 'Loading schema…'
       : pinnedError
-        ? 'could not load objects'
+        ? 'Could not load objects'
         : objects
           ? `${objects.tables.length} tables · ${objects.views.length} views`
-          : 'loading schema…';
+          : 'Loading schema…';
 
   const tree = (
     <>
@@ -298,7 +298,7 @@ export function SchemaSidebar({
         <div className="px-3 py-6 text-center text-[11px] text-muted">
           {isPanel
             ? 'This challenge set has no database to browse.'
-            : 'Select a database in the top bar to browse its objects.'}
+            : 'Select a database in the top bar.'}
         </div>
       ) : pinnedError ? (
         <div className="flex flex-col items-start gap-2 p-3">
@@ -516,8 +516,8 @@ export function SchemaSidebar({
           </div>
           <div className="truncate text-[10px] text-muted">{summary}</div>
         </div>
-        <Tooltip label="Refresh objects" side="bottom">
-          <IconButton label="Refresh objects" nativeTitle={false} onClick={() => void refresh()}>
+        <Tooltip label="Refresh schema" side="bottom">
+          <IconButton label="Refresh schema" nativeTitle={false} onClick={() => void refresh()}>
             {refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />}
           </IconButton>
         </Tooltip>
@@ -545,8 +545,8 @@ export function SchemaSidebar({
             className="input input-search py-1.5 text-[11px]"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Filter tables and views…"
-            aria-label="Filter tables and views"
+            placeholder="Filter objects…"
+            aria-label="Filter objects"
           />
         </div>
       </div>
