@@ -246,11 +246,10 @@ export function ReportDetailPage() {
   if (missingId) {
     return (
       <div className="page">
-        <PageHeader title="Report" subtitle="Saved audit or review." />
+        <PageHeader title="Report" />
         <EmptyState
           icon={<XCircle size={24} />}
           title="Report not found"
-          copy="This URL does not include a report id. Open a report from the list instead."
           action={
             <Button variant="secondary" onClick={() => navigate('/reports')}>
               Back to reports
@@ -264,7 +263,7 @@ export function ReportDetailPage() {
   if (error || !report) {
     return (
       <div className="page">
-        <PageHeader title="Report" subtitle="Saved audit or review." />
+        <PageHeader title="Report" />
         <EmptyState
           icon={<XCircle size={24} />}
           title="Report unavailable"

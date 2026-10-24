@@ -348,10 +348,7 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <PageHeader
-        title="Settings"
-        subtitle="Connections, AI providers, review behavior, safety limits, appearance, and local data."
-      />
+      <PageHeader title="Settings" />
 
       <Tabs
         items={[
@@ -468,9 +465,6 @@ export function SettingsPage() {
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="section-title">AI providers</div>
-            <Badge tone="neutral" className="ml-auto">
-              keys encrypted at rest
-            </Badge>
             <Button
               variant="primary"
               size="sm"
@@ -526,10 +520,6 @@ export function SettingsPage() {
                           <KeyRound size={9} />
                           {provider.hasApiKey ? provider.apiKeyHint : 'no key'}
                         </Badge>
-                        <Badge tone="neutral">
-                          {provider.streaming ? 'streaming' : 'non-streaming'}
-                        </Badge>
-                        <Badge tone="neutral">{provider.maxTokens} max tokens</Badge>
                       </div>
                     </div>
                   </div>
@@ -662,9 +652,6 @@ export function SettingsPage() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <ShieldCheck size={15} className="text-mint" />
               <div className="section-title">Read-only by default</div>
-              <Badge tone="mint" className="ml-auto">
-                always enforced by the server
-              </Badge>
             </div>
             <div className="callout mint text-[11.5px]">
               SELECT, SHOW, DESCRIBE, and EXPLAIN run freely. DML, DDL, and administrative
@@ -782,10 +769,10 @@ export function SettingsPage() {
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {(
               [
-                { id: 'dark', label: 'Obsidian', copy: 'Deep charcoal with ember accents.' },
-                { id: 'light', label: 'Paper', copy: 'Warm light theme for daylight.' },
-                { id: 'system', label: 'System', copy: 'Follow the OS preference.' },
-              ] as { id: ThemePreference; label: string; copy: string }[]
+                { id: 'dark', label: 'Obsidian' },
+                { id: 'light', label: 'Paper' },
+                { id: 'system', label: 'System' },
+              ] as { id: ThemePreference; label: string }[]
             ).map((option) => (
               <button
                 key={option.id}
@@ -804,12 +791,8 @@ export function SettingsPage() {
                     <CheckCircle2 size={13} className="ml-auto text-ember" />
                   ) : null}
                 </div>
-                <div className="mt-1 text-[10.5px] text-muted">{option.copy}</div>
               </button>
             ))}
-          </div>
-          <div className="mt-3 text-[10.5px] text-muted">
-            The theme is stored in your MyLens settings on this machine.
           </div>
         </Card>
       ) : null}
@@ -858,10 +841,6 @@ export function SettingsPage() {
               <Button variant="ghost" size="sm" onClick={() => setTab('connections')}>
                 Manage connections
               </Button>
-            </div>
-            <div className="mt-2 text-[10px] leading-4 text-muted">
-              Reports and snippets are not deleted by clearing history. Delete reports from the
-              Reports page.
             </div>
           </Card>
 

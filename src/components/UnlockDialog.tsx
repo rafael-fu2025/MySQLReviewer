@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertOctagon, Lock, ShieldAlert, Unlock } from 'lucide-react';
+import { AlertOctagon, ShieldAlert, Unlock } from 'lucide-react';
 import type { StatementClassification } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { Button, Checkbox, Field, Input, Modal, Spinner } from './ui';
@@ -74,11 +74,7 @@ export function UnlockDialog({
       open={open}
       onClose={onClose}
       title={title}
-      subtitle={
-        classification
-          ? 'The server enforces read-only mode until this connection is explicitly unlocked.'
-          : 'Unlocking is per connection and lasts 15 minutes.'
-      }
+      subtitle="Unlocking is per connection and lasts 15 minutes."
       size={step === 'confirm' ? 'wide' : 'narrow'}
       footer={
         step === 'unlock' ? (
@@ -120,10 +116,6 @@ export function UnlockDialog({
             <div>
               {classification?.reason ??
                 'DML, DDL, and administrative statements will be allowed for this connection.'}
-              <div className="mt-1 text-[11px] text-muted">
-                Read-only queries continue to work normally. You can lock writes again at any time
-                from the top bar.
-              </div>
             </div>
           </div>
           {sql ? (
@@ -132,11 +124,7 @@ export function UnlockDialog({
               <pre className="code-block max-h-40 whitespace-pre-wrap text-[10.5px]">{sql}</pre>
             </div>
           ) : null}
-          <Field
-            label="Type UNLOCK WRITES to continue"
-            hint="This phrase is checked by the server, not just the UI."
-            error={error}
-          >
+          <Field label="Type UNLOCK WRITES to continue" error={error}>
             <Input
               className={cn(
                 'font-mono uppercase tracking-wider',
@@ -155,10 +143,6 @@ export function UnlockDialog({
               }}
             />
           </Field>
-          <div className="flex items-center gap-2 text-[10.5px] text-muted">
-            <Lock size={12} />
-            Unlock TTL: 15 minutes. No automatic extension.
-          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -186,9 +170,6 @@ export function UnlockDialog({
             checked={acknowledged}
             onChange={setAcknowledged}
           />
-          <div className="text-[10.5px] text-muted">
-            The server still enforces single-statement execution and the configured timeout.
-          </div>
         </div>
       )}
     </Modal>

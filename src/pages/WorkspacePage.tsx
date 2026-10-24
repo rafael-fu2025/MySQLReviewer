@@ -134,19 +134,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
         </div>
       ) : null}
 
-      {!tab.error && !result ? (
-        <EmptyState
-          icon={<Info size={22} />}
-          title="No messages"
-          copy="Run a statement to see warnings, timing, and affected-row information."
-        />
-      ) : null}
-
-      {!tab.error && result && result.warnings.length === 0 ? (
-        <div className="text-[11px] text-muted">
-          No warnings were returned for the last statement.
-        </div>
-      ) : null}
+      {!tab.error && !result ? <EmptyState icon={<Info size={22} />} title="No messages" /> : null}
     </div>
   );
 }
@@ -500,7 +488,6 @@ export function WorkspacePage() {
     aiAbortRef.current?.abort();
     aiAbortRef.current = null;
     patch({ aiRunning: false, aiStreaming: false });
-    toast('AI review cancelled.', 'info');
   };
 
   const saveReport = async (): Promise<void> => {
@@ -535,7 +522,6 @@ export function WorkspacePage() {
         linesBetweenQueries: 2,
       });
       updateSql(activeTab.id, formatted);
-      toast('SQL formatted.', 'success');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not format the SQL.', 'warn');
     }
@@ -887,9 +873,6 @@ export function WorkspacePage() {
             </Button>
 
             <div className="ml-auto flex items-center gap-2">
-              <span className="hidden font-mono text-[10px] text-muted lg:inline">
-                cap {settings.rowLimit} rows · {Math.round(settings.queryTimeoutMs / 1000)}s timeout
-              </span>
               {unlocked ? (
                 <Button
                   variant="danger"
@@ -998,11 +981,7 @@ export function WorkspacePage() {
                 ) : activeTab.result ? (
                   <ResultsGrid result={activeTab.result} onReveal={revealSensitiveValues} />
                 ) : (
-                  <EmptyState
-                    icon={<Play size={22} />}
-                    title="Ready when you are"
-                    copy="Press Ctrl+Enter to run the current statement, or Ctrl+Shift+Enter to run the selection."
-                  />
+                  <EmptyState icon={<Play size={22} />} title="No results yet" />
                 )
               ) : null}
               {activeTab.outputTab === 'messages' ? <MessagesPanel tab={activeTab} /> : null}
@@ -1029,7 +1008,7 @@ export function WorkspacePage() {
                   onJumpToLine={jumpToLine}
                   onOpenSql={(text) => {
                     updateSql(activeTab.id, text);
-                    toast('Rewrite opened in the editor. Review it before running.', 'info');
+                    toast('Rewrite opened in the editor.', 'info');
                   }}
                   onConfigureAi={() => navigate('/settings?tab=ai')}
                   onRunReview={() => void review()}

@@ -213,7 +213,6 @@ export function ReviewPanel({
     chatAbortRef.current = null;
     setChatStreaming(false);
     setChatDraft('');
-    toast('AI chat stopped.', 'info');
   };
 
   if (!review) {
@@ -428,12 +427,6 @@ export function ReviewPanel({
                   Deep review
                 </Button>
               </div>
-              {analyze ? (
-                <div className="text-[10.5px] text-warn">
-                  ANALYZE executes the statement on the server. Read-only SELECTs are safe; writes
-                  require an unlock.
-                </div>
-              ) : null}
             </div>
           )}
 
@@ -662,10 +655,6 @@ export function ReviewPanel({
                     Send
                   </Button>
                 )}
-              </div>
-              <div className="mt-1 text-[10px] text-muted">
-                Follow-up chat sends the conversation, SQL, and schema context to the selected
-                provider. Local providers keep it on this machine.
               </div>
             </Card>
           ) : null}

@@ -243,7 +243,6 @@ export function SecurityPage() {
       <Card className="overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line-soft p-3">
           <div className="section-title">Accounts</div>
-          <Badge className="ml-auto">{data.users.length}</Badge>
         </div>
         {data.users.length === 0 ? (
           <EmptyState
@@ -317,7 +316,6 @@ export function SecurityPage() {
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <div className="section-title">Server security settings</div>
-          <Badge className="ml-auto">read from SHOW GLOBAL VARIABLES</Badge>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {[

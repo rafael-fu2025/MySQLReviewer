@@ -9,7 +9,6 @@ import {
   Lock,
   PlugZap,
   Plus,
-  ShieldCheck,
   Trash2,
   Zap,
 } from 'lucide-react';
@@ -68,9 +67,6 @@ function ProfileCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-[14px] font-bold tracking-tight">{profile.name}</span>
             {active ? <Badge tone="mint">active</Badge> : null}
-            {profile.host === '127.0.0.1' || profile.host === 'localhost' ? (
-              <Badge tone="ember">local</Badge>
-            ) : null}
           </div>
           <div className="mt-1 font-mono text-[10.5px] text-muted">
             {profile.user}@{profile.host}:{profile.port}
@@ -128,7 +124,6 @@ function ProfileCard({
         <Button variant="ghost" size="sm" onClick={onTest} loading={testing} disabled={connecting}>
           Test
         </Button>
-        <span className="ml-auto text-[10px] text-muted">read-only by default</span>
       </div>
     </Card>
   );
@@ -255,9 +250,6 @@ export function ConnectPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge tone="mint">
-              <ShieldCheck size={11} /> local only
-            </Badge>
             <Badge>v{version}</Badge>
           </div>
         </header>
@@ -302,9 +294,6 @@ export function ConnectPage() {
             <div className="flex items-center gap-2">
               <Laptop size={16} className="text-ember" />
               <div className="text-[13px] font-bold">This machine</div>
-              <Badge tone="mint" className="ml-auto">
-                loopback
-              </Badge>
             </div>
             <div className="divider" />
             <div className="flex flex-col gap-2.5 text-[11.5px]">
@@ -417,17 +406,9 @@ export function ConnectPage() {
             >
               <Plus size={20} />
               <span className="text-[12px] font-semibold">New connection</span>
-              <span className="text-[10.5px]">MySQL 5.7 · 8.x · MariaDB 10.x</span>
             </button>
           </div>
         </section>
-
-        <footer className="mt-10 flex flex-wrap items-center justify-between gap-2 pb-4 text-[10.5px] text-muted">
-          <span>
-            MyLens is local-first. Nothing is uploaded unless you trigger a cloud AI review.
-          </span>
-          <span className="font-mono">localhost · AES-256-GCM · no telemetry</span>
-        </footer>
       </div>
 
       <Modal
@@ -490,10 +471,6 @@ export function ConnectPage() {
         }
       >
         <div className="flex flex-col gap-3">
-          <p className="text-[12px] text-muted">
-            This profile has no saved password. Enter it for this session, or cancel and update the
-            profile to remember it.
-          </p>
           <Field label="Password" error={passwordError}>
             <Input
               type="password"

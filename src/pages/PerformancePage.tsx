@@ -358,7 +358,6 @@ export function PerformancePage() {
               <Card className="p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <div className="section-title">Largest tables</div>
-                  <Badge className="ml-auto">top 10</Badge>
                 </div>
                 {snapshot.topTables.length === 0 ? (
                   <div className="text-[11px] text-muted">No table statistics available.</div>
@@ -463,9 +462,6 @@ export function PerformancePage() {
                     placeholder="Filter by user, host, database, state…"
                   />
                 </div>
-                <Badge tone={unlocked ? 'warn' : 'neutral'}>
-                  {unlocked ? 'kill enabled' : 'unlock writes to kill'}
-                </Badge>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -515,11 +511,7 @@ export function PerformancePage() {
                             size="sm"
                             disabled={!unlocked || process.command === 'Sleep'}
                             onClick={() => setKillTarget(process)}
-                            title={
-                              unlocked
-                                ? 'Kill this session'
-                                : 'Unlock writes before killing a session'
-                            }
+                            title={unlocked ? undefined : 'Unlock writes before killing a session'}
                           >
                             Kill
                           </Button>

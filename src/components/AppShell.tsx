@@ -377,11 +377,7 @@ export function AppShell() {
             onClick={() => {
               if (unlocked) void lockWrites();
             }}
-            title={
-              unlocked
-                ? 'Writes are unlocked. Click to lock immediately.'
-                : 'Read-only mode is enforced by the server.'
-            }
+            title={unlocked ? 'Lock writes now' : undefined}
           >
             {unlocked ? <Unlock size={11} /> : <Lock size={11} />}
             <span className="hidden md:inline">
@@ -412,10 +408,6 @@ export function AppShell() {
               <Unlock size={14} className="text-danger" />
               <span className="font-semibold text-ink">
                 Writes are unlocked for {formatCountdown(remaining)}.
-              </span>
-              <span className="text-muted">
-                DML, DDL, and admin statements can now run. Destructive statements still ask for
-                confirmation.
               </span>
               <Button
                 variant="danger"

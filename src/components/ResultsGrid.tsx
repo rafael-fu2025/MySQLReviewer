@@ -9,7 +9,6 @@ import {
   Lock,
   Rows3,
   Timer,
-  TriangleAlert,
 } from 'lucide-react';
 import type { CellValue, QueryResult } from '@shared/types';
 import { copyText, downloadCsv, downloadJson, formatDuration, formatNumber } from '@/lib/format';
@@ -144,11 +143,6 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
           <Timer size={11} /> {formatDuration(result.executionMs)}
         </Badge>
         {result.unlocked ? <Badge tone="warn">unlocked</Badge> : null}
-        {result.truncated ? (
-          <Badge tone="warn">
-            <TriangleAlert size={10} /> capped
-          </Badge>
-        ) : null}
         {result.warnings.length > 0 ? (
           <Badge tone="warn">{result.warnings.length} warnings</Badge>
         ) : null}
@@ -242,11 +236,7 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
           </div>
         </div>
       ) : result.rows.length === 0 ? (
-        <EmptyState
-          icon={<Rows3 size={22} />}
-          title="Query returned no rows"
-          copy="The statement succeeded, but the result set is empty."
-        />
+        <EmptyState icon={<Rows3 size={22} />} title="No rows returned" />
       ) : (
         <div className="table-wrap">
           <table className="data-table">

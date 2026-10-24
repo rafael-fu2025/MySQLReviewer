@@ -119,28 +119,28 @@ Duplicated strings across screens (pick one canonical string):
 
 ## P3 — Terminology drift (one name per concept)
 
-| Concept | Variants | Canonical suggestion |
-|---|---|---|
-| SQL text | "statement" (dominant) vs "query" (`WorkspacePage.tsx:816` "New query tab", `ResultsGrid.tsx:247`, `ReviewPanel.tsx:637`, SqlEditor placeholder) | **statement** |
-| AI output | "AI executive summary" (AuditPage:424), "AI summary stream" (AuditPage:316), "AI summary" (AuditReportView:44), "AI review" (ReportDetail:167), "AI" badge (ReportsPage:224) | **AI summary** |
-| Report list | "Past audits" (AuditPage:249), "Recent audits" (AuditPage:489), "All reports" (AuditPage:496), "Reports" (ReportDetail:291), "Back to reports" (ReportDetail:256) | **Recent audits** + "Back to reports" |
-| Run the audit | "Run full audit" (AuditPage:479), "Run an audit" (ReportsPage:198), "New audit" (AuditPage:331) | **Run audit** (reset button may keep "New audit") |
-| Connection | "connection" vs "profile" (mixed on ConnectPage, ConnectionForm, Settings) | **connection** |
-| Create a connection | "Add a connection" (ConnectPage:285), "New connection" (ConnectPage:376/419), "Add connection" (Settings:390) | **New connection** |
-| Practice items | route "Practice", title "SQL Lab", items are "challenges" / "questions" (1674) / "problems" (879) | **challenges** |
-| Generate challenges | "New challenges" (872), "Generate challenges" ×3 (896/1061/1217) | one label |
-| Provider | "provider" vs "AI provider" (ReviewPanel:352, Practice:938) vs "Configure AI" button | **provider** / "Add provider" |
-| Abort streaming | "Cancel" (ReviewPanel:459) vs "Stop" (ReviewPanel:652); toast "cancelled" (WorkspacePage:503) vs "stopped" (ReviewPanel:216) | **Stop**, no toast |
-| Test buttons | "Test connection" / "Test provider" / bare "Test" | **Test** |
-| Save buttons | "Save changes" vs "Save provider" vs "Add connection/provider" | **Save X / Add X** pair |
-| Pause polling | "Pause" (Performance:230) vs "Pause polling" (Performance:475) | **Pause/Resume** |
-| Retry | "Try again" (Security:160) vs "Retry" (Reports:186) | **Retry** |
-| Refresh sidebar | "Refresh schema" (collapsed, SchemaSidebar:276) vs "Refresh objects" (expanded, :519) | one |
-| Filter placeholders | "Filter objects…" (DatabasePage:1309) vs "Filter tables and views…" (SchemaSidebar:548) | one |
-| ANALYZE caveat | "(executes)" (ExplainPanel:93) vs "(executes the query)" (ReviewPanel:406) | "(runs the query)" |
-| DDL artifact | "Create statement" header vs "Copy DDL" button (DatabasePage:875/877) | **DDL** |
-| Severity rename | "high-impact" (SecurityPage:181, Findings:374) vs critical/high everywhere else | **critical or high** |
-| Nav label | "Database" (AppShell:38) vs "Database explorer" (CommandPalette:66) | mirror the nav label |
+| Concept             | Variants                                                                                                                                                                     | Canonical suggestion                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| SQL text            | "statement" (dominant) vs "query" (`WorkspacePage.tsx:816` "New query tab", `ResultsGrid.tsx:247`, `ReviewPanel.tsx:637`, SqlEditor placeholder)                             | **statement**                                     |
+| AI output           | "AI executive summary" (AuditPage:424), "AI summary stream" (AuditPage:316), "AI summary" (AuditReportView:44), "AI review" (ReportDetail:167), "AI" badge (ReportsPage:224) | **AI summary**                                    |
+| Report list         | "Past audits" (AuditPage:249), "Recent audits" (AuditPage:489), "All reports" (AuditPage:496), "Reports" (ReportDetail:291), "Back to reports" (ReportDetail:256)            | **Recent audits** + "Back to reports"             |
+| Run the audit       | "Run full audit" (AuditPage:479), "Run an audit" (ReportsPage:198), "New audit" (AuditPage:331)                                                                              | **Run audit** (reset button may keep "New audit") |
+| Connection          | "connection" vs "profile" (mixed on ConnectPage, ConnectionForm, Settings)                                                                                                   | **connection**                                    |
+| Create a connection | "Add a connection" (ConnectPage:285), "New connection" (ConnectPage:376/419), "Add connection" (Settings:390)                                                                | **New connection**                                |
+| Practice items      | route "Practice", title "SQL Lab", items are "challenges" / "questions" (1674) / "problems" (879)                                                                            | **challenges**                                    |
+| Generate challenges | "New challenges" (872), "Generate challenges" ×3 (896/1061/1217)                                                                                                             | one label                                         |
+| Provider            | "provider" vs "AI provider" (ReviewPanel:352, Practice:938) vs "Configure AI" button                                                                                         | **provider** / "Add provider"                     |
+| Abort streaming     | "Cancel" (ReviewPanel:459) vs "Stop" (ReviewPanel:652); toast "cancelled" (WorkspacePage:503) vs "stopped" (ReviewPanel:216)                                                 | **Stop**, no toast                                |
+| Test buttons        | "Test connection" / "Test provider" / bare "Test"                                                                                                                            | **Test**                                          |
+| Save buttons        | "Save changes" vs "Save provider" vs "Add connection/provider"                                                                                                               | **Save X / Add X** pair                           |
+| Pause polling       | "Pause" (Performance:230) vs "Pause polling" (Performance:475)                                                                                                               | **Pause/Resume**                                  |
+| Retry               | "Try again" (Security:160) vs "Retry" (Reports:186)                                                                                                                          | **Retry**                                         |
+| Refresh sidebar     | "Refresh schema" (collapsed, SchemaSidebar:276) vs "Refresh objects" (expanded, :519)                                                                                        | one                                               |
+| Filter placeholders | "Filter objects…" (DatabasePage:1309) vs "Filter tables and views…" (SchemaSidebar:548)                                                                                      | one                                               |
+| ANALYZE caveat      | "(executes)" (ExplainPanel:93) vs "(executes the query)" (ReviewPanel:406)                                                                                                   | "(runs the query)"                                |
+| DDL artifact        | "Create statement" header vs "Copy DDL" button (DatabasePage:875/877)                                                                                                        | **DDL**                                           |
+| Severity rename     | "high-impact" (SecurityPage:181, Findings:374) vs critical/high everywhere else                                                                                              | **critical or high**                              |
+| Nav label           | "Database" (AppShell:38) vs "Database explorer" (CommandPalette:66)                                                                                                          | mirror the nav label                              |
 
 Casing/grammar inconsistencies to sweep:
 
@@ -232,7 +232,7 @@ Trivial-action toasts to delete:
 
 ## P6 — Genuine defects (fix regardless of style)
 
-1. **`WorkspacePage.tsx:1058` — "last run Xm ago" is the query duration, not elapsed time.** `lastRunLabel(activeTab.result.executionMs)` (WorkspacePage.tsx:52) formats how long the statement *ran* as an "ago" label: a query that ran 30 seconds reads "last run 30s ago" forever and never updates. Relabel to "runtime 30s" or store an actual completion timestamp.
+1. **`WorkspacePage.tsx:1058` — "last run Xm ago" is the query duration, not elapsed time.** `lastRunLabel(activeTab.result.executionMs)` (WorkspacePage.tsx:52) formats how long the statement _ran_ as an "ago" label: a query that ran 30 seconds reads "last run 30s ago" forever and never updates. Relabel to "runtime 30s" or store an actual completion timestamp.
 2. **`SecurityPage.tsx:234` — the "This is a local XAMPP server." callout renders unconditionally** (not gated on any detection) with a 3-sentence hardening lecture that is wrong advice for any non-XAMPP server. Gate on real detection and shorten to one sentence.
 3. **`ProviderForm.tsx:335-341` — "Stream responses" label rendered twice** (Switch `label` prop + a visible `<span>`). Remove one.
 4. **`DatabasePage.tsx:937` — `SparklesIcon()` returns a `RefreshCw` glyph**, used on the "No triggers" empty state. Name and glyph disagree; use a purposeful icon.
@@ -241,7 +241,7 @@ Trivial-action toasts to delete:
 7. **`ui.tsx:303` — SearchInput has no aria-label**; placeholder is its only name. Add `aria-label={placeholder}`.
 8. **`BottomNav.tsx:82 vs 90`** — modal aria-label "More sections" vs visible title "More"; **`CommandPalette.tsx:171 vs 223` + AppShell:402** — "Command palette" / "Commands" / "Commands" for one control. Align aria labels with visible labels.
 9. **`WorkspacePage.tsx:890-892`** — toolbar shows "cap N rows · Xs timeout" duplicating the status bar's "row cap N" on the same screen (see P2).
-10. **`DatabasePage.tsx:562-565, 636-641, 1485-1490` + `ExplainPanel.tsx:88`** — buttons swap a spinner icon *and* set `loading`, double busy indicators. Keep `loading` only.
+10. **`DatabasePage.tsx:562-565, 636-641, 1485-1490` + `ExplainPanel.tsx:88`** — buttons swap a spinner icon _and_ set `loading`, double busy indicators. Keep `loading` only.
 11. **`Findings.tsx:212`** — empty-state copy promises "Clear the filters" but no Clear button exists (see P1).
 12. **`App.tsx:93`** — boot-error screen offers "Open dev UI" — internal jargon; name it or hide it.
 

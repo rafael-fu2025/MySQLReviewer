@@ -222,11 +222,6 @@ export function AuditPage() {
     abortRef.current?.abort();
     abortRef.current = null;
     setRunning(false);
-    setMessage('Stopped watching. The audit continues on the server.');
-    toast(
-      'Stopped watching. The audit continues on the server and its report will still be saved.',
-      'info',
-    );
   };
 
   const totalTables = userDatabases
@@ -350,7 +345,6 @@ export function AuditPage() {
             <Card className="p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <div className="section-title">Databases</div>
-                <Badge className="ml-auto">{selected.size} selected</Badge>
                 <Button variant="ghost" size="sm" onClick={selectAll}>
                   Select all
                 </Button>
@@ -412,10 +406,7 @@ export function AuditPage() {
               <Card className="p-4">
                 <div className="section-title mb-3">Run options</div>
                 <div className="grid grid-cols-2 gap-2">
-                  <StatCard label="Databases" value={selected.size} />
-                  <StatCard label="Tables" value={totalTables} />
                   <StatCard label="On-disk size" value={formatBytes(totalBytes)} />
-                  <StatCard label="Rules" value="50+" sub="deterministic" />
                 </div>
                 <div className="mt-3 border-t border-line-soft pt-3">
                   {providers.length > 0 ? (
@@ -479,7 +470,7 @@ export function AuditPage() {
                   Run full audit
                 </Button>
                 <div className="mt-2 text-center text-[10px] text-muted">
-                  Read-only checks. Nothing is modified.
+                  Read-only — schema, indexes, accounts, configuration, and query performance.
                 </div>
               </Card>
 
@@ -525,29 +516,6 @@ export function AuditPage() {
               ) : null}
             </div>
           </div>
-
-          <Card className="p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="section-title">What the audit covers</div>
-            </div>
-            <div className="grid grid-cols-1 gap-2 text-[11.5px] sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                'Primary keys, foreign keys, and index design',
-                'Storage engines, charsets, collations, and column types',
-                'Duplicate, redundant, and unused indexes',
-                'Account passwords, wildcard hosts, and excessive privileges',
-                'sql_mode, local_infile, secure_file_priv, bind address',
-                'Slow queries, full joins, temp-table spills, and replication',
-                'Routines, triggers, events, and definer validity',
-                'Coverage report for denied or unsupported checks',
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-2">
-                  <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-mint" />
-                  <span className="text-muted">{item}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
         </>
       )}
     </div>

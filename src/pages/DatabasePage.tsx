@@ -81,13 +81,7 @@ function RelationMap({
   const outgoing = detail.foreignKeys;
   const incoming = detail.referencedBy;
   if (outgoing.length === 0 && incoming.length === 0) {
-    return (
-      <EmptyState
-        icon={<Link2 size={22} />}
-        title="No relationships"
-        copy="This table has no foreign keys pointing in or out."
-      />
-    );
+    return <EmptyState icon={<Link2 size={22} />} title="No relationships" />;
   }
 
   const leftNodes = incoming.slice(0, 8);
@@ -270,8 +264,7 @@ function RelationMap({
         })}
       </svg>
       <div className="border-t border-line-soft px-3 py-2 text-[10px] text-muted">
-        Left: tables referencing this table. Right: tables this table references. Click a node to
-        open it.
+        Left: tables referencing this table. Right: tables this table references.
       </div>
     </div>
   );
@@ -663,23 +656,10 @@ function TableDetailView({
       {tab === 'overview' ? (
         <div className="flex flex-col gap-3">
           <div className="stat-grid stat-grid-6">
-            <StatCard
-              label="Estimated rows"
-              value={formatNumber(summary.rowsEstimate)}
-              sub="InnoDB estimate"
-            />
-            <StatCard label="Data size" value={formatBytes(summary.dataBytes)} sub="DATA_LENGTH" />
-            <StatCard
-              label="Index size"
-              value={formatBytes(summary.indexBytes)}
-              sub="INDEX_LENGTH"
-            />
-            <StatCard
-              label="Free space"
-              value={formatBytes(summary.dataFreeBytes)}
-              sub="DATA_FREE"
-              tone="warn"
-            />
+            <StatCard label="Estimated rows" value={formatNumber(summary.rowsEstimate)} />
+            <StatCard label="Data size" value={formatBytes(summary.dataBytes)} />
+            <StatCard label="Index size" value={formatBytes(summary.indexBytes)} />
+            <StatCard label="Free space" value={formatBytes(summary.dataFreeBytes)} tone="warn" />
             <StatCard label="Indexes" value={detail.indexes.length} sub="including primary" />
             <StatCard
               label="Columns"
@@ -769,11 +749,7 @@ function TableDetailView({
       {tab === 'indexes' ? (
         <div className="flex flex-col gap-2">
           {detail.indexes.length === 0 ? (
-            <EmptyState
-              icon={<KeyRound size={22} />}
-              title="No indexes"
-              copy="This table has no index definitions."
-            />
+            <EmptyState icon={<KeyRound size={22} />} title="No indexes" />
           ) : (
             detail.indexes.map((index) => (
               <Card key={index.name} className="flex flex-wrap items-center gap-3 p-3">
@@ -905,11 +881,7 @@ function TableDetailView({
       {tab === 'triggers' ? (
         <div className="flex flex-col gap-2">
           {detail.triggers.length === 0 ? (
-            <EmptyState
-              icon={<SparklesIcon />}
-              title="No triggers"
-              copy="No triggers are attached to this table."
-            />
+            <EmptyState icon={<SparklesIcon />} title="No triggers" />
           ) : (
             detail.triggers.map((trigger) => (
               <Card key={trigger.name} className="p-3">
@@ -1097,7 +1069,6 @@ export function DatabasePage() {
         if (detailRequest.current !== requestId) return;
         const message = error instanceof Error ? error.message : String(error);
         setDetailState({ key, fetchKey: detailFetchKey, detail: null, error: message });
-        toast(message, 'error');
       });
     return () => {
       // Invalidate the in-flight response even if it never settles.
@@ -1233,7 +1204,6 @@ export function DatabasePage() {
       <div className="page">
         <PageHeader
           title="Database"
-          subtitle="Select a database in the top bar to explore its objects."
           actions={
             activeProfile ? (
               <Button
@@ -1448,7 +1418,6 @@ export function DatabasePage() {
               <div className="flex flex-col gap-3">
                 <PageHeader
                   title={tableParam}
-                  subtitle={`Table details could not be loaded from ${selectedDatabase}.`}
                   actions={
                     <Button
                       variant="secondary"
@@ -1467,7 +1436,6 @@ export function DatabasePage() {
             <div className="flex flex-col gap-4">
               <PageHeader
                 title={selectedDatabase}
-                subtitle="Browse tables, views, routines, triggers, and events."
                 actions={
                   <>
                     <Button
@@ -1511,7 +1479,6 @@ export function DatabasePage() {
               <Card className="p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <div className="section-title">Tables</div>
-                  <Badge className="ml-auto">{filteredTables.length}</Badge>
                 </div>
                 {objectsError && !objects ? (
                   <div className="callout danger flex flex-wrap items-center gap-2">

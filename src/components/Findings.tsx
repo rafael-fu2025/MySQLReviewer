@@ -172,7 +172,7 @@ function filterFindings(
 export function FindingsList({
   findings,
   emptyTitle = 'No findings',
-  emptyCopy = 'Nothing to report here.',
+  emptyCopy,
   onJumpToLine,
   compact,
   showFilters = true,
@@ -210,11 +210,7 @@ export function FindingsList({
         />
       ) : null}
       {filtered.length === 0 ? (
-        <EmptyState
-          icon={<Filter size={20} />}
-          title="No findings match the filters"
-          copy="Clear the filters or search for something else."
-        />
+        <EmptyState icon={<Filter size={20} />} title="No findings match the filters" />
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((finding) => (
@@ -264,13 +260,7 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
   };
 
   if (groups.length === 0) {
-    return (
-      <EmptyState
-        icon={<ShieldAlert size={22} />}
-        title="No findings"
-        copy="This audit did not produce any findings."
-      />
-    );
+    return <EmptyState icon={<ShieldAlert size={22} />} title="No findings" />;
   }
 
   return (

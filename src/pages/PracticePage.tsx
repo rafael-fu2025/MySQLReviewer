@@ -862,13 +862,7 @@ export function PracticePage() {
             >
               {navigatorOpen ? 'Hide questions' : 'Questions'}
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Sparkles size={12} />}
-              onClick={openSetup}
-              title="Generate another challenge set"
-            >
+            <Button variant="secondary" size="sm" icon={<Sparkles size={12} />} onClick={openSetup}>
               New challenges
             </Button>
           </div>
@@ -1383,11 +1377,7 @@ export function PracticePage() {
                     >
                       Submit answer
                     </Button>
-                    {question.type === 'review-query' || question.type === 'concept' ? (
-                      <span className="text-[10px] text-muted">
-                        This answer is graded without execution.
-                      </span>
-                    ) : (
+                    {question.type === 'review-query' || question.type === 'concept' ? null : (
                       <span className="text-[10px] text-muted">
                         {running
                           ? 'Running the query…'
@@ -1445,14 +1435,7 @@ export function PracticePage() {
                             ) : (
                               <Badge tone="warn">not executed</Badge>
                             )}
-                            {current.duplicate ? (
-                              <Badge tone="info">already submitted · not counted again</Badge>
-                            ) : null}
-                            <span className="ml-auto text-[10px] text-muted">
-                              {evaluation.executed
-                                ? 'result compared with the reference'
-                                : 'graded from your written answer'}
-                            </span>
+                            {current.duplicate ? <Badge tone="info">duplicate</Badge> : null}
                           </div>
                           <div className="mt-2 text-[12.5px] text-ink-soft">
                             {evaluation.summary}

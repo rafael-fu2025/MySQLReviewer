@@ -335,16 +335,11 @@ export function ConnectionForm({
               {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
             </IconButton>
           </div>
-          <span className="field-hint">
-            {profile?.hasPassword && !form.password && !form.clearPassword
-              ? 'Leave blank to keep the saved password.'
-              : 'The password is encrypted at rest when remembered.'}
-          </span>
+          {profile?.hasPassword && !form.password && !form.clearPassword ? (
+            <span className="field-hint">Leave blank to keep the saved password.</span>
+          ) : null}
         </div>
-        <Field
-          label="Default database"
-          hint="Optional. The workspace database selector still works."
-        >
+        <Field label="Default database">
           <Input
             value={form.database}
             onChange={(event) => set('database', event.target.value)}
@@ -374,9 +369,6 @@ export function ConnectionForm({
         <div className="flex flex-wrap items-center gap-2">
           <div>
             <div className="text-[12px] font-semibold">Database access</div>
-            <div className="text-[10.5px] text-muted">
-              Limit which databases this profile can see and query.
-            </div>
           </div>
           <div className="ml-auto flex gap-1">
             <button
@@ -465,11 +457,7 @@ export function ConnectionForm({
               </div>
             ) : null}
           </div>
-        ) : (
-          <div className="mt-2 text-[10.5px] text-muted">
-            The database selector shows every database the MySQL user can see.
-          </div>
-        )}
+        ) : null}
       </div>
 
       <button
@@ -510,7 +498,7 @@ export function ConnectionForm({
             <>
               <div className="sm:col-span-2">
                 <Checkbox
-                  label="Verify the server certificate (rejectUnauthorized)"
+                  label="Verify the server certificate"
                   checked={form.rejectUnauthorized}
                   onChange={(value) => set('rejectUnauthorized', value)}
                 />

@@ -151,11 +151,6 @@ export function CreateDatabaseModal({
         open={open}
         onClose={onClose}
         title={result ? 'Database created' : 'Create database'}
-        subtitle={
-          result
-            ? `${result.database.name} is ready.`
-            : 'This is a schema change. It requires unlocked writes and cannot be rolled back.'
-        }
         size="default"
         footer={
           result ? (
@@ -184,12 +179,9 @@ export function CreateDatabaseModal({
           <div className="flex flex-col gap-3">
             <div className="callout mint flex items-start gap-2">
               <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
-              <div>
-                <div className="font-semibold text-ink">{result.database.name} was created.</div>
-                <div className="mt-1 text-[11px] text-muted">
-                  Charset {charset} · collation {result.database.collation ?? collation}
-                  {result.scopeUpdated ? ' · added to this profile’s allowed databases' : ''}
-                </div>
+              <div className="text-[11px] text-muted">
+                Charset {charset} · collation {result.database.collation ?? collation}
+                {result.scopeUpdated ? ' · added to this profile’s allowed databases' : ''}
               </div>
             </div>
             {result.grantSql ? (
@@ -231,10 +223,7 @@ export function CreateDatabaseModal({
               </div>
             ) : null}
 
-            <Field
-              label="Database name"
-              hint="Letters, digits, and underscores. System schema names are rejected."
-            >
+            <Field label="Database name">
               <Input
                 className="font-mono"
                 value={name}
@@ -281,12 +270,6 @@ export function CreateDatabaseModal({
                 onChange={setAddToScope}
               />
             ) : null}
-
-            <div className="text-[10.5px] leading-4 text-muted">
-              Creating a database is one DDL statement. MySQL commits it immediately, so an
-              accidental name cannot be rolled back. The database will be empty; use the SQL editor
-              to add tables.
-            </div>
 
             {error ? <div className={cn('callout danger text-[11.5px]')}>{error}</div> : null}
           </div>

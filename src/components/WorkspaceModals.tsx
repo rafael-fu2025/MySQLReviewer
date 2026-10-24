@@ -57,7 +57,6 @@ export function WorkspaceModals({
         open={historyOpen}
         onClose={onCloseHistory}
         title="Query history"
-        subtitle="Saved locally on the MyLens server. Load a statement into the editor or a new tab."
         size="wide"
         footer={
           <Button variant="danger" size="sm" icon={<Trash2 size={12} />} onClick={onClearHistory}>
@@ -125,21 +124,11 @@ export function WorkspaceModals({
         )}
       </Modal>
 
-      <Modal
-        open={snippetsOpen}
-        onClose={onCloseSnippets}
-        title="Saved snippets"
-        subtitle="Reusable statements stored on this machine."
-        size="wide"
-      >
+      <Modal open={snippetsOpen} onClose={onCloseSnippets} title="Saved snippets" size="wide">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_260px]">
           <div className="flex max-h-[55vh] flex-col gap-2 overflow-auto">
             {snippets.length === 0 ? (
-              <EmptyState
-                icon={<Bookmark size={20} />}
-                title="No snippets saved"
-                copy="Save the current editor contents with a title and optional tags."
-              />
+              <EmptyState icon={<Bookmark size={20} />} title="No snippets saved" />
             ) : (
               snippets.map((snippet) => (
                 <div
@@ -204,9 +193,6 @@ export function WorkspaceModals({
             >
               Save snippet
             </Button>
-            <div className="mt-auto text-[10px] leading-4 text-muted">
-              Snippets stay on this machine in the MyLens data directory.
-            </div>
           </div>
         </div>
       </Modal>

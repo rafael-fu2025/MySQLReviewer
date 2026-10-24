@@ -3,7 +3,7 @@ import { CheckCircle2, Sparkles, XCircle } from 'lucide-react';
 import type { AiProvider, AiProviderInput, AiProviderPreset } from '@shared/types';
 import { AI_PROVIDER_PRESETS } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
-import { Badge, Button, Checkbox, Field, Input, Spinner, Switch, Textarea } from './ui';
+import { Button, Checkbox, Field, Input, Spinner, Switch, Textarea } from './ui';
 import { cn } from '@/lib/utils';
 import { Combobox } from './Combobox';
 
@@ -240,7 +240,7 @@ export function ProviderForm({
           hint={
             provider?.hasApiKey
               ? `Saved key: ${provider.apiKeyHint ?? '••••'}. Leave blank to keep it.`
-              : 'Keys are encrypted with the local AES key. Local providers often need no key.'
+              : undefined
           }
         >
           <Input
@@ -313,14 +313,14 @@ export function ProviderForm({
           Advanced: custom headers and body
         </summary>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Headers (JSON)" hint="Useful for gateways that need extra headers.">
+          <Field label="Headers (JSON)">
             <Textarea
               className="min-h-[90px] font-mono text-[10.5px]"
               value={form.headersJson}
               onChange={(event) => set('headersJson', event.target.value)}
             />
           </Field>
-          <Field label="Extra body (JSON)" hint="Merged into the provider request body.">
+          <Field label="Extra body (JSON)">
             <Textarea
               className="min-h-[90px] font-mono text-[10.5px]"
               value={form.extraBodyJson}
@@ -368,7 +368,6 @@ export function ProviderForm({
                 {testResult.models.length > 8 ? '…' : ''}
               </span>
             ) : null}
-            {testResult.ok ? <Badge tone="mint">{testResult.latencyMs} ms</Badge> : null}
           </div>
         </div>
       ) : null}
