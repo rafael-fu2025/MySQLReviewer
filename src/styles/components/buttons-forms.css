@@ -1,0 +1,298 @@
+/* Buttons / inputs — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Buttons / inputs                                                 */
+/* ---------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
+  user-select: none;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
+}
+.btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+/*
+ * The CTA is theme-driven: orange with white text in light (5.2:1, fill above
+ * 3:1 against both canvases), white with near-black text in dark.
+ */
+.btn-primary {
+  background: var(--color-cta);
+  color: var(--color-cta-ink);
+  border-color: color-mix(in oklab, var(--color-cta) 78%, var(--color-cta-ink));
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-cta-hover);
+}
+.btn-secondary {
+  background: var(--color-panel-3);
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-muted) 45%, var(--color-line));
+  background: color-mix(in oklab, var(--color-panel-3) 75%, var(--color-panel));
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-muted);
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-panel-3) 70%, transparent);
+  color: var(--color-ink);
+}
+.btn-danger {
+  background: color-mix(in oklab, var(--color-danger) 15%, var(--color-panel));
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 38%, var(--color-line));
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-danger) 22%, var(--color-panel));
+}
+.btn-sm {
+  padding: 6px 10px;
+  min-height: 28px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+.btn-lg {
+  padding: 11px 18px;
+  min-height: 40px;
+  font-size: var(--text-sm);
+  border-radius: 10px;
+}
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.icon-btn:hover {
+  background: var(--color-panel-3);
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: 1px;
+}
+
+.input,
+.select,
+.textarea {
+  /* The field's own surface and focus ring live in variables so overlay
+     styles (the browser-autofill override below) can mirror them exactly. */
+  --input-surface: color-mix(in oklab, var(--color-canvas) 55%, var(--color-panel));
+  --input-focus-ring: color-mix(in oklab, var(--color-ember) 12%, transparent);
+  width: 100%;
+  background: var(--input-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 13px;
+  color: var(--color-ink);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+/* 88% muted keeps placeholder text ≥4.5:1 on the input surface (WCAG 1.4.3). */
+.input::placeholder,
+.textarea::placeholder {
+  color: color-mix(in oklab, var(--color-muted) 88%, transparent);
+}
+.input.input-search {
+  padding-left: 30px;
+}
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: color-mix(in oklab, var(--color-ember) 55%, var(--color-line));
+  box-shadow: 0 0 0 3px var(--input-focus-ring);
+}
+
+/*
+ * Browser-autofilled fields. Chrome paints a light-blue fill and forces the
+ * text to black straight over the author's background: `background-color`
+ * (even with !important), `autofill: none` and `background-image` all fail to
+ * override it, so the fill is covered with an inset shadow in the field's own
+ * surface colour and the text keeps the theme's ink. The focus ring is
+ * re-declared because the inset shadow would otherwise replace it.
+ */
+input.input:-webkit-autofill,
+input.input:-webkit-autofill:hover,
+input.input:-webkit-autofill:focus,
+textarea.textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--color-ink);
+  box-shadow: 0 0 0 1000px var(--input-surface) inset;
+  /* No fade on the shadow: the fill appears the same frame as the autofill. */
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0s,
+    background 0.15s ease;
+}
+
+input.input:-webkit-autofill:focus,
+textarea.textarea:-webkit-autofill:focus {
+  box-shadow:
+    0 0 0 3px var(--input-focus-ring),
+    0 0 0 1000px var(--input-surface) inset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input.input:-webkit-autofill,
+  input.input:-webkit-autofill:hover,
+  input.input:-webkit-autofill:focus,
+  textarea.textarea:-webkit-autofill {
+    transition: none;
+  }
+}
+.input.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.textarea {
+  min-height: 90px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
+    linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% - 2px),
+    calc(100% - 10px) calc(50% - 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.select option {
+  background: var(--color-panel-2);
+  color: var(--color-ink);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.field-label {
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  color: var(--color-ink-soft);
+  letter-spacing: 0.02em;
+}
+.field-hint {
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+}
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox input {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel-3);
+  display: grid;
+  place-items: center;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.checkbox input:checked {
+  background: var(--color-ember);
+  border-color: var(--color-ember);
+}
+.checkbox input:checked::after {
+  content: '';
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid #1c0e05;
+  border-bottom: 2px solid #1c0e05;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.switch {
+  position: relative;
+  width: 36px;
+  height: 21px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel-3);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+  flex: 0 0 auto;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--color-muted);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+.switch.on {
+  background: color-mix(in oklab, var(--color-ember) 25%, var(--color-panel));
+  border-color: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
+}
+.switch.on::after {
+  transform: translateX(15px);
+  background: var(--color-ember);
+}

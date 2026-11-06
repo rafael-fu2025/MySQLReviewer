@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { EditorView } from '@codemirror/view';
 import { format as formatSql } from 'sql-formatter';
@@ -36,6 +36,7 @@ import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { ResultsGrid } from '@/components/ResultsGrid';
 import { ExplainPanel } from '@/components/ExplainPanel';
 import { ReviewPanel } from '@/components/ReviewPanel';
+import { AiAssistant } from '@/components/AiAssistant';
 import { UnlockDialog } from '@/components/UnlockDialog';
 import { WorkspaceModals } from '@/components/WorkspaceModals';
 import { Badge, Button, EmptyState, IconButton, Spinner, Tabs } from '@/components/ui';
@@ -45,6 +46,35 @@ import { cn } from '@/lib/utils';
 const SPLITTER_MIN = 20;
 const SPLITTER_MAX = 78;
 
+/**
+ * The height of the status bar along the bottom of the workspace, in pixels
+ * (`.statusbar` in styles/features/editor.css). The floating assistant button
+ * is lifted by this much, so it never sits on top of the bar.
+ */
+const STATUS_BAR_HEIGHT = 26;
+
+/**
+ * The height of the floating assistant button, in pixels (`.ai-fab` in
+ * styles/features/assistant.css), and the gap it keeps from the content it
+ * floats over.
+ */
+const ASSISTANT_BUTTON_HEIGHT = 50;
+const ASSISTANT_CLEARANCE = 12;
+
+/**
+ * The space the output pane leaves for the floating assistant button.
+ *
+ * The button rests `--ai-fab-bottom` above the window edge and is lifted by
+ * the height of the status bar — which is exactly how far the bottom of the
+ * pane sits above the window edge — so it ends up `--ai-fab-bottom` plus its
+ * own height above the last row. The band follows the same variable, so the
+ * phone layout, which raises the button above the bottom navigation,
+ * reserves the room it needs as well.
+ */
+const ASSISTANT_RESERVED = `calc(var(--ai-fab-bottom) + ${
+  ASSISTANT_BUTTON_HEIGHT + ASSISTANT_CLEARANCE
+}px)`;
+
 function MessagesPanel({ tab }: { tab: QueryTab }) {
   const result = tab.result;
   return (
@@ -53,10 +83,10 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
         <div className="callout danger flex items-start gap-2">
           <XCircle size={15} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase tracking-wide text-danger">
+            <div className="font-mono text-micro uppercase tracking-wide text-danger">
               {tab.error.code}
             </div>
-            <div className="mt-1 text-[12px] text-ink">{tab.error.message}</div>
+            <div className="mt-1 text-xs text-ink">{tab.error.message}</div>
             {tab.error.details ? (
               <pre className="finding-evidence mt-2 whitespace-pre-wrap">
                 {JSON.stringify(tab.error.details, null, 2)}
@@ -70,7 +100,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
         <div className="stat-grid stat-grid-4">
           <div className="stat">
             <div className="stat-label">Statement</div>
-            <div className="stat-value text-[13px] uppercase">{result.kind}</div>
+            <div className="stat-value text-sm uppercase">{result.kind}</div>
             <div className="stat-sub">{formatDuration(result.executionMs)}</div>
           </div>
           <div className="stat">
@@ -87,9 +117,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
           </div>
           <div className="stat">
             <div className="stat-label">Payload</div>
-            <div className="stat-value text-[15px]">
-              {(result.bytesApprox / 1024).toFixed(1)} KB
-            </div>
+            <div className="stat-value text-md">{(result.bytesApprox / 1024).toFixed(1)} KB</div>
             <div className="stat-sub">serialized result</div>
           </div>
         </div>
@@ -98,7 +126,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
       {result?.info ? (
         <div className="callout flex items-start gap-2">
           <Info size={14} className="mt-0.5 shrink-0" />
-          <span className="font-mono text-[11px]">{result.info}</span>
+          <span className="font-mono text-2xs">{result.info}</span>
         </div>
       ) : null}
 
@@ -109,10 +137,10 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
             <div key={index} className="callout flex items-start gap-2">
               <Info size={13} className="mt-0.5 shrink-0 text-warn" />
               <div>
-                <span className="font-mono text-[10px] text-warn">
+                <span className="font-mono text-2xs text-warn">
                   {warning.level} {warning.code}
                 </span>
-                <div className="text-[12px]">{warning.message}</div>
+                <div className="text-xs">{warning.message}</div>
               </div>
             </div>
           ))}
@@ -120,6 +148,56 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
       ) : null}
 
       {!tab.error && !result ? <EmptyState icon={<Info size={22} />} title="No messages" /> : null}
+    </div>
+  );
+}
+
+/**
+ * The right-hand end of the output strip: the result badges and the control
+ * that swaps between the editor and the results.
+ *
+ * The row count and the duration are not repeated here — the grid below
+ * carries them, and the status bar carries the runtime.
+ */
+export function OutputMeta({
+  score,
+  hasAi,
+  resultsMaximized,
+  onToggleMaximized,
+}: {
+  score: number | null;
+  hasAi: boolean;
+  resultsMaximized: boolean;
+  onToggleMaximized: () => void;
+}) {
+  return (
+    <div className="ml-auto flex items-center gap-2 px-3 text-2xs text-muted">
+      {score != null ? <Badge tone="neutral">score {score}</Badge> : null}
+      {hasAi ? <Badge tone="info">AI</Badge> : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={resultsMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+        onClick={onToggleMaximized}
+        tooltip={resultsMaximized ? 'Show the editor (Esc)' : 'Maximize results'}
+        tooltipSide="top"
+      >
+        {resultsMaximized ? 'Show editor' : 'Maximize'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The pane that holds the output tab that is open.
+ *
+ * The band at the bottom is reserved for the floating assistant button, so
+ * the button never covers the last row.
+ */
+export function OutputPane({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-auto" style={{ paddingBottom: ASSISTANT_RESERVED }}>
+      {children}
     </div>
   );
 }
@@ -132,6 +210,7 @@ export function WorkspacePage() {
   const schema = useAppStore((state) => state.schema);
   const settings = useAppStore((state) => state.settings);
   const providers = useAppStore((state) => state.providers);
+  const currentUser = useAppStore((state) => state.currentUser);
   const unlockedUntil = useAppStore((state) => state.unlockedUntil);
   const toast = useAppStore((state) => state.toast);
   const refreshSchema = useAppStore((state) => state.refreshSchema);
@@ -184,6 +263,8 @@ export function WorkspacePage() {
   const [snippetTags, setSnippetTags] = useState('');
   const [snippetBusy, setSnippetBusy] = useState(false);
 
+  const isAdmin = currentUser?.role === 'admin';
+
   // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
   // so the flag flips exactly when the unlock window closes, instead of
   // reading the time while rendering.
@@ -195,21 +276,27 @@ export function WorkspacePage() {
     return () => clearTimeout(timer);
   }, [unlockedUntil]);
 
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
+  const unlocked = isAdmin || Boolean(unlockedUntil && unlockedUntil > now);
 
   const patch = (patchValue: Partial<QueryTab>): void => {
     if (activeTab) patchTab(activeTab.id, patchValue);
   };
 
-  const readText = (selectionOnly: boolean): string => {
+  const readText = (selectionOnly: boolean): { text: string; cursorOffset?: number } => {
     const view = viewRef.current;
     if (view) {
       const selection = view.state.selection.main;
-      if (selectionOnly && selection.from !== selection.to) {
-        return view.state.sliceDoc(selection.from, selection.to);
+      if (selectionOnly) {
+        if (selection.from !== selection.to) {
+          return { text: view.state.sliceDoc(selection.from, selection.to) };
+        }
+        // No selection: run the statement the caret is in. The server splits
+        // the script and picks the one under this offset, so the buffer does
+        // not have to be trimmed by hand.
+        return { text: activeTab?.sql ?? '', cursorOffset: selection.from };
       }
     }
-    return activeTab?.sql ?? '';
+    return { text: activeTab?.sql ?? '' };
   };
 
   const insertText = (text: string): void => {
@@ -235,7 +322,7 @@ export function WorkspacePage() {
   };
 
   const handleLocked = (error: ApiError, text: string): boolean => {
-    if (error.code !== 'WRITE_LOCKED') return false;
+    if (isAdmin || error.code !== 'WRITE_LOCKED') return false;
     const details = error.details as { classification?: StatementClassification } | undefined;
     setUnlockClassification(details?.classification ?? null);
     setPendingText(text);
@@ -255,10 +342,16 @@ export function WorkspacePage() {
     void execute(executed);
   };
 
-  const execute = async (override?: string): Promise<void> => {
+  const execute = async (override?: string, cursorOffset?: number): Promise<void> => {
     const reveal = revealNextRef.current;
     revealNextRef.current = false;
-    const text = (override ?? readText(false)).trim();
+    const raw = override ?? readText(false).text;
+    const text = raw.trim();
+    // The caret offset is relative to the untrimmed editor text, but the
+    // server is given the trimmed statement, so the offset moves with the
+    // leading whitespace.
+    const leading = raw.length - raw.trimStart().length;
+    const offset = cursorOffset === undefined ? undefined : Math.max(0, cursorOffset - leading);
     if (!text) {
       toast('There is no SQL to run.', 'warn');
       return;
@@ -279,6 +372,7 @@ export function WorkspacePage() {
     try {
       const result = await dbApi.run(activeProfileId, text, selectedDatabase, {
         revealSensitive: reveal,
+        cursorOffset: offset,
       });
       if (result.kind === 'write' || result.kind === 'ddl' || result.kind === 'admin') {
         setTimeout(() => {
@@ -318,16 +412,16 @@ export function WorkspacePage() {
   };
 
   const runSelection = (): void => {
-    const text = readText(true);
+    const { text, cursorOffset } = readText(true);
     if (!text.trim()) {
       toast('Select a statement or place the cursor in the editor.', 'warn');
       return;
     }
-    void execute(text);
+    void execute(text, cursorOffset);
   };
 
   const explain = async (withAnalyze = false): Promise<void> => {
-    const text = readText(false).trim();
+    const text = readText(false).text.trim();
     if (!text) {
       toast('There is no SQL to explain.', 'warn');
       return;
@@ -348,7 +442,7 @@ export function WorkspacePage() {
   };
 
   const review = async (): Promise<void> => {
-    const text = readText(false).trim();
+    const text = readText(false).text.trim();
     if (!text) {
       toast('There is no SQL to review.', 'warn');
       return;
@@ -386,7 +480,7 @@ export function WorkspacePage() {
     includeExplain: boolean;
     analyze: boolean;
   }): Promise<void> => {
-    const text = readText(false).trim();
+    const text = readText(false).text.trim();
     if (!text) {
       toast('There is no SQL to review.', 'warn');
       return;
@@ -529,6 +623,15 @@ export function WorkspacePage() {
     if (inNewTab) createTab(restored);
     else if (activeTab) updateSql(activeTab.id, restored);
     setHistoryOpen(false);
+    // History stores the statement with its literals redacted, so a restored
+    // statement can contain `?` placeholders where values used to be. Say so
+    // rather than letting the user run a statement that quietly lost its data.
+    if (/\?/.test(restored)) {
+      toast(
+        'Values were removed from the stored statement. Re-enter any placeholders before running it.',
+        'warn',
+      );
+    }
   };
 
   const openSnippets = async (): Promise<void> => {
@@ -751,12 +854,12 @@ export function WorkspacePage() {
           className={cn('workspace-main', resultsMaximized && 'results-maximized')}
           ref={editorAreaRef}
         >
-          <div className="flex items-center gap-1 overflow-x-auto border-b border-line-soft px-2 pt-1.5 hide-scroll">
+          <div className="query-tabs">
             {tabs.map((tab) => (
               <div
                 key={tab.id}
                 className={cn(
-                  'group flex shrink-0 items-center gap-1 rounded-t-lg border border-b-0 px-2.5 py-1.5 text-[11.5px]',
+                  'group flex shrink-0 items-center gap-1 rounded-t-lg border border-b-0 px-2.5 py-1.5 text-2xs',
                   tab.id === activeId
                     ? 'border-line bg-panel text-ink'
                     : 'border-transparent text-muted hover:bg-panel-2 hover:text-ink-soft',
@@ -813,7 +916,8 @@ export function WorkspacePage() {
               size="sm"
               icon={<Play size={12} />}
               onClick={runSelection}
-              title="Ctrl+Shift+Enter"
+              tooltip="Ctrl+Shift+Enter"
+              tooltipSide="bottom"
             >
               Selection
             </Button>
@@ -832,7 +936,8 @@ export function WorkspacePage() {
               icon={activeTab.reviewing ? <Spinner size={12} /> : <ScanSearch size={12} />}
               onClick={() => void review()}
               disabled={activeTab.reviewing}
-              title="Ctrl+Shift+R"
+              tooltip="Ctrl+Shift+R"
+              tooltipSide="bottom"
             >
               Review
             </Button>
@@ -857,35 +962,37 @@ export function WorkspacePage() {
               History
             </Button>
 
-            <div className="ml-auto flex items-center gap-2">
-              {unlocked ? (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  icon={<Lock size={11} />}
-                  onClick={() => void lockWrites()}
-                >
-                  Lock writes
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Unlock size={11} />}
-                  onClick={() => {
-                    setUnlockClassification(null);
-                    setPendingText('');
-                    setUnlockOpen(true);
-                  }}
-                >
-                  Unlock writes
-                </Button>
-              )}
-            </div>
+            {!isAdmin ? (
+              <div className="ml-auto flex items-center gap-2">
+                {unlocked ? (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    icon={<Lock size={11} />}
+                    onClick={() => void lockWrites()}
+                  >
+                    Lock writes
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Unlock size={11} />}
+                    onClick={() => {
+                      setUnlockClassification(null);
+                      setPendingText('');
+                      setUnlockOpen(true);
+                    }}
+                  >
+                    Unlock writes
+                  </Button>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {!selectedDatabase ? (
-            <div className="border-b border-warn/20 bg-warn/5 px-3 py-1.5 text-[10.5px] text-warn">
+            <div className="border-b border-warn/20 bg-warn/5 px-3 py-1.5 text-2xs text-warn">
               No database selected — {selectDatabaseHint}
             </div>
           ) : null}
@@ -932,33 +1039,18 @@ export function WorkspacePage() {
                 value={activeTab.outputTab}
                 onChange={(value) => setOutputTab(activeTab.id, value)}
               />
-              <div className="ml-auto flex items-center gap-2 px-3 text-[10px] text-muted">
-                {activeTab.result ? (
-                  <span className="font-mono">
-                    {formatDuration(activeTab.result.executionMs)} · {activeTab.result.rowCount}{' '}
-                    rows
-                  </span>
-                ) : null}
-                {activeTab.review ? (
-                  <Badge tone="neutral">score {activeTab.review.score.score}</Badge>
-                ) : null}
-                {activeTab.ai ? <Badge tone="info">AI</Badge> : null}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={resultsMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
-                  onClick={toggleResultsMaximized}
-                  title={resultsMaximized ? 'Show the editor (Esc)' : 'Maximize results'}
-                >
-                  {resultsMaximized ? 'Show editor' : 'Maximize'}
-                </Button>
-              </div>
+              <OutputMeta
+                score={activeTab.review ? activeTab.review.score.score : null}
+                hasAi={Boolean(activeTab.ai)}
+                resultsMaximized={resultsMaximized}
+                onToggleMaximized={toggleResultsMaximized}
+              />
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
+            <OutputPane>
               {activeTab.outputTab === 'results' ? (
                 activeTab.running ? (
-                  <div className="flex h-full items-center justify-center gap-2 text-[12px] text-muted">
+                  <div className="flex h-full items-center justify-center gap-2 text-xs text-muted">
                     <Spinner size={16} />
                     Running…
                   </div>
@@ -1001,9 +1093,13 @@ export function WorkspacePage() {
                     database: selectedDatabase,
                     sql: activeTab.executedSql ?? activeTab.sql,
                   }}
+                  chatHistory={{
+                    turns: activeTab.reviewChatTurns,
+                    onChange: (turns) => patchTab(activeTab.id, { reviewChatTurns: turns }),
+                  }}
                 />
               ) : null}
-            </div>
+            </OutputPane>
           </div>
 
           <div className="statusbar">
@@ -1012,8 +1108,8 @@ export function WorkspacePage() {
               {selectedDatabase ?? 'no database'}
             </span>
             <span>{server?.version ?? 'disconnected'}</span>
-            <span className={unlocked ? 'text-warn' : 'text-mint'}>
-              {unlocked ? 'writes unlocked' : 'read-only'}
+            <span className={isAdmin ? 'text-mint' : unlocked ? 'text-warn' : 'text-mint'}>
+              {isAdmin ? 'writes enabled' : unlocked ? 'writes unlocked' : 'read-only'}
             </span>
             <span>row cap {settings.rowLimit}</span>
             <span className="ml-auto">
@@ -1026,7 +1122,7 @@ export function WorkspacePage() {
       </div>
 
       <UnlockDialog
-        open={unlockOpen}
+        open={!isAdmin && unlockOpen}
         classification={unlockClassification}
         sql={pendingText}
         onClose={() => {
@@ -1040,6 +1136,26 @@ export function WorkspacePage() {
           setUnlockOpen(false);
           if (text) void execute(text);
         }}
+      />
+
+      <AiAssistant
+        mode="workspace"
+        title="Assistant"
+        notice="Full help on the statement in the editor and the schema behind it."
+        emptyHint="Ask about the statement in the editor, the schema, or why a query is slow."
+        placeholder="Ask about this statement…"
+        bottomInset={STATUS_BAR_HEIGHT}
+        context={{
+          profileId: activeProfileId,
+          database: selectedDatabase,
+          sql: activeTab.sql,
+        }}
+        history={{
+          turns: activeTab.assistantTurns,
+          onChange: (turns) => patchTab(activeTab.id, { assistantTurns: turns }),
+        }}
+        resetKey={activeTab.id}
+        onInsertSql={(sql) => updateSql(activeTab.id, sql)}
       />
 
       <WorkspaceModals

@@ -1,0 +1,348 @@
+/* Editor / results — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Editor / results                                                 */
+/* ---------------------------------------------------------------- */
+
+.workspace {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.schema-side {
+  width: 244px;
+  flex: 0 0 244px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--color-line-soft);
+  background: var(--color-panel);
+  transition:
+    width 0.2s ease,
+    flex-basis 0.2s ease;
+}
+
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-wrap {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-canvas);
+}
+
+.editor-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.editor-host .cm-editor {
+  height: 100%;
+  background: transparent !important;
+}
+.editor-host .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow: auto;
+}
+.editor-host .cm-gutters {
+  background: transparent !important;
+  border-right: 1px solid var(--color-line-soft) !important;
+  color: color-mix(in oklab, var(--color-muted) 55%, transparent) !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.editor-host .cm-activeLineGutter {
+  background: color-mix(in oklab, var(--color-ember) 6%, transparent) !important;
+  color: var(--color-ember) !important;
+}
+.editor-host .cm-activeLine {
+  background: color-mix(in oklab, var(--color-ember) 4%, transparent) !important;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: var(--cm-selection) !important;
+}
+.cm-editor .cm-selectionMatch {
+  background: color-mix(in oklab, var(--color-info) 18%, transparent) !important;
+}
+.editor-host .cm-cursor {
+  border-left-color: var(--color-ember) !important;
+}
+.cm-editor .cm-tooltip {
+  /* CodeMirror's baseTheme puts a drop shadow on every tooltip; the flat
+     design separates them with the border alone, so it is forced off. */
+  box-shadow: none !important;
+}
+.editor-host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: color-mix(in oklab, var(--color-ember) 18%, transparent) !important;
+  color: var(--color-ink) !important;
+}
+.editor-host .cm-panels {
+  background: var(--color-panel-2) !important;
+  color: var(--color-ink) !important;
+}
+.editor-host .cm-searchMatch {
+  background: color-mix(in oklab, var(--color-warn) 28%, transparent) !important;
+}
+
+/*
+ * Ctrl+F search panel. CodeMirror mounts the panel inside the editor root —
+ * there is no `.editor-host` wrapper in the DOM — and its baseTheme rules
+ * carry the root theme class and are injected after this stylesheet, so
+ * every override here is unscoped and flagged !important to win the cascade.
+ * The default markup is a flat row of bare inputs, buttons and a line break;
+ * flex it out and skin each control to match the app's primitives.
+ */
+.cm-panel.cm-search {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) !important;
+  padding: var(--space-2) var(--space-3) !important;
+  border-bottom: 1px solid var(--color-line-soft) !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-xs) !important;
+  color: var(--color-ink-soft) !important;
+}
+.cm-panel.cm-search br {
+  display: none !important;
+}
+.cm-panel.cm-search label {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px !important;
+  color: var(--color-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-2xs) !important;
+}
+.cm-panel.cm-search input[type='checkbox'] {
+  accent-color: var(--color-ember);
+}
+.cm-panel.cm-search .cm-textfield {
+  width: 200px !important;
+  padding: 5px 9px !important;
+  min-height: 28px !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--color-line) !important;
+  background: color-mix(in oklab, var(--color-canvas) 55%, var(--color-panel)) !important;
+  color: var(--color-ink) !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 400 !important;
+}
+.cm-panel.cm-search .cm-textfield:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--color-ember) 55%, var(--color-line)) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ember) 12%, transparent);
+}
+.cm-panel.cm-search .cm-button {
+  min-height: 28px !important;
+  padding: 5px 12px !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--color-line) !important;
+  background: var(--color-panel-3) !important;
+  background-image: none !important;
+  color: var(--color-ink) !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 650 !important;
+  text-shadow: none !important;
+  cursor: pointer;
+}
+.cm-panel.cm-search .cm-button:hover {
+  background: color-mix(in oklab, var(--color-panel-3) 75%, var(--color-panel)) !important;
+  border-color: color-mix(in oklab, var(--color-muted) 45%, var(--color-line)) !important;
+}
+.cm-panel.cm-search .cm-button:focus-visible {
+  outline: 2px solid var(--color-ember) !important;
+  outline-offset: 1px;
+}
+.cm-panel.cm-search [name='close'] {
+  color: var(--color-muted) !important;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+.cm-panel.cm-search [name='close']:hover {
+  color: var(--color-ink) !important;
+}
+.editor-host .cm-lintRange-error {
+  background-image: none !important;
+  border-bottom: 1px dashed var(--color-danger);
+}
+.editor-host .cm-lintRange-warning {
+  background-image: none !important;
+  border-bottom: 1px dashed var(--color-warn);
+}
+.editor-host .cm-lint-marker-error {
+  color: var(--color-danger);
+}
+
+.splitter {
+  height: 5px;
+  flex: 0 0 5px;
+  cursor: row-resize;
+  background: var(--color-line-soft);
+  position: relative;
+  transition: background 0.15s ease;
+  /* Stop the browser from scrolling or zooming while the split is dragged. */
+  touch-action: none;
+}
+.splitter:hover {
+  background: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
+}
+.splitter:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+  background: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
+}
+
+/*
+ * Statement tabs and the action toolbar are one panel: no bottom rule or
+ * padding between them, and the active tab ends directly at the toolbar.
+ */
+.query-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 8px;
+  background: var(--color-panel);
+  scrollbar-width: none;
+}
+.query-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-line-soft);
+  background: var(--color-panel);
+  flex-wrap: wrap;
+}
+/*
+ * The quiet utilities sat in the middle of the row in the same muted colour
+ * disabled buttons use, with no surface of their own, so they read as inert.
+ * The rule lifts their resting colour, and the separator gives the editor
+ * utilities their own group instead of trailing the statement actions.
+ */
+.toolbar .btn-ghost {
+  color: color-mix(in oklab, var(--color-ink) 60%, var(--color-muted));
+}
+.toolbar-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-line);
+}
+
+.statusbar {
+  height: 26px;
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  border-top: 1px solid var(--color-line-soft);
+  background: color-mix(in oklab, var(--color-panel) 78%, transparent);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in oklab, var(--color-panel-2) 96%, transparent);
+  backdrop-filter: blur(8px);
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink-soft);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.data-table th .col-type {
+  display: block;
+  font-size: 10px;
+  color: var(--color-muted);
+  font-weight: 500;
+  margin-top: 1px;
+}
+.data-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--color-line-soft);
+  color: var(--color-ink-soft);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.data-table tr:hover td {
+  background: color-mix(in oklab, var(--color-ember) 4%, transparent);
+}
+.data-table td.null {
+  color: color-mix(in oklab, var(--color-muted) 65%, transparent);
+  font-style: italic;
+}
+.data-table td.num {
+  color: var(--color-info);
+  text-align: right;
+}
+.data-table td.bin {
+  color: var(--color-violet);
+}
+.data-table tr.row-meta td {
+  background: var(--color-panel-2);
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  background: color-mix(in oklab, #050506 85%, var(--color-panel));
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  padding: 13px 14px;
+  overflow: auto;
+  white-space: pre;
+  color: #d6d6da;
+  max-height: 480px;
+}
+[data-theme='light'] .code-block {
+  background: #121214;
+}
+.code-block.wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

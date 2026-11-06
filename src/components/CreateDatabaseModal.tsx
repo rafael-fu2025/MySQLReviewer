@@ -24,6 +24,7 @@ export function CreateDatabaseModal({
   onCreated: (result: CreateDatabaseResult) => void;
 }) {
   const unlockedUntil = useAppStore((state) => state.unlockedUntil);
+  const currentUser = useAppStore((state) => state.currentUser);
   const toast = useAppStore((state) => state.toast);
   const [name, setName] = useState('');
   const [charsets, setCharsets] = useState<CharsetInfo[]>([]);
@@ -36,6 +37,8 @@ export function CreateDatabaseModal({
   const [result, setResult] = useState<CreateDatabaseResult | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
 
+  const isAdmin = currentUser?.role === 'admin';
+
   // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
   // so the flag flips exactly when the unlock window closes, instead of
   // reading the time while rendering.
@@ -47,7 +50,7 @@ export function CreateDatabaseModal({
     return () => clearTimeout(timer);
   }, [unlockedUntil]);
 
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
+  const unlocked = isAdmin || Boolean(unlockedUntil && unlockedUntil > now);
 
   const scoped = profile.databaseScope === 'selected';
 
@@ -177,25 +180,25 @@ export function CreateDatabaseModal({
           <div className="flex flex-col gap-3">
             <div className="callout mint flex items-start gap-2">
               <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
-              <div className="text-[11px] text-muted">
+              <div className="text-2xs text-muted">
                 Charset {charset} · collation {result.database.collation ?? collation}
                 {result.scopeUpdated ? ' · added to this connection’s allowed databases' : ''}
               </div>
             </div>
             {result.grantSql ? (
-              <div className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
+              <div className="rounded-xl border border-line-soft bg-panel-2 p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <KeyRound size={13} className="text-ember" />
-                  <span className="text-[12px] font-semibold">Least-privilege GRANT SQL</span>
+                  <span className="text-xs font-semibold">Least-privilege GRANT SQL</span>
                   <Badge tone="warn" className="ml-auto">
                     {notExecutedBadge}
                   </Badge>
                   <CopyButton text={result.grantSql} label="Copy SQL" />
                 </div>
-                <pre className="max-h-44 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink-soft">
+                <pre className="max-h-44 overflow-auto whitespace-pre-wrap font-mono text-2xs text-ink-soft">
                   {result.grantSql}
                 </pre>
-                <div className="mt-2 text-[10px] leading-4 text-muted">
+                <div className="mt-2 text-2xs leading-4 text-muted">
                   Replace the password placeholder before running this as an admin.
                 </div>
               </div>
@@ -268,13 +271,13 @@ export function CreateDatabaseModal({
               />
             ) : null}
 
-            {error ? <div className={cn('callout danger text-[11.5px]')}>{error}</div> : null}
+            {error ? <div className={cn('callout danger text-2xs')}>{error}</div> : null}
           </div>
         )}
       </Modal>
 
       <UnlockDialog
-        open={unlockOpen}
+        open={!isAdmin && unlockOpen}
         classification={null}
         sql=""
         onClose={() => setUnlockOpen(false)}

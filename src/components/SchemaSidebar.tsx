@@ -78,6 +78,7 @@ export function SchemaSidebar({
   const navigate = useNavigate();
   const isPanel = variant === 'panel';
   const storeObjects = useAppStore((state) => state.objects);
+  const storeProfileId = useAppStore((state) => state.activeProfileId);
   const selectedDatabase = useAppStore((state) => state.selectedDatabase);
   const refreshObjects = useAppStore((state) => state.refreshObjects);
   const schemaCollapsed = useUiStore((state) => state.schemaCollapsed);
@@ -189,11 +190,14 @@ export function SchemaSidebar({
   };
 
   const loadColumns = async (table: string): Promise<void> => {
-    if (!profileId || !activeDatabase) return;
+    // The sidebar variant follows the live connection, so it can fall back to
+    // the store; the panel pins an explicit profile through its prop.
+    const activeProfileId = profileId ?? storeProfileId;
+    if (!activeProfileId || !activeDatabase) return;
     if (columns[table]) return;
     setColumns((previous) => ({ ...previous, [table]: 'loading' }));
     try {
-      const detail = await dbApi.tableDetail(profileId, activeDatabase, table);
+      const detail = await dbApi.tableDetail(activeProfileId, activeDatabase, table);
       setColumns((previous) => ({ ...previous, [table]: detail.columns }));
     } catch {
       setColumns((previous) => ({ ...previous, [table]: 'error' }));
@@ -209,32 +213,37 @@ export function SchemaSidebar({
   const renderColumns = (table: string): ReactNode => {
     const state = columns[table];
     if (!state || state === 'loading') {
-      return <div className="px-2 py-1 text-[10px] text-muted">Loading columns…</div>;
+      return <div className="px-2 py-1 text-2xs text-muted">Loading columns…</div>;
     }
     if (state === 'error') {
-      return <div className="px-2 py-1 text-[10px] text-muted">Columns unavailable.</div>;
+      return <div className="px-2 py-1 text-2xs text-muted">Columns unavailable.</div>;
     }
     if (state.length === 0) {
-      return <div className="px-2 py-1 text-[10px] text-muted">No columns.</div>;
+      return <div className="px-2 py-1 text-2xs text-muted">No columns.</div>;
     }
     return state.map((column) => (
-      <button
+      <Tooltip
         key={column.name}
-        type="button"
-        className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[10.5px] text-muted transition hover:bg-panel-3 hover:text-ink"
-        title={`Insert ${quoteIdentifier(column.name)} · ${column.dataType}`}
-        onClick={() => onInsert(quoteIdentifier(column.name))}
+        label={`Insert ${quoteIdentifier(column.name)} · ${column.dataType}`}
+        side="right"
+        block
       >
-        {column.key === 'PRI' ? (
-          <span className="shrink-0 rounded bg-ember/15 px-1 text-[10px] font-bold text-ember">
-            PK
-          </span>
-        ) : (
-          <span className="w-[18px] shrink-0" />
-        )}
-        <span className="truncate text-ink-soft">{column.name}</span>
-        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted">{column.dataType}</span>
-      </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-2xs text-muted transition hover:bg-panel-3 hover:text-ink"
+          onClick={() => onInsert(quoteIdentifier(column.name))}
+        >
+          {column.key === 'PRI' ? (
+            <span className="shrink-0 rounded bg-ember/15 px-1 text-2xs font-bold text-ember">
+              PK
+            </span>
+          ) : (
+            <span className="w-[18px] shrink-0" />
+          )}
+          <span className="truncate text-ink-soft">{column.name}</span>
+          <span className="ml-auto shrink-0 font-mono text-2xs text-muted">{column.dataType}</span>
+        </button>
+      </Tooltip>
     ));
   };
 
@@ -245,7 +254,7 @@ export function SchemaSidebar({
       <aside className="schema-side schema-side-collapsed">
         <div className="schema-rail">
           <Tooltip label="Expand schema" side="right">
-            <IconButton label="Expand schema" nativeTitle={false} onClick={toggleSchema}>
+            <IconButton label="Expand schema" tooltip={false} onClick={toggleSchema}>
               <PanelLeftOpen size={14} />
             </IconButton>
           </Tooltip>
@@ -274,7 +283,7 @@ export function SchemaSidebar({
           </Tooltip>
           <div className="schema-rail-spacer" />
           <Tooltip label="Refresh schema" side="right">
-            <IconButton label="Refresh schema" nativeTitle={false} onClick={() => void refresh()}>
+            <IconButton label="Refresh schema" tooltip={false} onClick={() => void refresh()}>
               {refreshing ? <Spinner size={14} /> : <RefreshCw size={14} />}
             </IconButton>
           </Tooltip>
@@ -295,14 +304,14 @@ export function SchemaSidebar({
   const tree = (
     <>
       {!activeDatabase ? (
-        <div className="px-3 py-6 text-center text-[11px] text-muted">
+        <div className="px-3 py-6 text-center text-2xs text-muted">
           {isPanel
             ? 'This challenge set has no database to browse.'
             : 'Select a database in the top bar.'}
         </div>
       ) : pinnedError ? (
         <div className="flex flex-col items-start gap-2 p-3">
-          <div className="text-[10.5px] text-danger">{pinnedError}</div>
+          <div className="text-2xs text-danger">{pinnedError}</div>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()}>
             Retry
           </button>
@@ -320,61 +329,69 @@ export function SchemaSidebar({
               <CollapsibleTrigger className="tree-header w-full">
                 {openTables ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 <span>Tables</span>
-                <Badge className="ml-auto">{filteredTables.length}</Badge>
+                <span className="ml-auto font-mono text-micro text-muted">
+                  {filteredTables.length}
+                </span>
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="tree-list">
                   {filteredTables.length === 0 ? (
-                    <div className="px-2 py-3 text-[10.5px] text-muted">No tables match.</div>
-                  ) : isPanel ? (
+                    <div className="px-2 py-3 text-2xs text-muted">No tables match.</div>
+                  ) : (
+                    // Accordion rows for both variants: the table name expands
+                    // its columns and the columns insert when tapped. The
+                    // sidebar shows the open-in-database link (it has no
+                    // onOpenTable prop, so it falls back to navigating).
                     filteredTables.slice(0, 400).map((table) => {
                       const expanded = Boolean(expandedTables[table.name]);
                       return (
                         <div key={table.name}>
                           <div className="tree-item group">
-                            {/*
-                              In a challenge the table name is a reference, not
-                              something to paste, so the name opens the columns
-                              instead of inserting it. The columns themselves
-                              still insert when tapped.
-                            */}
-                            <button
-                              type="button"
-                              className="flex min-w-0 flex-1 items-center gap-1.5 text-left transition hover:text-ink"
-                              aria-expanded={expanded}
-                              title={`${expanded ? 'Collapse' : 'Expand'} ${table.name}`}
-                              onClick={() => toggleTable(table.name)}
+                            <Tooltip
+                              label={`${expanded ? 'Collapse' : 'Expand'} ${table.name}`}
+                              side="right"
+                              className="min-w-0 flex-1"
                             >
-                              {expanded ? (
-                                <ChevronDown size={11} className="-ml-1 shrink-0 text-muted" />
-                              ) : (
-                                <ChevronRight size={11} className="-ml-1 shrink-0 text-muted" />
-                              )}
-                              <Table2 size={12} className="shrink-0 text-muted" />
-                              <span className="truncate">{table.name}</span>
-                            </button>
+                              <button
+                                type="button"
+                                className="flex min-w-0 flex-1 items-center gap-1.5 text-left transition hover:text-ink"
+                                aria-expanded={expanded}
+                                onClick={() => toggleTable(table.name)}
+                              >
+                                {expanded ? (
+                                  <ChevronDown size={11} className="-ml-1 shrink-0 text-muted" />
+                                ) : (
+                                  <ChevronRight size={11} className="-ml-1 shrink-0 text-muted" />
+                                )}
+                                <Table2 size={12} className="shrink-0 text-muted" />
+                                <span className="truncate">{table.name}</span>
+                              </button>
+                            </Tooltip>
                             {table.rowsEstimate > 0 ? (
                               <span className="tree-rows">{formatRows(table.rowsEstimate)}</span>
                             ) : null}
                             {onPreviewTable ? (
-                              <button
-                                type="button"
-                                className="shrink-0 rounded px-1 py-0.5 text-[10px] text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
-                                title={table.name}
-                                onClick={() => onPreviewTable(table.name)}
-                              >
-                                Preview 5 rows
-                              </button>
+                              <Tooltip label={`Preview ${table.name}`} side="top">
+                                <button
+                                  type="button"
+                                  className="shrink-0 rounded px-1 py-0.5 text-2xs text-muted opacity-60 transition hover:bg-panel-3 hover:text-ember focus-visible:opacity-100 group-hover:opacity-100"
+                                  onClick={() => onPreviewTable(table.name)}
+                                >
+                                  Preview 5 rows
+                                </button>
+                              </Tooltip>
                             ) : null}
-                            {onOpenTable ? (
-                              <button
-                                type="button"
-                                className="ml-1 shrink-0 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
-                                title="Open table details"
-                                onClick={() => openObject(table.name)}
-                              >
-                                <ExternalLink size={10} />
-                              </button>
+                            {onOpenTable || !isPanel ? (
+                              <Tooltip label={`Open ${table.name} details`} side="top">
+                                <button
+                                  type="button"
+                                  className="ml-1 shrink-0 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+                                  aria-label={`Open ${table.name} details`}
+                                  onClick={() => openObject(table.name)}
+                                >
+                                  <ExternalLink size={10} />
+                                </button>
+                              </Tooltip>
                             ) : null}
                           </div>
                           {expanded ? (
@@ -385,37 +402,9 @@ export function SchemaSidebar({
                         </div>
                       );
                     })
-                  ) : (
-                    filteredTables.slice(0, 400).map((table) => (
-                      <div
-                        key={table.name}
-                        className="tree-item group"
-                        onClick={() => onInsert(table.name)}
-                        title={`Insert ${table.name}`}
-                      >
-                        <Table2 size={12} className="shrink-0 text-muted" />
-                        <span>{table.name}</span>
-                        {table.rowsEstimate > 0 ? (
-                          <span className="tree-rows">{formatRows(table.rowsEstimate)}</span>
-                        ) : null}
-                        <button
-                          type="button"
-                          className={cn(
-                            'ml-1 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100',
-                          )}
-                          title="Open table details"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openObject(table.name);
-                          }}
-                        >
-                          <ExternalLink size={10} />
-                        </button>
-                      </div>
-                    ))
                   )}
                   {filteredTables.length > 400 ? (
-                    <div className="px-2 py-2 text-[10px] text-muted">Showing first 400.</div>
+                    <div className="px-2 py-2 text-2xs text-muted">Showing first 400.</div>
                   ) : null}
                 </div>
               </CollapsibleContent>
@@ -428,31 +417,42 @@ export function SchemaSidebar({
                 <CollapsibleTrigger className="tree-header w-full">
                   {openViews ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   <span>Views</span>
-                  <Badge className="ml-auto">{filteredViews.length}</Badge>
+                  <span className="ml-auto font-mono text-micro text-muted">
+                    {filteredViews.length}
+                  </span>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="tree-list">
                     {filteredViews.map((view) => (
-                      <div
-                        key={view.name}
-                        className="tree-item group"
-                        onClick={() => onInsert(view.name)}
-                        title={`Insert ${view.name}`}
-                      >
-                        <Eye size={12} className="shrink-0 text-muted" />
-                        <span>{view.name}</span>
-                        {onOpenTable ? (
+                      <div key={view.name} className="tree-item group">
+                        <Tooltip
+                          label={`Insert ${view.name}`}
+                          side="right"
+                          className="min-w-0 flex-1"
+                        >
                           <button
                             type="button"
-                            className="ml-auto rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100"
-                            title="Open view definition"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openObject(view.name);
-                            }}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left transition hover:text-ink"
+                            onClick={() => onInsert(view.name)}
                           >
-                            <ExternalLink size={10} />
+                            <Eye size={12} className="shrink-0 text-muted" />
+                            <span className="truncate">{view.name}</span>
                           </button>
+                        </Tooltip>
+                        {onOpenTable ? (
+                          <Tooltip label={`Open ${view.name} definition`} side="top">
+                            <button
+                              type="button"
+                              className="ml-auto shrink-0 rounded p-0.5 text-muted opacity-0 transition hover:bg-panel-3 hover:text-ink group-hover:opacity-100 focus-visible:opacity-100"
+                              aria-label={`Open ${view.name} definition`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openObject(view.name);
+                              }}
+                            >
+                              <ExternalLink size={10} />
+                            </button>
+                          </Tooltip>
                         ) : null}
                       </div>
                     ))}
@@ -466,25 +466,33 @@ export function SchemaSidebar({
             <div className="tree-section">
               <div className="tree-header">
                 <span>Routines</span>
-                <Badge className="ml-auto">{objects.routines.length}</Badge>
+                <span className="ml-auto font-mono text-micro text-muted">
+                  {objects.routines.length}
+                </span>
               </div>
               <div className="tree-list">
                 {objects.routines.slice(0, 30).map((routine) => (
-                  <div
+                  <Tooltip
                     key={`${routine.type}-${routine.name}`}
-                    className="tree-item"
-                    onClick={() =>
-                      navigate(
-                        `/database?object=${encodeURIComponent(routine.name)}&routineType=${routine.type}`,
-                      )
-                    }
-                    title={`${routine.type} ${routine.name}`}
+                    label={`${routine.type} ${routine.name}`}
+                    side="right"
+                    block
                   >
-                    <span className="text-[10px] font-bold text-ember">
-                      {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
-                    </span>
-                    <span>{routine.name}</span>
-                  </div>
+                    <button
+                      type="button"
+                      className="tree-item w-full text-left"
+                      onClick={() =>
+                        navigate(
+                          `/database?object=${encodeURIComponent(routine.name)}&routineType=${routine.type}`,
+                        )
+                      }
+                    >
+                      <span className="text-2xs font-bold text-ember">
+                        {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
+                      </span>
+                      <span>{routine.name}</span>
+                    </button>
+                  </Tooltip>
                 ))}
               </div>
             </div>
@@ -507,21 +515,21 @@ export function SchemaSidebar({
         <Database size={14} className="text-ember" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[11.5px] font-semibold">
+            <span className="truncate text-2xs font-semibold">
               {activeDatabase ?? 'No database'}
             </span>
             {usesPinnedFetch ? <Badge tone="ember">pinned</Badge> : null}
           </div>
-          <div className="truncate text-[10px] text-muted">{summary}</div>
+          <div className="truncate text-2xs text-muted">{summary}</div>
         </div>
         <Tooltip label="Refresh schema" side="bottom">
-          <IconButton label="Refresh schema" nativeTitle={false} onClick={() => void refresh()}>
+          <IconButton label="Refresh schema" tooltip={false} onClick={() => void refresh()}>
             {refreshing ? <Spinner size={13} /> : <RefreshCw size={13} />}
           </IconButton>
         </Tooltip>
         {!isPanel ? (
           <Tooltip label="Collapse schema" side="bottom">
-            <IconButton label="Collapse schema" nativeTitle={false} onClick={toggleSchema}>
+            <IconButton label="Collapse schema" tooltip={false} onClick={toggleSchema}>
               <PanelLeftClose size={13} />
             </IconButton>
           </Tooltip>
@@ -540,7 +548,7 @@ export function SchemaSidebar({
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
           />
           <input
-            className="input input-search py-1.5 text-[11px]"
+            className="input input-search py-1.5 text-2xs"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Filter objects…"

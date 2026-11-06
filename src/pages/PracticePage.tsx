@@ -21,6 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type {
+  AiChatMessage,
   PracticeAnswer,
   PracticeComparison,
   PracticeDifficulty,
@@ -31,7 +32,7 @@ import type {
   QueryResult,
 } from '@shared/types';
 import { PRACTICE_DIFFICULTIES, PRACTICE_TOPICS } from '@shared/types';
-import { useAppStore, BOOT_PATH } from '@/store/app-store';
+import { useAppStore } from '@/store/app-store';
 import { dbApi } from '@/lib/db-api';
 import { postSse } from '@/lib/sse';
 import { formatDate } from '@/lib/format';
@@ -42,7 +43,9 @@ import { Markdown } from '@/components/Markdown';
 import { FindingsList } from '@/components/Findings';
 import { ExplainPanel } from '@/components/ExplainPanel';
 import { ResultsGrid } from '@/components/ResultsGrid';
-import { Combobox, MultiSelect } from '@/components/Combobox';
+import { Tooltip } from '@/components/Tooltip';
+import { AiAssistant } from '@/components/AiAssistant';
+import { Combobox, MultiSelect, TextCombobox } from '@/components/Combobox';
 import {
   Badge,
   Button,
@@ -52,7 +55,6 @@ import {
   EmptyState,
   Field,
   IconButton,
-  Input,
   Kbd,
   Modal,
   PageHeader,
@@ -83,7 +85,13 @@ const CHALLENGE_COUNTS = [5, 10, 15, 20, 25];
 
 const DRAFT_PREFIX = 'mylens.practice.draft';
 const SCHEMA_PANEL_KEY = 'mylens.practice.schemaPanel';
-const LAST_SET_PREFIX = 'mylens.practice.lastSet';
+
+/**
+ * A stable empty transcript. The coach is given this when a challenge has no
+ * thread yet; a fresh array on every render would look like a changed
+ * transcript to the chat transport.
+ */
+const NO_COACH_TURNS: AiChatMessage[] = [];
 
 function quoteIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
@@ -129,29 +137,6 @@ function writeDraft(profileId: string, setId: string, drafts: Record<string, Pra
   }
 }
 
-function lastSetKey(profileId: string): string {
-  return `${LAST_SET_PREFIX}.${profileId}`;
-}
-
-/** The set that was open last, so a reload lands on the same challenge set. */
-function readLastSetId(profileId: string): string | null {
-  try {
-    return localStorage.getItem(lastSetKey(profileId));
-  } catch {
-    return null;
-  }
-}
-
-function writeLastSetId(profileId: string, setId: string | null): void {
-  try {
-    const key = lastSetKey(profileId);
-    if (setId) localStorage.setItem(key, setId);
-    else localStorage.removeItem(key);
-  } catch {
-    // Storage can be unavailable (private mode, quota); the restore is a convenience.
-  }
-}
-
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
 }
@@ -168,22 +153,22 @@ function RecentSetsCard({
   return (
     <Card className="p-4">
       <div className="section-title mb-2">Recent challenge sets</div>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         {sets.map((item) => (
           <button
             key={item.id}
             type="button"
-            className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
+            className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2 px-3 py-2 text-left hover:border-ember/35"
             onClick={() => onPick(item)}
           >
             <FlaskConical size={13} className="text-muted" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[11px] text-ink-soft">
+              <span className="block truncate text-2xs text-ink-soft">
                 {item.database} · {item.questions.length} challenges
               </span>
-              <span className="block text-[10px] text-muted">{formatDate(item.createdAt)}</span>
+              <span className="block text-2xs text-muted">{formatDate(item.createdAt)}</span>
             </span>
-            <Badge tone="neutral">{item.model}</Badge>
+            <span className="font-mono text-micro text-muted">{item.model}</span>
           </button>
         ))}
       </div>
@@ -193,6 +178,84 @@ function RecentSetsCard({
 
 function topicLabel(topic: PracticeTopic): string {
   return PRACTICE_TOPICS.find((item) => item.id === topic)?.label ?? topic;
+}
+
+/**
+ * The question tracker: one square per question, compact enough to sit
+ * above the schema tables panel. Flagging lives in the head row so the
+ * strip stays a heading plus a grid and nothing else.
+ */
+function QuestionTracker({
+  set,
+  answers,
+  flagged,
+  activeIndex,
+  answeredCount,
+  flaggedCurrent,
+  canFlag,
+  onGoTo,
+  onToggleFlag,
+  onHide,
+}: {
+  set: PracticeSetPublic;
+  answers: Record<string, AnswerState>;
+  flagged: Record<string, boolean>;
+  activeIndex: number;
+  answeredCount: number;
+  flaggedCurrent: boolean;
+  canFlag: boolean;
+  onGoTo: (index: number) => void;
+  onToggleFlag: () => void;
+  onHide: () => void;
+}) {
+  return (
+    <>
+      <div className="practice-nav-head">
+        <ListChecks size={12} className="text-ember" />
+        <span>Questions</span>
+        <span className="practice-nav-count">
+          {answeredCount}/{set.questions.length}
+        </span>
+        <IconButton
+          label={flaggedCurrent ? 'Unflag this question' : 'Flag this question'}
+          disabled={!canFlag}
+          className={cn(flaggedCurrent ? 'text-warn' : undefined)}
+          onClick={onToggleFlag}
+        >
+          <Flag size={11} fill={flaggedCurrent ? 'currentColor' : 'none'} />
+        </IconButton>
+        <IconButton label="Hide question navigator" tooltip={false} onClick={onHide}>
+          <PanelRightClose size={11} />
+        </IconButton>
+      </div>
+      <div className="practice-nav-grid">
+        {set.questions.map((item, index) => {
+          const answered = Boolean(answers[item.id]?.evaluation);
+          const itemFlagged = Boolean(flagged[item.id]);
+          return (
+            <Tooltip key={item.id} label={item.title} side="top">
+              <button
+                type="button"
+                className={cn(
+                  'practice-nav-box',
+                  answered && 'answered',
+                  index === activeIndex && 'active',
+                  itemFlagged && 'flagged',
+                )}
+                onClick={() => onGoTo(index)}
+                aria-label={`Question ${index + 1}${answered ? ', answered' : ', unanswered'}${itemFlagged ? ', flagged' : ''}`}
+              >
+                {index + 1}
+                {itemFlagged ? (
+                  <Flag size={8} className="practice-nav-flag" fill="currentColor" />
+                ) : null}
+              </button>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 function verdictTone(
@@ -207,11 +270,13 @@ function verdictTone(
 function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Badge tone={comparison.matched ? 'mint' : 'warn'}>
           {comparison.matched ? 'results match' : 'results differ'}
         </Badge>
-        <Badge tone="neutral">{comparison.ordered ? 'order matters' : 'order ignored'}</Badge>
+        <span className="text-2xs text-muted">
+          {comparison.ordered ? 'row order matters' : 'row order ignored'}
+        </span>
         {comparison.truncated ? <Badge tone="warn">row cap reached</Badge> : null}
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -232,7 +297,7 @@ function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
           <div className="stat-value text-warn">{comparison.unmatchedRows}</div>
         </div>
       </div>
-      <div className="text-[11px] text-muted">{comparison.reason}</div>
+      <div className="text-2xs text-muted">{comparison.reason}</div>
       {comparison.missingRows.length > 0 || comparison.extraRows.length > 0 ? (
         <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
           {comparison.missingRows.length > 0 ? (
@@ -254,6 +319,64 @@ function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** The error banner of the SQL Lab page. */
+function PracticeErrorNote({ message }: { message: string }) {
+  return (
+    <div className="callout danger flex items-start gap-2">
+      <XCircle size={15} className="mt-0.5 shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+/**
+ * The SQL Lab page while no challenge set is open.
+ *
+ * The empty state is a direct child of the page, so it settles in the space
+ * that is left under the page header instead of sitting at the top of the
+ * viewport with a blank page below it. The action it offers is the only
+ * "generate challenges" button on this screen.
+ */
+export function PracticeEmptyScreen({
+  database,
+  error,
+  recentSets,
+  onPick,
+  onGenerate,
+}: {
+  database: string;
+  error: string | null;
+  recentSets: PracticeSetPublic[];
+  onPick: (item: PracticeSetPublic) => void;
+  onGenerate: () => void;
+}) {
+  return (
+    <>
+      <PageHeader
+        title="SQL Lab"
+        subtitle="Generate challenges, answer them, and compare with a reference solution."
+        actions={<span className="font-mono text-2xs text-muted">{database}</span>}
+      />
+      {error ? <PracticeErrorNote message={error} /> : null}
+      <div className="empty-anchor">
+        <EmptyState
+          icon={<Target size={26} />}
+          title="No challenge set yet"
+          copy="Open the setup panel to choose tables, topics, and difficulty, then generate a set."
+          action={
+            <Button variant="primary" icon={<Sparkles size={13} />} onClick={onGenerate}>
+              Generate challenges
+            </Button>
+          }
+        />
+        <div className="mt-3 w-full max-w-2xl">
+          <RecentSetsCard sets={recentSets} onPick={onPick} />
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -301,6 +424,9 @@ export function PracticePage() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(true);
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+  // The coach keeps a thread per challenge, so moving to another challenge
+  // and back does not lose the conversation.
+  const [coachTurns, setCoachTurns] = useState<Record<string, AiChatMessage[]>>({});
   // lg+ renders the schema panel inline; below lg it is an overlay drawer.
   const [schemaPanelOpen, setSchemaPanelOpen] = useState<boolean>(readSchemaPanelOpen);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -353,16 +479,13 @@ export function PracticePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isLargeViewport, schemaDrawerOpen, toggleSchemaPanel]);
 
-  // The challenge view is three columns: the challenge itself (brief, editor,
-  // result), the database tables and the question tracker. The tables and the
-  // tracker keep their own width on the right, and the tree scrolls inside the
-  // table panel instead of resizing the editor.
+  // The challenge view is two columns at lg and up: the challenge itself
+  // (brief, editor, result) and a pinned right stack — the question tracker
+  // above the database tables. Below lg the schema panel becomes a drawer
+  // and the challenge column takes the full width.
   const stageColumns = cn(
     'grid grid-cols-1 gap-4',
-    schemaPanelOpen && navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_300px_224px]',
-    schemaPanelOpen && !navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_300px]',
-    !schemaPanelOpen && navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)_224px]',
-    !schemaPanelOpen && !navigatorOpen && 'lg:grid-cols-[minmax(0,1fr)]',
+    schemaPanelOpen && 'lg:grid-cols-[minmax(0,1fr)_280px]',
   );
 
   const answeredCount = useMemo(
@@ -555,37 +678,16 @@ export function PracticePage() {
       }
     }
     if (next) {
-      // Remember the set per connection so a reload lands on the same set with
-      // its graded answers.
-      writeLastSetId(activeProfileId ?? next.profileId, next.id);
+      // Graded answers and attempts are stored per set, so picking a set from
+      // the hub — even weeks later — brings its history straight back.
       void loadAnswers(next.id);
       void loadAttempts(next.id);
     }
   };
 
-  // Restore the set that was open last. Without this the answered questions
-  // would only come back after the set is picked from the recent list again.
-  // Only a reload of the practice page restores it: jumping to SQL Lab from
-  // somewhere else lands on the hub, so a new set can still be generated.
-  const restoredSetProfile = useRef<string | null>(null);
-  useEffect(() => {
-    if (!activeProfileId || practiceSet) return;
-    if (restoredSetProfile.current === activeProfileId) return;
-    restoredSetProfile.current = activeProfileId;
-    if (BOOT_PATH !== '/practice') return;
-    const lastId = readLastSetId(activeProfileId);
-    if (!lastId) return;
-    void dbApi
-      .practiceSets(activeProfileId, 50)
-      .then((sets) => {
-        const found = sets.find((item) => item.id === lastId);
-        if (found) activateSet(found);
-      })
-      .catch(() => undefined);
-    // `activateSet` changes on every render; the guard above keeps it to one
-    // restore per connection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProfileId, practiceSet]);
+  // SQL Lab always lands on the hub. Sets are never auto-opened — not on
+  // navigation and not on a reload — so the page stays the place where a set
+  // is chosen or generated; resuming is one click on a recent set.
 
   const loadProgress = async (): Promise<void> => {
     if (!activeProfileId) return;
@@ -840,45 +942,24 @@ export function PracticePage() {
   return (
     <div className={cn('page', !practiceSet && 'page-centered')}>
       {practiceSet ? (
-        <div className="practice-toolbar">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <FlaskConical size={17} className="shrink-0 text-ember" />
-            <span className="practice-toolbar-title">SQL Lab</span>
-            <Badge tone="mint">
-              <Target size={10} /> {practiceSet.database}
-            </Badge>
-            <span className="truncate text-[10.5px] text-muted">
-              {answeredCount}/{practiceSet.questions.length} answered
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<ListChecks size={12} />}
-              onClick={() => setNavigatorOpen((value) => !value)}
-            >
-              {navigatorOpen ? 'Hide challenges' : 'Challenges'}
-            </Button>
-            <Button variant="secondary" size="sm" icon={<Sparkles size={12} />} onClick={openSetup}>
-              Generate challenges
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <PageHeader
-          title="SQL Lab"
-          subtitle="Generate challenges, answer them, and compare with a reference solution."
-          actions={
-            <>
-              <Badge tone="mint">
-                <Target size={10} /> {selectedDatabase}
-              </Badge>
-              {/*
-               * The empty state below already carries the primary "Generate
-               * challenges" action, so the header keeps a secondary shortcut
-               * rather than a second orange button for the same thing.
-               */}
+        <>
+          <div className="practice-toolbar">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <FlaskConical size={17} className="shrink-0 text-ember" />
+              <span className="practice-toolbar-title">SQL Lab</span>
+              <span className="truncate font-mono text-2xs text-muted">
+                {practiceSet.database} · {answeredCount}/{practiceSet.questions.length} answered
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ListChecks size={12} />}
+                onClick={() => setNavigatorOpen((value) => !value)}
+              >
+                {navigatorOpen ? 'Hide challenges' : 'Challenges'}
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"
@@ -887,28 +968,29 @@ export function PracticePage() {
               >
                 Generate challenges
               </Button>
-            </>
-          }
+            </div>
+          </div>
+          {error ? <PracticeErrorNote message={error} /> : null}
+          {databaseMismatch ? (
+            <div className="callout warn flex items-start gap-2">
+              <Info size={15} className="mt-0.5 shrink-0" />
+              <span>
+                This challenge set belongs to <strong>{practiceSet?.database}</strong>. Answers are
+                graded against that database; generate a new set to practise on{' '}
+                <strong>{selectedDatabase}</strong>.
+              </span>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <PracticeEmptyScreen
+          database={selectedDatabase}
+          error={error}
+          recentSets={recentSets}
+          onPick={(item) => activateSet(item)}
+          onGenerate={openSetup}
         />
       )}
-
-      {error ? (
-        <div className="callout danger flex items-start gap-2">
-          <XCircle size={15} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : null}
-
-      {databaseMismatch ? (
-        <div className="callout warn flex items-start gap-2">
-          <Info size={15} className="mt-0.5 shrink-0" />
-          <span>
-            This challenge set belongs to <strong>{practiceSet?.database}</strong>. Answers are
-            graded against that database; generate a new set to practise on{' '}
-            <strong>{selectedDatabase}</strong>.
-          </span>
-        </div>
-      ) : null}
 
       <div className="practice-stage">
         <Modal
@@ -1013,20 +1095,17 @@ export function PracticePage() {
                     />
                   </Field>
                   <Field label="Model">
-                    <Input
-                      className="font-mono text-[11px]"
+                    <TextCombobox
                       value={model}
-                      onChange={(event) => setModel(event.target.value)}
+                      onChange={setModel}
                       placeholder="model"
-                      list="practice-models"
+                      inputClassName="font-mono text-2xs"
+                      emptyText="No matching models on file."
+                      ariaLabel="Model"
+                      options={(
+                        providers.find((provider) => provider.id === providerId)?.models ?? []
+                      ).map((item) => ({ value: item, label: item }))}
                     />
-                    <datalist id="practice-models">
-                      {(providers.find((provider) => provider.id === providerId)?.models ?? []).map(
-                        (item) => (
-                          <option key={item} value={item} />
-                        ),
-                      )}
-                    </datalist>
                   </Field>
                 </div>
 
@@ -1058,16 +1137,16 @@ export function PracticePage() {
                     </Button>
                   ) : null}
                 </div>
-                <div className="text-[10px] leading-4 text-muted">Queries run read-only.</div>
+                <div className="text-2xs leading-5 text-muted">Queries run read-only.</div>
                 {error ? (
-                  <div className="callout danger flex items-start gap-2 text-[11px]">
+                  <div className="callout danger flex items-start gap-2 text-2xs">
                     <XCircle size={13} className="mt-0.5 shrink-0" />
                     <span>{error}</span>
                   </div>
                 ) : null}
                 {generating ? (
-                  <div className="rounded-xl border border-line-soft bg-panel-2/50 p-3">
-                    <div className="flex items-center gap-2 text-[11px] text-muted">
+                  <div className="rounded-xl border border-line-soft bg-panel-2 p-3">
+                    <div className="flex items-center gap-2 text-2xs text-muted">
                       <Spinner size={13} />
                       Generating challenges from {selectedDatabase}…
                       <Button
@@ -1081,9 +1160,7 @@ export function PracticePage() {
                     </div>
                     {generationText ? (
                       <details className="mt-2">
-                        <summary className="cursor-pointer text-[10px] text-muted">
-                          Raw stream
-                        </summary>
+                        <summary className="cursor-pointer text-2xs text-muted">Raw stream</summary>
                         <pre className="finding-evidence mt-1 max-h-40 whitespace-pre-wrap">
                           {generationText.slice(-4_000)}
                         </pre>
@@ -1111,30 +1188,25 @@ export function PracticePage() {
                 </div>
                 {progress && progress.totalAttempts > 0 ? (
                   <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="neutral">{progress.totalAttempts} attempts</Badge>
-                      <Badge tone="mint">avg {progress.averageScore}</Badge>
+                    <div className="font-mono text-2xs text-muted">
+                      {progress.totalAttempts} attempts · avg {progress.averageScore}
                     </div>
                     {progress.recommendedTopics.length > 0 ? (
                       <div>
                         <div className="mono-label mb-1">Recommended next</div>
-                        <div className="flex flex-wrap gap-1">
-                          {progress.recommendedTopics.map((topic) => (
-                            <Badge key={topic} tone="ember">
-                              {topicLabel(topic)}
-                            </Badge>
-                          ))}
+                        <div className="text-2xs text-ink-soft">
+                          {progress.recommendedTopics.map((topic) => topicLabel(topic)).join(' · ')}
                         </div>
                       </div>
                     ) : null}
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-2">
                       {progress.topics
                         .filter((topic) => topic.attempts > 0)
                         .sort((a, b) => b.attempts - a.attempts)
                         .slice(0, 8)
                         .map((topic) => (
                           <div key={topic.topic}>
-                            <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                            <div className="flex items-center justify-between gap-2 text-2xs">
                               <span className="truncate text-ink-soft">
                                 {topicLabel(topic.topic)}
                               </span>
@@ -1169,14 +1241,14 @@ export function PracticePage() {
                         Clear attempts
                       </Button>
                       {progress.recent.length > 0 ? (
-                        <span className="text-[10px] text-muted">
+                        <span className="text-2xs text-muted">
                           last {formatDate(progress.recent[0].createdAt)}
                         </span>
                       ) : null}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-muted">
+                  <div className="text-2xs text-muted">
                     Attempt stats appear after you submit answers.
                   </div>
                 )}
@@ -1194,66 +1266,40 @@ export function PracticePage() {
         </Modal>
 
         <div className="practice-main">
-          {!practiceSet ? (
-            <>
-              <EmptyState
-                icon={<Target size={26} />}
-                title="No challenge set yet"
-                copy="Choose tables and topics, then generate a set."
-                action={
-                  <Button variant="primary" icon={<Sparkles size={13} />} onClick={openSetup}>
-                    Generate challenges
-                  </Button>
-                }
-              />
-              <div className="mt-3">
-                <RecentSetsCard sets={recentSets} onPick={(item) => activateSet(item)} />
-              </div>
-            </>
-          ) : question ? (
+          {practiceSet && question ? (
             <>
               {/*
-               * The challenge workspace is three columns: the challenge itself
-               * (brief, editor, result), the database tables and the question
-               * tracker. The tables and the tracker stay pinned to the right.
+               * The challenge workspace is two columns: the challenge itself
+               * (brief, editor, result) and a right stack — the question
+               * tracker on top, the database tables under it.
                */}
               <div className={stageColumns}>
                 <div className="flex min-w-0 flex-col gap-3">
                   <Card className="p-4 practice-question">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="ember">
-                        {activeIndex + 1} / {practiceSet.questions.length}
-                      </Badge>
-                      <Badge tone="neutral">{question.type.replace('-', ' ')}</Badge>
-                      <Badge
-                        tone={
-                          question.difficulty === 'easy'
-                            ? 'mint'
-                            : question.difficulty === 'hard'
-                              ? 'danger'
-                              : 'warn'
-                        }
-                      >
-                        {question.difficulty}
-                      </Badge>
-                      {question.topics.map((topic) => (
-                        <Badge key={topic} tone="neutral">
-                          {topicLabel(topic)}
-                        </Badge>
-                      ))}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-mono text-2xs font-semibold text-ink-soft">
+                        {activeIndex + 1}/{practiceSet.questions.length}
+                      </span>
+                      <span className="text-2xs text-muted">
+                        {question.type.replace('-', ' ')} · {question.difficulty}
+                        {question.topics.length > 0
+                          ? ` · ${question.topics.map((topic) => topicLabel(topic)).join(' · ')}`
+                          : ''}
+                      </span>
                       {flaggedCurrent ? (
                         <Badge tone="warn">
                           <Flag size={9} /> flagged
                         </Badge>
                       ) : null}
-                      <span className="ml-auto text-[10px] text-muted">
+                      <span className="ml-auto text-2xs text-muted">
                         ~{question.estimatedMinutes} min · {question.schemaTables.join(', ')}
                       </span>
                       <Button
                         variant="ghost"
                         size="sm"
                         aria-pressed={schemaPanelVisible}
-                        title="Toggle schema browser (Ctrl/Cmd+B)"
+                        tooltip="Toggle schema browser (Ctrl/Cmd+B)"
+                        tooltipSide="bottom"
                         icon={<PanelRight size={12} />}
                         onClick={toggleSchemaPanel}
                       >
@@ -1264,10 +1310,8 @@ export function PracticePage() {
                       </Button>
                     </div>
 
-                    <h2 className="mt-3 text-[19px] font-extrabold tracking-tight">
-                      {question.title}
-                    </h2>
-                    <div className="mt-2 whitespace-pre-wrap text-[12.5px] leading-6 text-ink-soft">
+                    <h2 className="mt-3 text-lg font-extrabold tracking-tight">{question.title}</h2>
+                    <div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">
                       {question.scenario}
                     </div>
 
@@ -1278,21 +1322,21 @@ export function PracticePage() {
                             ? 'Broken / inefficient query'
                             : 'Query to review'}
                         </div>
-                        <CodeBlock text={question.brokenSql} className="max-h-52 text-[11px]" />
+                        <CodeBlock text={question.brokenSql} className="max-h-52 text-2xs" />
                       </div>
                     ) : null}
 
                     {question.hints.length > 0 ? (
-                      <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-2.5 py-1.5">
+                      <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <Lightbulb size={11} className="text-warn" />
-                          <span className="text-[10.5px] font-semibold tracking-wide text-warn uppercase">
+                          <span className="text-2xs font-semibold tracking-wide text-warn uppercase">
                             Hints
                           </span>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="ml-auto h-6 px-2 text-[10.5px]"
+                            className="ml-auto h-7 px-3 text-2xs"
                             onClick={() =>
                               setHintsShown((value) => Math.min(question.hints.length, value + 1))
                             }
@@ -1302,7 +1346,7 @@ export function PracticePage() {
                           </Button>
                         </div>
                         {question.hints.slice(0, hintsShown).map((hint, index) => (
-                          <div key={index} className="mt-1 text-[11px] leading-5 text-ink-soft">
+                          <div key={index} className="mt-1 text-2xs leading-5 text-ink-soft">
                             {index + 1}. {hint}
                           </div>
                         ))}
@@ -1311,7 +1355,7 @@ export function PracticePage() {
                   </Card>
 
                   {question.type === 'write-query' || question.type === 'fix-query' ? (
-                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40">
+                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas">
                       <SqlEditor
                         value={current.sql}
                         onChange={(value) => updateCurrent({ sql: value })}
@@ -1328,7 +1372,7 @@ export function PracticePage() {
                       />
                     </div>
                   ) : (
-                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas/40 p-3">
+                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas p-3">
                       <Field
                         label={
                           question.type === 'review-query'
@@ -1352,8 +1396,8 @@ export function PracticePage() {
 
                   {runError ? <div className="callout danger">{runError}</div> : null}
                   {runResult ? (
-                    <details open className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                      <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                    <details open className="rounded-xl border border-line-soft bg-panel-2 p-2">
+                      <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
                         Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
                       </summary>
                       <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
@@ -1372,7 +1416,7 @@ export function PracticePage() {
                       Submit answer
                     </Button>
                     {question.type === 'review-query' || question.type === 'concept' ? null : (
-                      <span className="text-[10px] text-muted">
+                      <span className="text-2xs text-muted">
                         {running
                           ? 'Running the query…'
                           : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Submit grades it.`}
@@ -1383,31 +1427,29 @@ export function PracticePage() {
                   {reference ? (
                     <Card className="p-4">
                       <details>
-                        <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+                        <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
                           Reference solution
                         </summary>
                         {reference.brokenSql && question.type !== 'fix-query' ? (
                           <>
                             <div className="mono-label mt-2">Query under review</div>
-                            <CodeBlock text={reference.brokenSql} className="mt-1 text-[11px]" />
+                            <CodeBlock text={reference.brokenSql} className="mt-1 text-2xs" />
                           </>
                         ) : null}
                         {reference.referenceSql ? (
-                          <CodeBlock text={reference.referenceSql} className="mt-2 text-[11px]" />
+                          <CodeBlock text={reference.referenceSql} className="mt-2 text-2xs" />
                         ) : (
-                          <div className="mt-2 text-[11px] text-muted">
+                          <div className="mt-2 text-2xs text-muted">
                             This challenge has no reference SQL; compare with the feedback above.
                           </div>
                         )}
                         {reference.expectedResult ? (
-                          <div className="mt-2 text-[11px] text-muted">
+                          <div className="mt-2 text-2xs text-muted">
                             Expected: {reference.expectedResult}
                           </div>
                         ) : null}
                         {reference.orderMatters ? (
-                          <div className="mt-2">
-                            <Badge tone="neutral">row order matters</Badge>
-                          </div>
+                          <div className="mt-2 text-2xs text-muted">row order matters</div>
                         ) : null}
                       </details>
                     </Card>
@@ -1418,22 +1460,18 @@ export function PracticePage() {
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
                         <ScoreRing score={evaluation.scores.overall} size={112} />
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <Badge tone={verdictTone(evaluation.verdict)}>
                               {evaluation.verdict === 'not-executed'
                                 ? 'reviewed'
                                 : evaluation.verdict.replace('-', ' ')}
                             </Badge>
-                            {evaluation.executed ? (
-                              <Badge tone="mint">executed read-only</Badge>
-                            ) : (
-                              <Badge tone="warn">not executed</Badge>
-                            )}
-                            {current.duplicate ? <Badge tone="info">duplicate</Badge> : null}
+                            <span className="text-2xs text-muted">
+                              {evaluation.executed ? 'executed read-only' : 'not executed'}
+                              {current.duplicate ? ' · duplicate answer' : ''}
+                            </span>
                           </div>
-                          <div className="mt-2 text-[12.5px] text-ink-soft">
-                            {evaluation.summary}
-                          </div>
+                          <div className="mt-2 text-sm text-ink-soft">{evaluation.summary}</div>
                           <div className="practice-score-grid mt-3">
                             <div className="stat">
                               <div className="stat-label">Correctness</div>
@@ -1474,7 +1512,7 @@ export function PracticePage() {
                             <div className="rounded-xl border border-mint/20 bg-mint/5 p-3">
                               <div className="section-title mb-1 text-mint">What worked</div>
                               {evaluation.strengths.map((item, index) => (
-                                <div key={index} className="text-[11.5px] text-ink-soft">
+                                <div key={index} className="text-xs text-ink-soft">
                                   • {item}
                                 </div>
                               ))}
@@ -1484,7 +1522,7 @@ export function PracticePage() {
                             <div className="rounded-xl border border-warn/20 bg-warn/5 p-3">
                               <div className="section-title mb-1 text-warn">What to fix</div>
                               {evaluation.issues.map((item, index) => (
-                                <div key={index} className="text-[11.5px] text-ink-soft">
+                                <div key={index} className="text-xs text-ink-soft">
                                   • {item}
                                 </div>
                               ))}
@@ -1495,7 +1533,7 @@ export function PracticePage() {
 
                       <div className="callout mt-4 flex items-start gap-2">
                         <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
-                        <div className="text-[11.5px] text-ink-soft">{evaluation.nextHint}</div>
+                        <div className="text-xs text-ink-soft">{evaluation.nextHint}</div>
                       </div>
 
                       {evaluation.aiFeedback ? (
@@ -1518,8 +1556,8 @@ export function PracticePage() {
                       ) : null}
 
                       {evaluation.explain ? (
-                        <details className="mt-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
-                          <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+                        <details className="mt-4 rounded-xl border border-line-soft bg-panel-2 p-3">
+                          <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
                             EXPLAIN plan for your answer
                           </summary>
                           <div className="mt-2">
@@ -1531,8 +1569,8 @@ export function PracticePage() {
                       {evaluation.userResult || evaluation.referenceResult ? (
                         <div className="mt-4 flex flex-col gap-2">
                           {evaluation.userResult ? (
-                            <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                              <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                            <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
+                              <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
                                 Your result
                               </summary>
                               <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
@@ -1541,8 +1579,8 @@ export function PracticePage() {
                             </details>
                           ) : null}
                           {evaluation.referenceResult ? (
-                            <details className="rounded-xl border border-line-soft bg-panel-2/40 p-2">
-                              <summary className="cursor-pointer px-1 py-1 text-[11px] font-semibold text-muted">
+                            <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
+                              <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
                                 Reference result
                               </summary>
                               <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
@@ -1588,16 +1626,37 @@ export function PracticePage() {
 
                 {schemaPanelOpen ? (
                   /*
-                   * The panel hugs its content and scrolls the tree inside a
-                   * bounded box, so it stays a panel next to the taller first
-                   * column instead of stretching down with the results.
+                   * The right stack: the question tracker on top, the tables
+                   * panel under it. The panel hugs its content and scrolls
+                   * the tree inside a bounded box, so it stays a panel next
+                   * to the taller first column instead of stretching down
+                   * with the results.
                    *
-                   * h-0 + min-h-full keeps the wrapper out of the row's height
-                   * calculation: without it the panel would decide how tall the
-                   * row is, and expanding a table would resize the editor.
+                   * h-0 + min-h-full keeps the wrapper out of the row's
+                   * height calculation: without it the panel would decide how
+                   * tall the row is, and expanding a table would resize the
+                   * editor.
                    */
-                  <aside className="hidden h-0 min-h-full lg:flex lg:flex-col">
-                    <div className="sticky top-4 flex flex-col overflow-hidden rounded-xl border border-line-soft bg-panel">
+                  <aside className="hidden h-0 min-h-full flex-col gap-3 lg:flex">
+                    {practiceSet && navigatorOpen ? (
+                      <div className="practice-nav panel-enter" aria-label="Question navigator">
+                        <QuestionTracker
+                          set={practiceSet}
+                          answers={answers}
+                          flagged={flagged}
+                          activeIndex={activeIndex}
+                          answeredCount={answeredCount}
+                          flaggedCurrent={flaggedCurrent}
+                          canFlag={Boolean(question)}
+                          onGoTo={goTo}
+                          onToggleFlag={() => {
+                            if (question) toggleFlag(question.id);
+                          }}
+                          onHide={() => setNavigatorOpen(false)}
+                        />
+                      </div>
+                    ) : null}
+                    <div className="panel-enter sticky top-4 flex flex-col overflow-hidden rounded-xl border border-line-soft bg-panel">
                       <SchemaSidebar
                         variant="panel"
                         compact
@@ -1609,73 +1668,6 @@ export function PracticePage() {
                         onPreviewTable={previewTable}
                       />
                     </div>
-                  </aside>
-                ) : null}
-
-                {practiceSet && navigatorOpen ? (
-                  <aside className="practice-nav self-start" aria-label="Question navigator">
-                    <div className="practice-nav-head">
-                      <ListChecks size={13} className="text-ember" />
-                      <span>Questions</span>
-                      <span className="practice-nav-count">
-                        {answeredCount}/{practiceSet.questions.length}
-                      </span>
-                      <IconButton
-                        label="Hide question navigator"
-                        nativeTitle={false}
-                        onClick={() => setNavigatorOpen(false)}
-                      >
-                        <PanelRightClose size={12} />
-                      </IconButton>
-                    </div>
-                    <div className="practice-nav-grid">
-                      {practiceSet.questions.map((item, index) => {
-                        const answered = Boolean(answers[item.id]?.evaluation);
-                        const itemFlagged = Boolean(flagged[item.id]);
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={cn(
-                              'practice-nav-box',
-                              answered && 'answered',
-                              index === activeIndex && 'active',
-                              itemFlagged && 'flagged',
-                            )}
-                            onClick={() => goTo(index)}
-                            aria-label={`Question ${index + 1}${answered ? ', answered' : ', unanswered'}${itemFlagged ? ', flagged' : ''}`}
-                            title={item.title}
-                          >
-                            {index + 1}
-                            {itemFlagged ? (
-                              <Flag size={8} className="practice-nav-flag" fill="currentColor" />
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="practice-nav-legend">
-                      <span>
-                        <i className="practice-nav-dot answered" /> answered
-                      </span>
-                      <span>
-                        <i className="practice-nav-dot" /> unanswered
-                      </span>
-                      <span>
-                        <Flag size={9} /> flagged
-                      </span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn('practice-nav-flag-btn', flaggedCurrent && 'text-warn')}
-                      icon={<Flag size={11} fill={flaggedCurrent ? 'currentColor' : 'none'} />}
-                      onClick={() => {
-                        if (question) toggleFlag(question.id);
-                      }}
-                    >
-                      {flaggedCurrent ? 'Flagged for review' : 'Flag this question'}
-                    </Button>
                   </aside>
                 ) : null}
               </div>
@@ -1691,12 +1683,12 @@ export function PracticePage() {
             aria-label="Schema browser"
           >
             <div
-              className="absolute inset-0 bg-black/55 backdrop-blur-[1px]"
+              className="scrim-enter absolute inset-0 bg-black/60"
               onClick={() => setSchemaDrawerOpen(false)}
             />
-            <aside className="absolute inset-y-0 right-0 flex w-[min(88vw,360px)] flex-col border-l border-line bg-panel shadow-2xl">
+            <aside className="drawer-enter absolute inset-y-0 right-0 flex w-[min(88vw,360px)] flex-col border-l border-line bg-panel">
               <div className="flex items-center gap-2 border-b border-line-soft px-3 py-2">
-                <span className="text-[11px] font-semibold text-ink">Schema</span>
+                <span className="text-2xs font-semibold text-ink">Schema</span>
                 <IconButton
                   label="Close schema browser"
                   className="ml-auto"
@@ -1729,6 +1721,34 @@ export function PracticePage() {
         confirmLabel="Clear attempts"
         danger
       />
+
+      {/*
+       * The tutor only exists while a challenge is open: without one there is
+       * nothing for it to explain, and the server needs the challenge id to
+       * keep the answer material out of the prompt.
+       */}
+      {practiceSet && question ? (
+        <AiAssistant
+          mode="challenge"
+          title="Coach"
+          notice="Explains the challenge in plain words. It will not write the answer for you."
+          emptyHint="Ask what the challenge is asking, or what a JOIN or GROUP BY actually does."
+          placeholder="Ask about this challenge…"
+          context={{
+            profileId: activeProfileId,
+            database: pinnedDatabase,
+            question: { setId: practiceSet.id, questionId: question.id },
+          }}
+          history={{
+            turns: coachTurns[question.id] ?? NO_COACH_TURNS,
+            onChange: (turns) => {
+              const questionId = question.id;
+              setCoachTurns((current) => ({ ...current, [questionId]: turns }));
+            },
+          }}
+          resetKey={question.id}
+        />
+      ) : null}
     </div>
   );
 }

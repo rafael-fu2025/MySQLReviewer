@@ -1,16 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  ArrowLeft,
-  ArrowRight,
-  Download,
-  Eye,
-  EyeOff,
-  FileJson,
-  Lock,
-  Rows3,
-  Timer,
-} from 'lucide-react';
-import type { CellValue, QueryResult } from '@shared/types';
+import { ArrowLeft, ArrowRight, Download, Eye, EyeOff, FileJson, Lock, Rows3 } from 'lucide-react';
+import type { CellValue, QueryColumn, QueryResult } from '@shared/types';
 import { copyText, downloadCsv, downloadJson, formatDuration, formatNumber } from '@/lib/format';
 import { useAppStore } from '@/store/app-store';
 import { Badge, Button, ConfirmDialog, EmptyState } from './ui';
@@ -90,8 +80,76 @@ const ResultRow = memo(function ResultRow({
   );
 });
 
+/**
+ * What a result set was: how many rows came back, and how long the
+ * statement took.
+ *
+ * The grid shows it once, in its own toolbar.
+ */
+export function ResultsSummary({
+  rowCount,
+  executionMs,
+}: {
+  rowCount: number;
+  executionMs: number;
+}) {
+  return (
+    <span className="font-mono text-2xs text-muted">
+      {formatNumber(rowCount)} rows · {formatDuration(executionMs)}
+    </span>
+  );
+}
+
+/**
+ * The table of a result set.
+ *
+ * The rows are the ones on the current page; `rowOffset` is the number of
+ * rows that came before them, so the row numbers keep counting.
+ *
+ * The table keeps its natural width and the pane scrolls in both directions:
+ * laid out at the width of the pane, the browser squeezed the last column
+ * until its values were cut off mid-word, and the pane showed no sign that
+ * there was more to see.
+ */
+export function ResultsTable({
+  columns,
+  rows,
+  rowOffset = 0,
+}: {
+  columns: QueryColumn[];
+  rows: CellValue[][];
+  rowOffset?: number;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+      <table className="data-table min-w-max">
+        <thead>
+          <tr>
+            <th style={{ width: 46 }}>#</th>
+            {columns.map((column, index) => (
+              <th key={`${column.name}-${index}`} title={`${column.table ?? ''} ${column.name}`}>
+                <span className="inline-flex items-center gap-1">
+                  {column.sensitive ? <Lock size={9} className="text-warn" /> : null}
+                  {column.name}
+                </span>
+                <span className="col-type">{column.typeName}</span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <ResultRow key={rowOffset + rowIndex} row={row} rowNumber={rowOffset + rowIndex + 1} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?: () => void }) {
   const toast = useAppStore((state) => state.toast);
+  const currentUser = useAppStore((state) => state.currentUser);
   const [page, setPage] = useState(0);
   const [revealOpen, setRevealOpen] = useState(false);
   const pageSize = 100;
@@ -134,15 +192,12 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-3 py-2">
-        <Badge tone="neutral">
-          <Rows3 size={11} /> {formatNumber(result.rowCount)} rows
-        </Badge>
-        <Badge tone="neutral">
-          <Timer size={11} /> {formatDuration(result.executionMs)}
-        </Badge>
-        {result.unlocked ? <Badge tone="warn">unlocked</Badge> : null}
+        <ResultsSummary rowCount={result.rowCount} executionMs={result.executionMs} />
+        {result.unlocked && currentUser?.role !== 'admin' ? (
+          <Badge tone="warn">unlocked</Badge>
+        ) : null}
         {result.warnings.length > 0 ? (
           <Badge tone="warn">{result.warnings.length} warnings</Badge>
         ) : null}
@@ -206,7 +261,7 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
       </div>
 
       {result.truncated ? (
-        <div className="border-b border-warn/20 bg-warn/5 px-3 py-2 text-[11px] text-warn">
+        <div className="border-b border-warn/20 bg-warn/5 px-3 py-2 text-2xs text-warn">
           Result capped at {formatNumber(result.rowCount)} rows — adjust the cap in Settings.
         </div>
       ) : null}
@@ -217,8 +272,8 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-mint/25 bg-mint/10 text-mint">
               <Rows3 size={20} />
             </div>
-            <div className="mt-3 text-[15px] font-bold">Statement completed</div>
-            <div className="mt-1 text-[12px] text-muted">{result.info || 'No rows returned.'}</div>
+            <div className="mt-3 text-md font-bold">Statement completed</div>
+            <div className="mt-1 text-xs text-muted">{result.info || 'No rows returned.'}</div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-left">
               <div className="stat">
                 <div className="stat-label">Affected rows</div>
@@ -226,10 +281,10 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
               </div>
               <div className="stat">
                 <div className="stat-label">Insert ID</div>
-                <div className="stat-value text-[14px]">{result.insertId ?? '—'}</div>
+                <div className="stat-value text-base">{result.insertId ?? '—'}</div>
               </div>
             </div>
-            <div className="mt-3 font-mono text-[10px] text-muted">
+            <div className="mt-3 font-mono text-2xs text-muted">
               {result.kind} · {formatDuration(result.executionMs)}
             </div>
           </div>
@@ -237,40 +292,11 @@ function ResultsGridBase({ result, onReveal }: { result: QueryResult; onReveal?:
       ) : result.rows.length === 0 ? (
         <EmptyState icon={<Rows3 size={22} />} title="No rows returned" />
       ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: 46 }}>#</th>
-                {result.columns.map((column, index) => (
-                  <th
-                    key={`${column.name}-${index}`}
-                    title={`${column.table ?? ''} ${column.name}`}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {column.sensitive ? <Lock size={9} className="text-warn" /> : null}
-                      {column.name}
-                    </span>
-                    <span className="col-type">{column.typeName}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <ResultRow
-                  key={page * pageSize + rowIndex}
-                  row={row}
-                  rowNumber={page * pageSize + rowIndex + 1}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResultsTable columns={result.columns} rows={rows} rowOffset={page * pageSize} />
       )}
 
       {totalPages > 1 ? (
-        <div className="flex items-center justify-between gap-2 border-t border-line-soft px-3 py-2 text-[11px] text-muted">
+        <div className="flex items-center justify-between gap-2 border-t border-line-soft px-3 py-2 text-2xs text-muted">
           <span>
             Page {page + 1} of {totalPages} · showing {page * pageSize + 1}–
             {Math.min(result.rows.length, (page + 1) * pageSize)} of {result.rows.length}

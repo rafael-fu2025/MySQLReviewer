@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Table2,
+  Upload,
   X,
   Zap,
 } from 'lucide-react';
@@ -30,6 +31,8 @@ import { downloadText } from '@/lib/api';
 import { formatBytes, formatNumber } from '@/lib/format';
 import { ResultsGrid } from '@/components/ResultsGrid';
 import { CreateDatabaseModal } from '@/components/CreateDatabaseModal';
+import { ExportDatabaseModal } from '@/components/ExportDatabaseModal';
+import { ImportSqlModal } from '@/components/ImportSqlModal';
 import { Combobox } from '@/components/Combobox';
 import {
   Badge,
@@ -47,25 +50,163 @@ import {
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
+/**
+ * The database page header actions.
+ *
+ * An export only reads; an import can change the data. They are therefore
+ * offered as separate actions with their own treatment, and neither takes
+ * the page's primary slot — that belongs to "create database".
+ */
+export function DatabaseHeaderActions({
+  canAct,
+  showExport = true,
+  showRefresh = true,
+  onExport,
+  onImport,
+  onCreate,
+  onRefresh,
+  refreshing = false,
+}: {
+  canAct: boolean;
+  showExport?: boolean;
+  showRefresh?: boolean;
+  onExport?: () => void;
+  onImport: () => void;
+  onCreate: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+}) {
+  return (
+    <>
+      {showExport ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Download size={12} />}
+          onClick={onExport}
+          disabled={!canAct}
+        >
+          Export SQL
+        </Button>
+      ) : null}
+      {/*
+       * An export only reads, an import can change the data. The import is
+       * therefore kept in a group of its own, marked with a warning tone and
+       * a note, so it never carries the same weight as the export — and
+       * neither of them takes the page's primary slot.
+       */}
+      <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 p-1">
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Upload size={12} />}
+          onClick={onImport}
+          disabled={!canAct}
+        >
+          Import SQL
+        </Button>
+        <span className="text-2xs text-warn">can modify data</span>
+      </div>
+      <Button
+        variant="primary"
+        size="sm"
+        icon={<Plus size={12} />}
+        onClick={onCreate}
+        disabled={!canAct}
+      >
+        Create database
+      </Button>
+      {showRefresh ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<RefreshCw size={12} />}
+          onClick={onRefresh}
+          loading={refreshing}
+        >
+          Refresh
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The object counters of the selected database.
+ */
+export function DatabaseStatGrid({
+  tables,
+  views,
+  routines,
+  triggers,
+  events,
+  totalSize,
+}: {
+  tables: number | string;
+  views: number | string;
+  routines: number | string;
+  triggers: number | string;
+  events: number | string;
+  totalSize: number;
+}) {
+  return (
+    // Equal auto rows: the tile that carries a second line ("data +
+    // indexes") must not make its row taller than the row above it.
+    <div className="stat-grid stat-grid-6 auto-rows-[1fr]">
+      <StatCard label="Tables" value={tables} icon={<Table2 size={14} />} tone="ember" />
+      <StatCard label="Views" value={views} icon={<Eye size={14} />} />
+      <StatCard label="Routines" value={routines} />
+      <StatCard label="Triggers" value={triggers} />
+      <StatCard label="Events" value={events} />
+      <StatCard label="Total size" value={formatBytes(totalSize)} sub="data + indexes" />
+    </div>
+  );
+}
+
 function CodeBlock({ text, className }: { text: string; className?: string }) {
   return <pre className={cn('code-block', className)}>{text}</pre>;
 }
 
-function TableLink({ table, onOpen }: { table: TableSummary; onOpen: () => void }) {
+/**
+ * A "·"-separated metadata line: engine, row estimate, size.
+ *
+ * The separator travels with the part that follows it and a part never
+ * breaks up, so a wrap can neither split "16.0" from "KB" nor leave a
+ * dangling "·" at the end of a line.
+ */
+export function MetaLine({ parts, className }: { parts: string[]; className?: string }) {
+  return (
+    <div className={cn('font-mono text-2xs text-muted', className)}>
+      {parts.map((part, index) => (
+        <span key={`${index}-${part}`}>
+          {index > 0 ? ' ' : null}
+          {index > 0 ? <span aria-hidden="true">·</span> : null}
+          {index > 0 ? '\u00A0' : null}
+          {part.replace(/ /g, '\u00A0')}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function TableLink({ table, onOpen }: { table: TableSummary; onOpen: () => void }) {
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 rounded-lg border border-line-soft bg-panel-2/40 px-3 py-2 text-left transition hover:border-ember/35 hover:bg-panel-2"
+      className="flex w-full items-center gap-3 rounded-lg border border-line-soft bg-panel-2 px-3 py-2 text-left transition hover:border-ember/35 hover:bg-panel-2"
       onClick={onOpen}
     >
       <Table2 size={14} className="shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[12px] font-semibold text-ink">{table.name}</div>
-        <div className="mt-0.5 font-mono text-[10px] text-muted">
-          {table.engine ?? (table.type === 'BASE TABLE' ? '—' : 'view')} ·{' '}
-          {formatNumber(table.rowsEstimate)} rows ·{' '}
-          {formatBytes(table.dataBytes + table.indexBytes)}
-        </div>
+        <div className="truncate text-xs font-semibold text-ink">{table.name}</div>
+        <MetaLine
+          className="mt-0.5"
+          parts={[
+            table.engine ?? (table.type === 'BASE TABLE' ? '—' : 'view'),
+            `${formatNumber(table.rowsEstimate)} rows`,
+            formatBytes(table.dataBytes + table.indexBytes),
+          ]}
+        />
       </div>
       <ChevronRight size={13} className="text-muted" />
     </button>
@@ -105,7 +246,7 @@ function RelationMap({
   };
 
   return (
-    <div className="overflow-auto rounded-xl border border-line-soft bg-panel-2/25">
+    <div className="overflow-auto rounded-xl border border-line-soft bg-panel-2">
       <svg width={width} height={height} role="group" aria-label="Table relationships">
         <defs>
           <marker
@@ -264,7 +405,7 @@ function RelationMap({
           );
         })}
       </svg>
-      <div className="border-t border-line-soft px-3 py-2 text-[10px] text-muted">
+      <div className="border-t border-line-soft px-3 py-2 text-2xs text-muted">
         Left: tables referencing this table. Right: tables this table references.
       </div>
     </div>
@@ -484,7 +625,7 @@ function DataPreview({
           {filters.map((filter, index) => (
             <span
               key={`${filter.column}-${index}`}
-              className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 font-mono text-[10px] text-info"
+              className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 font-mono text-2xs text-info"
             >
               {filter.column} {filter.operator} {filter.value ?? ''}
               <button type="button" onClick={() => removeFilter(index)} aria-label="Remove filter">
@@ -563,7 +704,7 @@ function DataPreview({
 
       {error ? <div className="callout danger">{error}</div> : null}
       {loading && !result ? (
-        <div className="flex items-center gap-2 p-6 text-[12px] text-muted">
+        <div className="flex items-center gap-2 p-6 text-xs text-muted">
           <Spinner size={14} /> Loading rows…
         </div>
       ) : result ? (
@@ -613,14 +754,20 @@ function TableDetailView({
         </IconButton>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[22px] font-extrabold tracking-tight">{summary.name}</h1>
-            <Badge tone="ember">{summary.type}</Badge>
-            {summary.engine ? <Badge>{summary.engine}</Badge> : null}
+            <h1 className="text-2xl font-extrabold tracking-tight">{summary.name}</h1>
+            <span className="font-mono text-2xs text-muted">
+              {summary.type}
+              {summary.engine ? ` · ${summary.engine}` : null}
+            </span>
           </div>
-          <div className="mt-1 font-mono text-[10.5px] text-muted">
-            {summary.database} · {formatNumber(summary.rowsEstimate)} estimated rows ·{' '}
-            {formatBytes(summary.dataBytes + summary.indexBytes)}
-          </div>
+          <MetaLine
+            className="mt-1"
+            parts={[
+              summary.database,
+              `${formatNumber(summary.rowsEstimate)} estimated rows`,
+              formatBytes(summary.dataBytes + summary.indexBytes),
+            ]}
+          />
         </div>
         <div className="flex items-center gap-1">
           <CopyButton text={summary.name} label="Copy name" />
@@ -670,7 +817,7 @@ function TableDetailView({
           </div>
           <Card className="p-4">
             <div className="section-title mb-3">Table metadata</div>
-            <div className="grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
               {[
                 ['Engine', summary.engine ?? '—'],
                 ['Collation', summary.collation ?? '—'],
@@ -684,7 +831,7 @@ function TableDetailView({
                   className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5"
                 >
                   <span className="text-muted">{label}</span>
-                  <span className="max-w-[60%] text-right font-mono text-[10.5px]">{value}</span>
+                  <span className="max-w-[60%] text-right font-mono text-2xs">{value}</span>
                 </div>
               ))}
             </div>
@@ -693,7 +840,7 @@ function TableDetailView({
             <Card className="p-4">
               <div className="section-title mb-2">Check constraints</div>
               {detail.checks.map((check) => (
-                <div key={check.name} className="border-b border-line-soft py-1.5 text-[11.5px]">
+                <div key={check.name} className="border-b border-line-soft py-1.5 text-2xs">
                   <span className="font-mono text-muted">{check.name}</span> {check.clause}
                 </div>
               ))}
@@ -726,11 +873,9 @@ function TableDetailView({
                   <td>{column.nullable ? 'YES' : 'NO'}</td>
                   <td>
                     {column.key === 'PRI' ? (
-                      <Badge tone="ember">
-                        <KeyRound size={9} /> PRI
-                      </Badge>
+                      <span className="font-mono text-2xs text-muted">PRI</span>
                     ) : column.key ? (
-                      <Badge tone="info">{column.key}</Badge>
+                      <span className="font-mono text-2xs text-muted">{column.key}</span>
                     ) : (
                       '—'
                     )}
@@ -754,22 +899,24 @@ function TableDetailView({
           ) : (
             detail.indexes.map((index) => (
               <Card key={index.name} className="flex flex-wrap items-center gap-3 p-3">
-                <span className="font-mono text-[11.5px] font-semibold text-ink">{index.name}</span>
-                {index.name === 'PRIMARY' ? <Badge tone="ember">primary</Badge> : null}
-                {index.unique ? <Badge tone="mint">unique</Badge> : null}
-                <Badge>{index.type}</Badge>
+                <span className="font-mono text-2xs font-semibold text-ink">{index.name}</span>
+                <span className="font-mono text-2xs text-muted">
+                  {index.name === 'PRIMARY' ? 'primary · ' : ''}
+                  {index.unique ? 'unique · ' : ''}
+                  {index.type}
+                </span>
                 {index.duplicateOf ? (
                   <Badge tone="warn">duplicate of {index.duplicateOf}</Badge>
                 ) : null}
                 {index.redundantOf ? (
                   <Badge tone="warn">redundant prefix of {index.redundantOf}</Badge>
                 ) : null}
-                <span className="ml-auto font-mono text-[10px] text-muted">
+                <span className="ml-auto font-mono text-2xs text-muted">
                   {index.columns
                     .map((column) => `${column.name}${column.subPart ? `(${column.subPart})` : ''}`)
                     .join(', ')}
                 </span>
-                <span className="font-mono text-[10px] text-muted">
+                <span className="font-mono text-2xs text-muted">
                   card {index.cardinality != null ? formatNumber(index.cardinality) : '—'}
                 </span>
               </Card>
@@ -785,13 +932,13 @@ function TableDetailView({
             <Card className="p-3">
               <div className="section-title mb-2">Foreign keys (outgoing)</div>
               {detail.foreignKeys.length === 0 ? (
-                <div className="text-[11px] text-muted">None.</div>
+                <div className="text-2xs text-muted">None.</div>
               ) : (
                 detail.foreignKeys.map((fk) => (
                   <button
                     key={fk.name}
                     type="button"
-                    className="flex w-full items-center gap-2 border-b border-line-soft py-2 text-left text-[11px] hover:text-ember"
+                    className="flex w-full items-center gap-2 border-b border-line-soft py-2 text-left text-2xs hover:text-ember"
                     onClick={() => onOpenRelated(fk.referencedDatabase, fk.referencedTable)}
                   >
                     <span className="font-mono text-muted">{fk.name}</span>
@@ -799,9 +946,7 @@ function TableDetailView({
                       ({fk.columns.join(', ')}) → {fk.referencedTable}(
                       {fk.referencedColumns.join(', ')})
                     </span>
-                    <Badge className="ml-auto" tone="neutral">
-                      {fk.onDelete}
-                    </Badge>
+                    <span className="ml-auto font-mono text-2xs text-muted">{fk.onDelete}</span>
                   </button>
                 ))
               )}
@@ -809,13 +954,13 @@ function TableDetailView({
             <Card className="p-3">
               <div className="section-title mb-2">Referenced by (incoming)</div>
               {detail.referencedBy.length === 0 ? (
-                <div className="text-[11px] text-muted">None.</div>
+                <div className="text-2xs text-muted">None.</div>
               ) : (
                 detail.referencedBy.map((fk) => (
                   <button
                     key={fk.name}
                     type="button"
-                    className="flex w-full items-center gap-2 border-b border-line-soft py-2 text-left text-[11px] hover:text-ember"
+                    className="flex w-full items-center gap-2 border-b border-line-soft py-2 text-left text-2xs hover:text-ember"
                     onClick={() => onOpenRelated(fk.referencedDatabase, fk.referencedTable)}
                   >
                     <span className="font-mono text-muted">{fk.name}</span>
@@ -823,9 +968,7 @@ function TableDetailView({
                       {fk.referencedTable}({fk.referencedColumns.join(', ')}) → (
                       {fk.columns.join(', ')})
                     </span>
-                    <Badge className="ml-auto" tone="neutral">
-                      {fk.onDelete}
-                    </Badge>
+                    <span className="ml-auto font-mono text-2xs text-muted">{fk.onDelete}</span>
                   </button>
                 ))
               )}
@@ -887,17 +1030,13 @@ function TableDetailView({
             detail.triggers.map((trigger) => (
               <Card key={trigger.name} className="p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[11.5px] font-semibold text-ink">
-                    {trigger.name}
-                  </span>
-                  <Badge tone="warn">
+                  <span className="font-mono text-2xs font-semibold text-ink">{trigger.name}</span>
+                  <span className="font-mono text-2xs text-muted">
                     {trigger.timing} {trigger.event}
-                  </Badge>
-                  <span className="ml-auto font-mono text-[10px] text-muted">
-                    {trigger.definer}
                   </span>
+                  <span className="ml-auto font-mono text-2xs text-muted">{trigger.definer}</span>
                 </div>
-                <CodeBlock text={trigger.statement} className="mt-2 max-h-40 text-[10.5px]" />
+                <CodeBlock text={trigger.statement} className="mt-2 max-h-40 text-2xs" />
               </Card>
             ))
           )}
@@ -933,6 +1072,8 @@ export function DatabasePage() {
 
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
   const [createOpen, setCreateOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const dbParam = params.get('db');
   const tableParam = params.get('table');
@@ -1203,14 +1344,13 @@ export function DatabasePage() {
           title="Database"
           actions={
             activeProfile ? (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus size={13} />}
-                onClick={() => setCreateOpen(true)}
-              >
-                Create database
-              </Button>
+              <DatabaseHeaderActions
+                canAct
+                showExport={false}
+                showRefresh={false}
+                onImport={() => setImportOpen(true)}
+                onCreate={() => setCreateOpen(true)}
+              />
             ) : null
           }
         />
@@ -1220,16 +1360,24 @@ export function DatabasePage() {
           copy="Choose a database from the selector in the top bar, or create an empty one to get started."
         />
         {activeProfile ? (
-          <CreateDatabaseModal
-            open={createOpen}
-            onClose={() => setCreateOpen(false)}
-            profile={activeProfile}
-            onCreated={(result) => {
-              void refreshProfiles();
-              void refreshDatabases();
-              setDatabase(result.database.name);
-            }}
-          />
+          <>
+            <CreateDatabaseModal
+              open={createOpen}
+              onClose={() => setCreateOpen(false)}
+              profile={activeProfile}
+              onCreated={(result) => {
+                void refreshProfiles();
+                void refreshDatabases();
+                setDatabase(result.database.name);
+              }}
+            />
+            <ImportSqlModal
+              open={importOpen}
+              onClose={() => setImportOpen(false)}
+              profile={activeProfile}
+              database={null}
+            />
+          </>
         ) : null}
       </div>
     );
@@ -1242,14 +1390,14 @@ export function DatabasePage() {
 
   return (
     <div className="page">
-      <div className="flex min-h-[640px] flex-col gap-0 overflow-hidden rounded-2xl border border-line bg-panel/40 md:flex-row">
-        <aside className="w-full shrink-0 border-b border-line-soft bg-panel/40 md:w-[270px] md:border-b-0 md:border-r">
+      <div className="flex min-h-[640px] flex-col gap-0 overflow-hidden rounded-2xl border border-line bg-panel md:flex-row">
+        <aside className="w-full shrink-0 border-b border-line-soft bg-panel md:w-[270px] md:border-b-0 md:border-r">
           <div className="border-b border-line-soft p-3">
             <div className="flex items-center gap-2">
               <Database size={14} className="text-ember" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[12px] font-semibold">{selectedDatabase}</div>
-                <div className="text-[10px] text-muted">
+                <div className="truncate text-xs font-semibold">{selectedDatabase}</div>
+                <div className="text-2xs text-muted">
                   {objects
                     ? `${objects.tables.length} tables · ${objects.views.length} views`
                     : objectsError
@@ -1270,7 +1418,7 @@ export function DatabasePage() {
                 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
               />
               <input
-                className="input input-search py-1.5 text-[11px]"
+                className="input input-search py-1.5 text-2xs"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Filter objects…"
@@ -1304,7 +1452,7 @@ export function DatabasePage() {
                 </button>
               ))}
               {filteredTables.length === 0 ? (
-                <div className="px-2 py-3 text-[10.5px] text-muted">No tables match.</div>
+                <div className="px-2 py-3 text-2xs text-muted">No tables match.</div>
               ) : null}
             </Section>
 
@@ -1344,7 +1492,7 @@ export function DatabasePage() {
                     selectObject(selectedDatabase, 'routine', routine.name, routine.type)
                   }
                 >
-                  <span className="text-[10px] font-bold text-ember">
+                  <span className="text-2xs font-bold text-ember">
                     {routine.type === 'FUNCTION' ? 'FN' : 'PR'}
                   </span>
                   <span>{routine.name}</span>
@@ -1367,7 +1515,7 @@ export function DatabasePage() {
                   className="tree-item w-full text-left"
                   onClick={() => selectObject(selectedDatabase, 'trigger', trigger.name)}
                 >
-                  <span className="text-[10px] font-bold text-warn">TR</span>
+                  <span className="text-2xs font-bold text-warn">TR</span>
                   <span>{trigger.name}</span>
                 </button>
               ))}
@@ -1388,7 +1536,7 @@ export function DatabasePage() {
                   className="tree-item w-full text-left"
                   onClick={() => selectObject(selectedDatabase, 'event', event.name)}
                 >
-                  <span className="text-[10px] font-bold text-info">EV</span>
+                  <span className="text-2xs font-bold text-info">EV</span>
                   <span>{event.name}</span>
                 </button>
               ))}
@@ -1408,7 +1556,7 @@ export function DatabasePage() {
                 onOpenRelated={selectTable}
               />
             ) : detailLoading || !detailError ? (
-              <div className="flex items-center gap-2 p-8 text-[12px] text-muted">
+              <div className="flex items-center gap-2 p-8 text-xs text-muted">
                 <Spinner size={15} /> Loading table…
               </div>
             ) : (
@@ -1434,45 +1582,24 @@ export function DatabasePage() {
               <PageHeader
                 title={selectedDatabase}
                 actions={
-                  <>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      icon={<Plus size={12} />}
-                      onClick={() => setCreateOpen(true)}
-                      disabled={!activeProfile}
-                    >
-                      Create database
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={<RefreshCw size={12} />}
-                      onClick={() => setObjectsRequest((value) => value + 1)}
-                      loading={objectsLoading}
-                    >
-                      Refresh
-                    </Button>
-                  </>
+                  <DatabaseHeaderActions
+                    canAct={Boolean(activeProfile)}
+                    onExport={() => setExportOpen(true)}
+                    onImport={() => setImportOpen(true)}
+                    onCreate={() => setCreateOpen(true)}
+                    onRefresh={() => setObjectsRequest((value) => value + 1)}
+                    refreshing={objectsLoading}
+                  />
                 }
               />
-              <div className="stat-grid stat-grid-6">
-                <StatCard
-                  label="Tables"
-                  value={objects?.tables.length ?? '—'}
-                  icon={<Table2 size={14} />}
-                  tone="ember"
-                />
-                <StatCard
-                  label="Views"
-                  value={objects?.views.length ?? '—'}
-                  icon={<Eye size={14} />}
-                />
-                <StatCard label="Routines" value={objects?.routines.length ?? '—'} />
-                <StatCard label="Triggers" value={objects?.triggers.length ?? '—'} />
-                <StatCard label="Events" value={objects?.events.length ?? '—'} />
-                <StatCard label="Total size" value={formatBytes(totalSize)} sub="data + indexes" />
-              </div>
+              <DatabaseStatGrid
+                tables={objects?.tables.length ?? '—'}
+                views={objects?.views.length ?? '—'}
+                routines={objects?.routines.length ?? '—'}
+                triggers={objects?.triggers.length ?? '—'}
+                events={objects?.events.length ?? '—'}
+                totalSize={totalSize}
+              />
               <Card className="p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <div className="section-title">Tables</div>
@@ -1490,7 +1617,7 @@ export function DatabasePage() {
                     </Button>
                   </div>
                 ) : objectsLoading && !objects ? (
-                  <div className="flex items-center gap-2 py-6 text-[12px] text-muted">
+                  <div className="flex items-center gap-2 py-6 text-xs text-muted">
                     <Spinner size={14} /> Loading objects…
                   </div>
                 ) : filteredTables.length === 0 ? (
@@ -1525,16 +1652,30 @@ export function DatabasePage() {
       />
 
       {activeProfile ? (
-        <CreateDatabaseModal
-          open={createOpen}
-          onClose={() => setCreateOpen(false)}
-          profile={activeProfile}
-          onCreated={(result) => {
-            void refreshProfiles();
-            void refreshDatabases();
-            setDatabase(result.database.name);
-          }}
-        />
+        <>
+          <CreateDatabaseModal
+            open={createOpen}
+            onClose={() => setCreateOpen(false)}
+            profile={activeProfile}
+            onCreated={(result) => {
+              void refreshProfiles();
+              void refreshDatabases();
+              setDatabase(result.database.name);
+            }}
+          />
+          <ExportDatabaseModal
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            profile={activeProfile}
+            database={selectedDatabase}
+          />
+          <ImportSqlModal
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            profile={activeProfile}
+            database={selectedDatabase}
+          />
+        </>
       ) : null}
     </div>
   );
@@ -1558,7 +1699,7 @@ function Section({
       <button type="button" className="tree-header w-full" onClick={onToggle}>
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span>{label}</span>
-        <Badge className="ml-auto">{count}</Badge>
+        <span className="ml-auto font-mono text-2xs text-muted">{count}</span>
       </button>
       {open ? <div className="tree-list">{children}</div> : null}
     </div>
@@ -1591,12 +1732,9 @@ function ModalForObject({
         {state.fields.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {state.fields.map((field) => (
-              <div
-                key={field.label}
-                className="rounded-lg border border-line-soft bg-panel-2/40 p-2"
-              >
+              <div key={field.label} className="rounded-lg border border-line-soft bg-panel-2 p-2">
                 <div className="mono-label">{field.label}</div>
-                <div className="mt-1 break-words font-mono text-[10.5px]">{field.value}</div>
+                <div className="mt-1 break-words font-mono text-2xs">{field.value}</div>
               </div>
             ))}
           </div>

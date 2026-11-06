@@ -1,0 +1,248 @@
+/* Surfaces · Stats / cards — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Surfaces                                                         */
+/* ---------------------------------------------------------------- */
+
+.card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+
+.card-pad {
+  padding: var(--space-4);
+}
+
+.panel {
+  background: color-mix(in oklab, var(--color-panel) 88%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+
+.hover-card {
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+.hover-card:hover {
+  border-color: color-mix(in oklab, var(--color-ember) 34%, var(--color-line));
+  transform: translateY(-1px);
+}
+
+.section-title {
+  font-size: 12px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.mono-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-line-soft);
+}
+
+.callout {
+  border: 1px solid color-mix(in oklab, var(--color-ember) 28%, var(--color-line));
+  background: color-mix(in oklab, var(--color-ember) 8%, var(--color-panel));
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+}
+.callout.info {
+  border-color: color-mix(in oklab, var(--color-info) 30%, var(--color-line));
+  background: color-mix(in oklab, var(--color-info) 8%, var(--color-panel));
+}
+.callout.danger {
+  border-color: color-mix(in oklab, var(--color-danger) 32%, var(--color-line));
+  background: color-mix(in oklab, var(--color-danger) 8%, var(--color-panel));
+}
+.callout.mint {
+  border-color: color-mix(in oklab, var(--color-mint) 30%, var(--color-line));
+  background: color-mix(in oklab, var(--color-mint) 8%, var(--color-panel));
+}
+
+/* ---------------------------------------------------------------- */
+/* Stats / cards                                                    */
+/* ---------------------------------------------------------------- */
+
+/*
+ * `auto-fit` picked a column count that had nothing to do with how many tiles
+ * there were, so a six-tile row broke into four plus two with a hole beside
+ * it, and the row below was ragged at some widths and not others. The
+ * modifiers pin the column count to a divisor of the tile count, so every row
+ * fills evenly at every width.
+ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.stat-grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.stat-grid-6 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 640px) {
+  .stat-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .stat-grid-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1400px) {
+  .stat-grid-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+/*
+ * A list capped at a fixed height cut its last row through the middle of the
+ * text, which read as a rendering fault rather than as "there is more below".
+ * The mask fades the cut edge.
+ */
+.scroll-fade-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
+}
+.stat {
+  border: 1px solid var(--color-line-soft);
+  border-radius: 11px;
+  padding: var(--space-3);
+  background: color-mix(in oklab, var(--color-panel-2) 60%, transparent);
+}
+.stat-label {
+  font-size: var(--text-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 650;
+}
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-1);
+  color: var(--color-ink);
+}
+.stat-sub {
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 42px;
+  overflow: visible;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: var(--space-5);
+  align-items: stretch;
+}
+@media (max-width: 1000px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hero-panel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel);
+  padding: var(--space-8);
+}
+.hero-title {
+  font-size: var(--text-3xl);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+  font-weight: 800;
+}
+.hero-title em {
+  font-style: normal;
+  color: var(--color-ember);
+}
+.hero-copy {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  max-width: 520px;
+  margin-top: var(--space-3);
+  line-height: 1.6;
+}
+
+.feature-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+}
+.feature-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-mint) 14%, transparent);
+  color: var(--color-mint);
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.route-error-card {
+  width: min(100%, 520px);
+  padding: var(--space-6);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel);
+  box-shadow: 0 18px 50px color-mix(in oklab, #000 22%, transparent);
+}
+.route-error-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: 19px;
+  font-weight: 800;
+}
+.route-error-details {
+  margin: var(--space-4) 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.route-error-details summary {
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+.route-error-pre {
+  max-height: 160px;
+  margin-top: var(--space-2);
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-ink-soft);
+}

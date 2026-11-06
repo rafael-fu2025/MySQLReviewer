@@ -39,18 +39,16 @@ export function AuditReportView({ report }: { report: AuditReport }) {
           <ScoreRing score={report.score.score} grade={report.score.grade} size={126} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="ember">Audit</Badge>
+              <span className="mono-label">Audit</span>
               {report.ai ? (
-                <Badge tone="info">
+                <span className="mono-label inline-flex items-center gap-1">
                   <Sparkles size={10} /> AI summary
-                </Badge>
+                </span>
               ) : null}
-              <span className="font-mono text-[10px] text-muted">
-                {formatDate(report.createdAt)}
-              </span>
+              <span className="font-mono text-2xs text-muted">{formatDate(report.createdAt)}</span>
             </div>
-            <h2 className="mt-2 text-[20px] font-extrabold tracking-tight">{report.title}</h2>
-            <div className="mt-1 text-[11.5px] text-muted">
+            <h2 className="mt-2 text-xl font-extrabold tracking-tight">{report.title}</h2>
+            <div className="mt-1 text-2xs text-muted">
               {report.profile.name} · {report.profile.user}@{report.profile.host}:
               {report.profile.port} · {formatDuration(report.durationMs)}
             </div>
@@ -62,7 +60,9 @@ export function AuditReportView({ report }: { report: AuditReport }) {
                     {report.score.counts[severity]} {severity}
                   </span>
                 ))}
-              <Badge tone="neutral">{formatNumber(report.findingsTotal)} findings total</Badge>
+              <span className="text-2xs text-muted">
+                {formatNumber(report.findingsTotal)} findings total
+              </span>
             </div>
           </div>
           <div className="flex flex-wrap gap-1 lg:flex-col">
@@ -133,9 +133,9 @@ export function AuditReportView({ report }: { report: AuditReport }) {
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Sparkles size={14} className="text-ember" />
             <div className="section-title">AI summary</div>
-            <Badge tone="neutral" className="ml-auto">
+            <span className="ml-auto font-mono text-2xs text-muted">
               {report.ai.providerName} · {report.ai.model}
-            </Badge>
+            </span>
             <CopyButton text={report.ai.markdown} label="Copy" />
           </div>
           <Markdown>{report.ai.markdown}</Markdown>
@@ -147,10 +147,9 @@ export function AuditReportView({ report }: { report: AuditReport }) {
           <summary className="flex cursor-pointer items-center gap-2 border-b border-line-soft p-3">
             <CheckCircle2 size={14} className="text-mint" />
             <span className="section-title">Coverage</span>
-            <Badge tone="mint" className="ml-auto">
-              {runCoverage} ran
-            </Badge>
-            {skippedCoverage > 0 ? <Badge tone="warn">{skippedCoverage} limited</Badge> : null}
+            <span className="ml-auto text-2xs text-muted">
+              {runCoverage} ran{skippedCoverage > 0 ? ` · ${skippedCoverage} limited` : ''}
+            </span>
           </summary>
           <div className="overflow-auto">
             <table className="data-table">
@@ -185,7 +184,7 @@ export function AuditReportView({ report }: { report: AuditReport }) {
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <div className="section-title">Findings</div>
-          <Badge className="ml-auto">{report.groups.length} rule groups</Badge>
+          <span className="ml-auto text-2xs text-muted">{report.groups.length} rule groups</span>
         </div>
         <GroupedFindings groups={report.groups} />
       </Card>
@@ -195,13 +194,15 @@ export function AuditReportView({ report }: { report: AuditReport }) {
           <summary className="flex cursor-pointer items-center gap-2">
             <Download size={14} className="text-muted" />
             <span className="section-title">Environment</span>
-            <Badge className="ml-auto">{Object.keys(report.environment).length} values</Badge>
+            <span className="ml-auto text-2xs text-muted">
+              {Object.keys(report.environment).length} values
+            </span>
           </summary>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {Object.entries(report.environment).map(([key, value]) => (
-              <div key={key} className="rounded-lg border border-line-soft bg-panel-2/40 p-2.5">
+              <div key={key} className="rounded-lg border border-line-soft bg-panel-2 p-2.5">
                 <div className="mono-label">{key}</div>
-                <div className="mt-1 break-words font-mono text-[10px] text-ink-soft">
+                <div className="mt-1 break-words font-mono text-2xs text-ink-soft">
                   {value ?? 'NULL'}
                 </div>
               </div>
@@ -214,19 +215,19 @@ export function AuditReportView({ report }: { report: AuditReport }) {
         <details>
           <summary className="flex cursor-pointer items-center gap-2">
             <span className="section-title">Audit steps</span>
-            <Badge className="ml-auto">{report.steps.length}</Badge>
+            <span className="ml-auto text-2xs text-muted">{report.steps.length}</span>
           </summary>
           <div className="mt-3 flex flex-col gap-1.5">
             {report.steps.map((step) => (
               <div
                 key={step.key}
-                className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-[11px]"
+                className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-2xs"
               >
                 <Badge tone={statusTone(step.status) as never}>{step.status}</Badge>
                 <span className="text-ink-soft">{step.label}</span>
                 {step.detail ? <span className="text-muted">— {step.detail}</span> : null}
                 {step.durationMs != null ? (
-                  <span className="ml-auto font-mono text-[10px] text-muted">
+                  <span className="ml-auto font-mono text-2xs text-muted">
                     {formatDuration(step.durationMs)}
                   </span>
                 ) : null}

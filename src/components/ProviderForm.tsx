@@ -5,7 +5,7 @@ import { AI_PROVIDER_PRESETS } from '@shared/types';
 import { api, ApiError } from '@/lib/api';
 import { Button, Checkbox, Field, Input, Switch, Textarea } from './ui';
 import { cn } from '@/lib/utils';
-import { Combobox } from './Combobox';
+import { Combobox, TextCombobox } from './Combobox';
 
 interface FormState {
   name: string;
@@ -23,6 +23,7 @@ interface FormState {
   temperature: string;
   maxTokens: string;
   streaming: boolean;
+  thinkingEnabled: boolean;
   isDefault: boolean;
 }
 
@@ -43,6 +44,7 @@ function initialState(provider?: AiProvider | null): FormState {
     temperature: String(provider?.temperature ?? 0.2),
     maxTokens: String(provider?.maxTokens ?? 4096),
     streaming: provider?.streaming ?? true,
+    thinkingEnabled: provider?.thinkingEnabled ?? false,
     isDefault: provider?.isDefault ?? false,
   };
 }
@@ -118,6 +120,7 @@ export function ProviderForm({
       temperature: Number(form.temperature),
       maxTokens: Number(form.maxTokens),
       streaming: form.streaming,
+      thinkingEnabled: form.type === 'anthropic' ? form.thinkingEnabled : false,
       isDefault: form.isDefault,
     };
   };
@@ -177,13 +180,13 @@ export function ProviderForm({
               key={preset.id}
               type="button"
               className={cn(
-                'rounded-lg border border-line bg-panel-2/50 p-2.5 text-left transition hover:border-ember/40',
+                'rounded-lg border border-line bg-panel-2 p-2.5 text-left transition hover:border-ember/40',
                 form.baseUrl === preset.baseUrl && 'border-ember/50 bg-ember/5',
               )}
               onClick={() => setForm((current) => applyPreset(preset, current))}
             >
-              <div className="text-[11.5px] font-semibold text-ink">{preset.label}</div>
-              <div className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-muted">
+              <div className="text-2xs font-semibold text-ink">{preset.label}</div>
+              <div className="mt-0.5 line-clamp-2 text-2xs leading-4 text-muted">
                 {preset.description}
               </div>
             </button>
@@ -215,25 +218,22 @@ export function ProviderForm({
         </Field>
         <Field label="Base URL" className="sm:col-span-2">
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             value={form.baseUrl}
             onChange={(event) => set('baseUrl', event.target.value)}
             placeholder="https://api.openai.com/v1"
           />
         </Field>
         <Field label="Model">
-          <Input
-            className="font-mono text-[11.5px]"
+          <TextCombobox
             value={form.model}
-            onChange={(event) => set('model', event.target.value)}
+            onChange={(value) => set('model', value)}
             placeholder="gpt-4.1-mini"
-            list="provider-models"
+            inputClassName="font-mono text-2xs"
+            emptyText="No matching models on file."
+            ariaLabel="Model"
+            options={(provider?.models ?? []).map((model) => ({ value: model, label: model }))}
           />
-          <datalist id="provider-models">
-            {(provider?.models ?? []).map((model) => (
-              <option key={model} value={model} />
-            ))}
-          </datalist>
         </Field>
         <Field
           label="API key"
@@ -244,7 +244,7 @@ export function ProviderForm({
           }
         >
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             type="password"
             value={form.apiKey}
             onChange={(event) => set('apiKey', event.target.value)}
@@ -262,7 +262,7 @@ export function ProviderForm({
         ) : null}
         <Field label="Chat path">
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             value={form.chatPath}
             onChange={(event) => set('chatPath', event.target.value)}
             placeholder="/chat/completions"
@@ -270,7 +270,7 @@ export function ProviderForm({
         </Field>
         <Field label="Models path">
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             value={form.modelsPath}
             onChange={(event) => set('modelsPath', event.target.value)}
             placeholder="/models"
@@ -278,7 +278,7 @@ export function ProviderForm({
         </Field>
         <Field label="Auth header" hint="For OpenAI-compatible endpoints.">
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             value={form.authHeader}
             onChange={(event) => set('authHeader', event.target.value)}
             placeholder="Authorization"
@@ -286,7 +286,7 @@ export function ProviderForm({
         </Field>
         <Field label="Auth prefix" hint="Usually “Bearer ” with a trailing space.">
           <Input
-            className="font-mono text-[11.5px]"
+            className="font-mono text-2xs"
             value={form.authPrefix}
             onChange={(event) => set('authPrefix', event.target.value)}
             placeholder="Bearer "
@@ -308,21 +308,21 @@ export function ProviderForm({
         </Field>
       </div>
 
-      <details className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
-        <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+      <details className="rounded-xl border border-line-soft bg-panel-2 p-3">
+        <summary className="cursor-pointer text-2xs font-semibold text-muted">
           Advanced: custom headers and body
         </summary>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Headers (JSON)">
             <Textarea
-              className="min-h-[90px] font-mono text-[10.5px]"
+              className="min-h-[90px] font-mono text-2xs"
               value={form.headersJson}
               onChange={(event) => set('headersJson', event.target.value)}
             />
           </Field>
           <Field label="Extra body (JSON)">
             <Textarea
-              className="min-h-[90px] font-mono text-[10.5px]"
+              className="min-h-[90px] font-mono text-2xs"
               value={form.extraBodyJson}
               onChange={(event) => set('extraBodyJson', event.target.value)}
             />
@@ -331,7 +331,7 @@ export function ProviderForm({
       </details>
 
       <div className="flex flex-wrap items-center gap-5">
-        <div className="flex items-center gap-2 text-[12px] text-ink-soft">
+        <div className="flex items-center gap-2 text-xs text-ink-soft">
           <Switch
             label="Stream responses"
             checked={form.streaming}
@@ -339,6 +339,16 @@ export function ProviderForm({
           />
           <span>Stream responses</span>
         </div>
+        {form.type === 'anthropic' ? (
+          <div className="flex items-center gap-2 text-xs text-ink-soft">
+            <Switch
+              label="Extended thinking"
+              checked={form.thinkingEnabled}
+              onChange={(value) => set('thinkingEnabled', value)}
+            />
+            <span>Extended thinking</span>
+          </div>
+        ) : null}
         <Checkbox
           label="Use as the default provider"
           checked={form.isDefault}
@@ -363,7 +373,7 @@ export function ProviderForm({
           <div className="flex flex-col gap-1">
             <span>{testResult.message}</span>
             {testResult.models.length > 0 ? (
-              <span className="font-mono text-[10px] text-muted">
+              <span className="font-mono text-2xs text-muted">
                 {testResult.models.slice(0, 8).join(', ')}
                 {testResult.models.length > 8 ? '…' : ''}
               </span>

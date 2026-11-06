@@ -1,0 +1,313 @@
+/* Misc helpers — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Misc helpers                                                     */
+/* ---------------------------------------------------------------- */
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scroll-thin {
+  overflow: auto;
+}
+
+.fade-in {
+  animation: fadeUp 0.25s ease both;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hide-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .sidebar {
+    width: 220px;
+    flex-basis: 220px;
+  }
+  .schema-side {
+    width: 210px;
+    flex-basis: 210px;
+  }
+}
+
+@media (max-width: 900px) {
+  /*
+   * The sidebar used to be force-collapsed to a rail here, which made the
+   * collapse toggle a no-op below 900px: the store said "expanded" while the
+   * CSS painted the rail, so neither button did anything. The rail default
+   * now comes from the ui store on first load (see ui-store.ts), so the
+   * toggle works at every width. Only the schema panel keeps its
+   * below-900px behavior: it becomes the mobile drawer.
+   */
+  .schema-side {
+    display: none;
+  }
+  .content {
+    padding: 16px;
+  }
+  /* The subtitle just truncates into noise at this width; the page itself
+     states the same context under its own heading. */
+  .topbar-sub {
+    display: none;
+  }
+}
+
+.connect-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--color-line-soft);
+  background: color-mix(in oklab, var(--color-canvas) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.connect-header-inner {
+  display: flex;
+  min-height: 52px;
+  max-width: 1180px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.connect-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.connect-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.connect-brand-name {
+  font-size: 15px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+}
+
+.connect-brand-divider {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 auto;
+  background: var(--color-line-soft);
+}
+
+.connect-brand-sub {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: var(--text-micro);
+  letter-spacing: 0.13em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Identity and sign-out form one 32px segmented control: a single border,
+   radius, and surface replace the former mismatched pill + button pair. */
+.connect-session {
+  display: inline-flex;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+}
+
+.connect-account {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 3px;
+}
+
+.connect-account-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--color-panel-3);
+  color: var(--color-muted);
+}
+
+.connect-account-name {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-account-role {
+  padding-left: 6px;
+  border-left: 1px solid var(--color-line-soft);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.connect-session .connect-signout {
+  height: 100%;
+  min-height: 32px;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid var(--color-line-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-panel-3);
+  padding: 0 10px;
+  font-size: var(--text-xs);
+}
+
+.connect-session .connect-signout:hover:not(:disabled) {
+  border-left-color: var(--color-line);
+  background: color-mix(in oklab, var(--color-panel-3) 72%, var(--color-panel));
+}
+
+.connect-session .connect-signout:focus-visible {
+  outline: 2px solid var(--color-ember);
+  outline-offset: -2px;
+}
+
+@media (max-width: 680px) {
+  .connect-brand-divider,
+  .connect-brand-sub {
+    display: none;
+  }
+}
+
+@media (max-width: 580px) {
+  .connect-account-role {
+    display: none;
+  }
+}
+
+@media (max-width: 450px) {
+  .connect-account-name {
+    display: none;
+  }
+
+  .connect-account {
+    padding-right: 5px;
+  }
+}
+
+@media (pointer: coarse) {
+  .connect-header-inner {
+    min-height: 56px;
+  }
+
+  .connect-session {
+    height: 40px;
+  }
+
+  .connect-account-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .connect-session .connect-signout {
+    min-height: 40px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheetDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse {
+  animation: pulseDot 1.8s ease-in-out infinite;
+}

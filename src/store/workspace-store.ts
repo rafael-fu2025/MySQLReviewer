@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import type { AiReview, ExplainResult, QueryResult, StaticReviewResult } from '@shared/types';
+import type {
+  AiChatMessage,
+  AiReview,
+  ExplainResult,
+  QueryResult,
+  StaticReviewResult,
+} from '@shared/types';
 import { ApiError } from '@/lib/api';
 
 export type OutputTab = 'results' | 'messages' | 'explain' | 'review';
@@ -16,6 +22,13 @@ export interface QueryTab {
   aiRaw: string;
   aiStreaming: boolean;
   aiError: string | null;
+  /**
+   * The assistant conversation for this tab. Each tab keeps its own, so
+   * moving to another tab and back does not lose the thread.
+   */
+  assistantTurns: AiChatMessage[];
+  /** The follow-up conversation under the review, kept per tab as well. */
+  reviewChatTurns: AiChatMessage[];
   running: boolean;
   explaining: boolean;
   reviewing: boolean;
@@ -61,6 +74,8 @@ function blankTab(overrides: Partial<QueryTab> = {}): QueryTab {
     aiRaw: '',
     aiStreaming: false,
     aiError: null,
+    assistantTurns: [],
+    reviewChatTurns: [],
     running: false,
     explaining: false,
     reviewing: false,
@@ -142,6 +157,14 @@ if (typeof window !== 'undefined') {
 }
 
 const initial = loadInitial();
+
+// Write the opening state once, before the first edit. The tab id is the
+// identity every per-tab feature hangs off — the assistant transcript is keyed
+// by it — and a reload that minted a fresh id would orphan the conversation the
+// tab owns. Waiting for the first SQL keystroke to persist it is too late: a
+// reader who only talks to the assistant and then refreshes loses the thread.
+pendingSave = initial;
+flush();
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   tabs: initial.tabs,

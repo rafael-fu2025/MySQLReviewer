@@ -236,7 +236,7 @@ export function SecurityPage() {
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <div>
             <div className="font-semibold text-ink">This is a local XAMPP server.</div>
-            <div className="mt-0.5 text-[11.5px] text-muted">
+            <div className="mt-0.5 text-2xs text-muted">
               Passwordless root and wildcard binding are unsafe outside localhost.
             </div>
           </div>
@@ -280,18 +280,31 @@ export function SecurityPage() {
                         </Badge>
                       </td>
                       <td>
-                        <Badge tone={isWildcard ? 'warn' : 'neutral'}>
+                        <span className="text-2xs text-muted">
                           {isWildcard ? 'wildcard' : 'scoped'}
-                        </Badge>
+                        </span>
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-1">
-                          {user.superPriv ? <Badge tone="warn">SUPER</Badge> : null}
-                          {user.filePriv ? <Badge tone="warn">FILE</Badge> : null}
-                          {user.grantPriv ? <Badge tone="danger">GRANT</Badge> : null}
-                          {user.processPriv ? <Badge tone="warn">PROCESS</Badge> : null}
-                          {user.createUserPriv ? <Badge tone="warn">CREATE USER</Badge> : null}
-                          {user.shutdownPriv ? <Badge tone="warn">SHUTDOWN</Badge> : null}
+                          {user.superPriv ||
+                          user.filePriv ||
+                          user.grantPriv ||
+                          user.processPriv ||
+                          user.createUserPriv ||
+                          user.shutdownPriv ? (
+                            <span className="font-mono text-2xs text-muted">
+                              {[
+                                user.superPriv ? 'SUPER' : null,
+                                user.filePriv ? 'FILE' : null,
+                                user.grantPriv ? 'GRANT' : null,
+                                user.processPriv ? 'PROCESS' : null,
+                                user.createUserPriv ? 'CREATE USER' : null,
+                                user.shutdownPriv ? 'SHUTDOWN' : null,
+                              ]
+                                .filter((privilege) => privilege != null)
+                                .join(' · ')}
+                            </span>
+                          ) : null}
                           {!user.superPriv &&
                           !user.filePriv &&
                           !user.grantPriv &&
@@ -328,11 +341,11 @@ export function SecurityPage() {
             ['sql_mode', data.config.sqlMode],
             ['skip_name_resolve', data.config.skipNameResolve],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-line-soft bg-panel-2/40 p-2.5">
+            <div key={label} className="rounded-lg border border-line-soft bg-panel-2 p-2.5">
               <div className="mono-label">{label}</div>
               <div
                 className={cn(
-                  'mt-1 break-words font-mono text-[10.5px]',
+                  'mt-1 break-words font-mono text-2xs',
                   value == null || value === 'NULL' || value === '' ? 'text-warn' : 'text-ink-soft',
                 )}
               >
@@ -346,7 +359,7 @@ export function SecurityPage() {
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <div className="section-title">Security findings</div>
-          <Badge className="ml-auto">{data.findings.length}</Badge>
+          <span className="ml-auto text-2xs text-muted">{data.findings.length}</span>
         </div>
         <FindingsList
           findings={data.findings}
@@ -361,7 +374,7 @@ export function SecurityPage() {
           {data.coverage.map((item, index) => (
             <div
               key={`${item.check}-${index}`}
-              className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-[11px]"
+              className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-2xs"
             >
               <Badge
                 tone={item.status === 'ran' ? 'mint' : item.status === 'denied' ? 'danger' : 'warn'}
@@ -374,7 +387,7 @@ export function SecurityPage() {
             </div>
           ))}
         </div>
-        <div className="mt-2 text-[10px] text-muted">
+        <div className="mt-2 text-2xs text-muted">
           Generated {data.generatedAt}. Password hashes are never requested or returned.
         </div>
       </Card>
@@ -389,7 +402,7 @@ export function SecurityPage() {
         size="wide"
       >
         {grantsLoading ? (
-          <div className="flex items-center gap-2 py-6 text-[12px] text-muted">
+          <div className="flex items-center gap-2 py-6 text-xs text-muted">
             <Spinner size={14} /> Loading grants…
           </div>
         ) : grants ? (
@@ -397,14 +410,14 @@ export function SecurityPage() {
             {grants.grants.map((grant, index) => (
               <div
                 key={index}
-                className="rounded-lg border border-line-soft bg-panel-2/50 px-3 py-2 font-mono text-[10.5px] text-ink-soft"
+                className="rounded-lg border border-line-soft bg-panel-2 px-3 py-2 font-mono text-2xs text-ink-soft"
               >
                 {grant}
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-[12px] text-muted">No grant data available.</div>
+          <div className="text-xs text-muted">No grant data available.</div>
         )}
       </Modal>
     </div>

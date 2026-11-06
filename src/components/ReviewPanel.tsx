@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   CheckCircle2,
   ChevronRight,
   Copy,
   MessageSquare,
   ScanSearch,
-  Send,
   Sparkles,
   Square,
   Wand2,
@@ -14,9 +13,10 @@ import {
 import type { AiProvider, AiReview, StaticReviewResult } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { formatDuration } from '@/lib/format';
-import { postSse } from '@/lib/sse';
 import { FindingCard, FindingsHint, FindingsList } from './Findings';
 import { Markdown } from './Markdown';
+import { ChatPanel } from './assistant/ChatPanel';
+import { useAssistantChat, type ChatTurn } from './assistant/useAssistantChat';
 import {
   Badge,
   Button,
@@ -61,6 +61,7 @@ export function ReviewPanel({
   onConfigureAi,
   onRunReview,
   chatContext,
+  chatHistory,
 }: {
   review: StaticReviewResult | null;
   ai: AiReview | null;
@@ -88,6 +89,14 @@ export function ReviewPanel({
     database: string | null;
     sql: string;
   };
+  /**
+   * The follow-up conversation of this tab. The host keeps it, so the thread
+   * survives a switch to another query tab.
+   */
+  chatHistory?: {
+    turns: ChatTurn[];
+    onChange: (turns: ChatTurn[]) => void;
+  };
 }) {
   const toast = useAppStore((state) => state.toast);
   const [tab, setTab] = useState<'findings' | 'ai'>('findings');
@@ -101,15 +110,7 @@ export function ReviewPanel({
   const [includeSchema, setIncludeSchema] = useState(true);
   const [includeExplain, setIncludeExplain] = useState(false);
   const [analyze, setAnalyze] = useState(false);
-  const [chatMessages, setChatMessages] = useState<
-    { role: 'user' | 'assistant'; content: string }[]
-  >([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatDraft, setChatDraft] = useState('');
-  const [chatStreaming, setChatStreaming] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const chatAbortRef = useRef<AbortController | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   // Adopt the default provider as soon as the provider list is available. The
   // state is adjusted while rendering so the panel never renders an empty
@@ -127,92 +128,36 @@ export function ReviewPanel({
     if (ai) setTab('ai');
   }
 
-  useEffect(() => {
-    return () => {
-      chatAbortRef.current?.abort();
-      chatAbortRef.current = null;
-    };
-  }, []);
-
   const provider = providers.find((item) => item.id === providerId) ?? null;
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [chatDraft, chatMessages]);
+  /*
+   * The follow-up conversation uses the shared assistant transport, the same
+   * one the floating action button uses, so there is exactly one chat
+   * implementation and one prompt path in the app.
+   */
+  const chatBuildRequest = (turns: ChatTurn[]): Record<string, unknown> => ({
+    mode: 'workspace',
+    providerId: provider?.id ?? '',
+    model,
+    messages: turns,
+    context: {
+      sql: chatContext.sql,
+      database: chatContext.database,
+      profileId: chatContext.profileId,
+    },
+  });
 
-  const sendChat = async (): Promise<void> => {
+  const chat = useAssistantChat({
+    buildRequest: chatBuildRequest,
+    messages: chatHistory?.turns,
+    onMessagesChange: chatHistory?.onChange,
+  });
+
+  const sendChat = (): void => {
     const text = chatInput.trim();
-    if (!text || !provider || chatStreaming) return;
-    const nextMessages: { role: 'user' | 'assistant'; content: string }[] = [
-      ...chatMessages,
-      { role: 'user', content: text },
-    ];
-    setChatMessages(nextMessages);
+    if (!text || !provider) return;
     setChatInput('');
-    setChatDraft('');
-    setChatError(null);
-    setChatStreaming(true);
-    const controller = new AbortController();
-    chatAbortRef.current = controller;
-    let accumulated = '';
-    try {
-      await postSse(
-        '/api/ai/chat',
-        {
-          providerId: provider.id,
-          model,
-          messages: nextMessages,
-          context: {
-            sql: chatContext.sql,
-            database: chatContext.database,
-            profileId: chatContext.profileId,
-            includeSchema: true,
-          },
-        },
-        {
-          onEvent: ({ event, data }) => {
-            if (event === 'delta') {
-              const payload = data as { text?: string };
-              if (payload.text) {
-                accumulated += payload.text;
-                setChatDraft(accumulated);
-              }
-            } else if (event === 'result') {
-              const payload = data as { text?: string };
-              const answer = payload.text?.trim() || accumulated;
-              if (answer) {
-                setChatMessages((current) => [...current, { role: 'assistant', content: answer }]);
-              }
-              setChatDraft('');
-              setChatStreaming(false);
-            } else if (event === 'error') {
-              const payload = data as { message?: string };
-              setChatError(payload.message ?? 'The AI chat request failed.');
-              setChatStreaming(false);
-              setChatDraft('');
-            } else if (event === 'done') {
-              setChatStreaming(false);
-            }
-          },
-        },
-        controller.signal,
-      );
-    } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        setChatError(error instanceof Error ? error.message : String(error));
-      }
-      setChatStreaming(false);
-      setChatDraft('');
-    } finally {
-      if (chatAbortRef.current === controller) chatAbortRef.current = null;
-    }
-  };
-
-  const cancelChat = (): void => {
-    chatAbortRef.current?.abort();
-    chatAbortRef.current = null;
-    setChatStreaming(false);
-    setChatDraft('');
+    chat.send(text);
   };
 
   if (!review) {
@@ -239,9 +184,13 @@ export function ReviewPanel({
         <ScoreRing score={review.score.score} grade={review.score.grade} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-bold">Rule review</span>
-            <Badge tone="neutral">{countLabel(review.findings.length, 'finding')}</Badge>
-            {review.context.database ? <Badge tone="ember">{review.context.database}</Badge> : null}
+            <span className="text-sm font-bold">Rule review</span>
+            <span className="text-2xs text-muted">
+              {countLabel(review.findings.length, 'finding')}
+            </span>
+            {review.context.database ? (
+              <span className="font-mono text-2xs text-muted">{review.context.database}</span>
+            ) : null}
             {review.context.truncated ? <Badge tone="warn">context truncated</Badge> : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -254,7 +203,7 @@ export function ReviewPanel({
               ))}
             {review.findings.length === 0 ? <Badge tone="mint">clean</Badge> : null}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-[10.5px] text-muted">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-2xs text-muted">
             <span>{countLabel(review.context.tables.length, 'table')} in context</span>
             <span>~{review.context.estimatedTokens.toLocaleString()} tokens</span>
             {review.explain ? <span>{review.explain.insights.length} plan insights</span> : null}
@@ -264,7 +213,7 @@ export function ReviewPanel({
               {review.context.tables.map((table) => (
                 <span
                   key={`${table.database}.${table.table}`}
-                  className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                  className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 font-mono text-2xs text-muted"
                 >
                   {table.table}
                   <span className="text-muted/60"> · {table.columns.length} cols</span>
@@ -316,16 +265,16 @@ export function ReviewPanel({
               {review.suggestions.map((suggestion) => (
                 <div key={suggestion.statement} className="finding sev-info p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone="info">{suggestion.confidence}</Badge>
-                    <span className="font-mono text-[11px] text-ink">
+                    <span className="text-2xs text-muted">{suggestion.confidence}</span>
+                    <span className="font-mono text-2xs text-ink">
                       {suggestion.database}.{suggestion.table}
                     </span>
-                    <span className="font-mono text-[10px] text-muted">
+                    <span className="font-mono text-2xs text-muted">
                       ({suggestion.columns.join(', ')})
                     </span>
                   </div>
                   <div className="finding-message">{suggestion.reason}</div>
-                  <pre className="code-block mt-2 text-[10.5px]">{suggestion.statement}</pre>
+                  <pre className="code-block mt-2 text-2xs">{suggestion.statement}</pre>
                   <div className="mt-1 flex justify-end">
                     <CopyButton text={suggestion.statement} label="Copy ALTER" />
                   </div>
@@ -374,7 +323,7 @@ export function ReviewPanel({
                 </Field>
                 <Field label="Model" hint={provider ? `${provider.type} endpoint` : undefined}>
                   <Input
-                    className="font-mono text-[11.5px]"
+                    className="font-mono text-2xs"
                     value={model}
                     onChange={(event) => setModel(event.target.value)}
                     placeholder={provider?.model}
@@ -436,7 +385,7 @@ export function ReviewPanel({
 
           {aiRunning ? (
             <div className="card p-3">
-              <div className="flex items-center gap-2 text-[11px] text-muted">
+              <div className="flex items-center gap-2 text-2xs text-muted">
                 <Spinner size={13} />
                 <span>{aiStreaming ? 'Streaming the review…' : 'Waiting for the provider…'}</span>
                 <Button
@@ -450,9 +399,7 @@ export function ReviewPanel({
                 </Button>
               </div>
               {aiRaw ? (
-                <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-[10px]">
-                  {aiRaw}
-                </pre>
+                <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-2xs">{aiRaw}</pre>
               ) : null}
             </div>
           ) : null}
@@ -462,13 +409,16 @@ export function ReviewPanel({
               <div className="card flex flex-wrap items-center gap-3 p-3">
                 <Badge tone={verdictTone(ai.verdict)}>{ai.verdict.toUpperCase()}</Badge>
                 {ai.score != null ? (
-                  <span className="font-mono text-[12px] font-bold">{ai.score}/100</span>
+                  <span className="font-mono text-xs font-bold">{ai.score}/100</span>
                 ) : null}
-                <span className="text-[11px] text-muted">
+                <span className="text-2xs text-muted">
                   {ai.providerName} · {ai.model} · {formatDuration(ai.durationMs)}
                 </span>
+                {ai.findingsTruncated ? <Badge tone="warn">findings truncated</Badge> : null}
+                {ai.repairAttempted ? <Badge tone="warn">repair call billed</Badge> : null}
+                {ai.streamingFallback ? <Badge tone="warn">streaming fallback</Badge> : null}
                 {ai.usage ? (
-                  <span className="ml-auto font-mono text-[10px] text-muted">
+                  <span className="ml-auto font-mono text-2xs text-muted">
                     {ai.usage.inputTokens ?? '?'} in · {ai.usage.outputTokens ?? '?'} out
                   </span>
                 ) : null}
@@ -476,6 +426,17 @@ export function ReviewPanel({
                   Save report
                 </Button>
               </div>
+
+              {ai.warnings && ai.warnings.length > 0 ? (
+                <div className="callout flex flex-col gap-1">
+                  {ai.warnings.map((warning, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                      <XCircle size={13} className="mt-0.5 shrink-0 text-warn" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
               {ai.markdown ? <Markdown>{ai.markdown}</Markdown> : null}
 
@@ -492,7 +453,7 @@ export function ReviewPanel({
                 <div className="card p-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Wand2 size={14} className="text-ember" />
-                    <span className="text-[12.5px] font-bold">Suggested rewrite</span>
+                    <span className="text-xs font-bold">Suggested rewrite</span>
                     <Badge tone="info">review before running</Badge>
                     <div className="ml-auto flex gap-1">
                       <CopyButton text={ai.rewrite.sql} label="Copy SQL" />
@@ -508,17 +469,17 @@ export function ReviewPanel({
                   </div>
                   <pre className="code-block mt-2">{ai.rewrite.sql}</pre>
                   {ai.rewrite.explanation ? (
-                    <div className="mt-2 text-[11.5px] text-muted">{ai.rewrite.explanation}</div>
+                    <div className="mt-2 text-2xs text-muted">{ai.rewrite.explanation}</div>
                   ) : null}
                 </div>
               ) : null}
 
               {aiRaw && !aiStreaming ? (
-                <details className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
-                  <summary className="cursor-pointer text-[10.5px] font-semibold text-muted">
+                <details className="rounded-xl border border-line-soft bg-panel-2 p-3">
+                  <summary className="cursor-pointer text-2xs font-semibold text-muted">
                     Raw model response
                   </summary>
-                  <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-[10px]">
+                  <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-2xs">
                     {aiRaw}
                   </pre>
                 </details>
@@ -555,102 +516,27 @@ export function ReviewPanel({
             <Card className="p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <MessageSquare size={14} className="text-ember" />
-                <span className="text-[12.5px] font-semibold">Ask a follow-up</span>
-                <Badge tone="neutral" className="ml-auto">
+                <span className="text-xs font-semibold">Ask a follow-up</span>
+                <span className="ml-auto font-mono text-2xs text-muted">
                   {provider?.name ?? 'AI'} · {model}
-                </Badge>
-                {chatMessages.length > 0 ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setChatMessages([]);
-                      setChatError(null);
-                      setChatDraft('');
-                    }}
-                  >
-                    Clear
-                  </Button>
-                ) : null}
+                </span>
               </div>
-              <div className="mt-2 flex max-h-[340px] flex-col gap-2 overflow-auto pr-1">
-                {chatMessages.length === 0 && !chatDraft ? (
-                  <div className="rounded-xl border border-line-soft bg-panel-2/40 px-3 py-4 text-[11.5px] text-muted">
-                    Ask why a rule fired or whether a rewrite is safe.
-                  </div>
-                ) : null}
-                {chatMessages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      'max-w-[92%] rounded-xl border px-3 py-2',
-                      message.role === 'user'
-                        ? 'self-end border-ember/25 bg-ember/10'
-                        : 'self-start border-line-soft bg-panel-2/60',
-                    )}
-                  >
-                    <div className="mono-label mb-1">
-                      {message.role === 'user' ? 'you' : (provider?.name ?? 'assistant')}
-                    </div>
-                    {message.role === 'assistant' ? (
-                      <Markdown>{message.content}</Markdown>
-                    ) : (
-                      <div className="whitespace-pre-wrap text-[12px] text-ink-soft">
-                        {message.content}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {chatDraft ? (
-                  <div className="max-w-[92%] self-start rounded-xl border border-line-soft bg-panel-2/60 px-3 py-2">
-                    <div className="mono-label mb-1 flex items-center gap-2">
-                      {provider?.name ?? 'assistant'}
-                      <Spinner size={10} />
-                    </div>
-                    <Markdown>{chatDraft}</Markdown>
-                  </div>
-                ) : null}
-                <div ref={chatEndRef} />
-              </div>
-              {chatError ? (
-                <div className="callout danger mt-2 flex items-start gap-2">
-                  <XCircle size={13} className="mt-0.5 shrink-0" />
-                  <span>{chatError}</span>
-                </div>
-              ) : null}
-              <div className="mt-2 flex items-end gap-2">
-                <Input
-                  value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
-                  placeholder="Ask about this statement…"
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault();
-                      void sendChat();
-                    }
-                  }}
-                />
-                {chatStreaming ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={<Square size={11} />}
-                    onClick={cancelChat}
-                  >
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Send size={12} />}
-                    onClick={() => void sendChat()}
-                    disabled={!chatInput.trim() || !provider}
-                  >
-                    Send
-                  </Button>
-                )}
-              </div>
+              <ChatPanel
+                messages={chat.messages}
+                draft={chat.draft}
+                streaming={chat.streaming}
+                error={chat.error}
+                assistantLabel={provider?.name ?? 'assistant'}
+                emptyHint="Ask why a rule fired or whether a rewrite is safe."
+                placeholder="Ask about this statement…"
+                input={chatInput}
+                disabled={!provider}
+                onInputChange={setChatInput}
+                onSend={sendChat}
+                onStop={chat.stop}
+                onClear={chat.clear}
+                className="mt-2"
+              />
             </Card>
           ) : null}
         </div>

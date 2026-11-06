@@ -27,8 +27,8 @@ interface Position {
  * object that holds refs as ref-like and then rejects every property access
  * on it during render.
  */
-interface ComboRefs {
-  buttonRef: RefObject<HTMLButtonElement | null>;
+interface ComboRefs<TTrigger extends HTMLElement> {
+  buttonRef: RefObject<TTrigger | null>;
   popoverRef: RefObject<HTMLDivElement | null>;
   inputRef: RefObject<HTMLInputElement | null>;
 }
@@ -40,10 +40,12 @@ interface ComboState {
   setOpen: (value: boolean) => void;
 }
 
-function useComboPopover(maxHeight: number): { combo: ComboState; refs: ComboRefs } {
+function useComboPopover<TTrigger extends HTMLElement = HTMLButtonElement>(
+  maxHeight: number,
+): { combo: ComboState; refs: ComboRefs<TTrigger> } {
   const [open, setOpenState] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const buttonRef = useRef<TTrigger | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const id = useId();
@@ -179,9 +181,9 @@ function OptionRow({
           renderOption(option, selected)
         ) : (
           <>
-            <span className="block truncate text-[12px] text-ink-soft">{option.label}</span>
+            <span className="block truncate text-xs text-ink-soft">{option.label}</span>
             {option.description ? (
-              <span className="block truncate text-[10px] text-muted">{option.description}</span>
+              <span className="block truncate text-2xs text-muted">{option.description}</span>
             ) : null}
           </>
         )}
@@ -305,7 +307,7 @@ function ComboList({
 
       <div className="combo-options">
         {options.length === 0 ? (
-          <div className="px-3 py-5 text-center text-[11px] text-muted">{emptyText}</div>
+          <div className="px-3 py-5 text-center text-2xs text-muted">{emptyText}</div>
         ) : (
           groups.map(([group, items]) => (
             <div key={group || '_default'}>
@@ -366,6 +368,7 @@ export function Combobox({
   footer,
   clearable = true,
   renderOption,
+  ariaLabel,
 }: {
   options: ComboOption[];
   value: string | null;
@@ -380,6 +383,7 @@ export function Combobox({
   footer?: ReactNode;
   clearable?: boolean;
   renderOption?: (option: ComboOption, selected: boolean) => ReactNode;
+  ariaLabel?: string;
 }) {
   const { combo, refs } = useComboPopover(maxHeight);
   const { buttonRef } = refs;
@@ -408,6 +412,7 @@ export function Combobox({
         aria-haspopup="listbox"
         aria-expanded={combo.open}
         aria-controls={combo.open ? `${combo.id}-list` : undefined}
+        aria-label={ariaLabel}
       >
         {selected?.icon ? <span className="shrink-0 text-muted">{selected.icon}</span> : null}
         <span className={cn('min-w-0 flex-1 truncate text-left', !selected && 'text-muted')}>
@@ -445,6 +450,154 @@ export function Combobox({
                 hasSelection={Boolean(selected)}
                 onClear={() => onChange('')}
               />
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+/**
+ * A free-text field with the app's dropdown menu attached: any typed value is
+ * kept, and known values render as suggestions in the combo popover. This
+ * replaces the native `datalist` popup, which is OS-styled and clashes with
+ * the design (the model fields on Practice and in ProviderForm).
+ */
+export function TextCombobox({
+  value,
+  onChange,
+  options,
+  placeholder = '',
+  emptyText = 'No matches.',
+  disabled,
+  className,
+  inputClassName,
+  maxHeight = 280,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: ComboOption[];
+  placeholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+  inputClassName?: string;
+  maxHeight?: number;
+  ariaLabel?: string;
+}) {
+  const { combo, refs } = useComboPopover<HTMLDivElement>(maxHeight);
+  const { buttonRef, popoverRef, inputRef } = refs;
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [wasOpen, setWasOpen] = useState(combo.open);
+
+  if (combo.open !== wasOpen) {
+    setWasOpen(combo.open);
+    if (combo.open) setActiveIndex(0);
+  }
+
+  // The typed value doubles as the filter, exactly like the datalist did.
+  const needle = value.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      needle
+        ? options.filter((option) =>
+            [option.label, option.value, option.keywords ?? '']
+              .join(' ')
+              .toLowerCase()
+              .includes(needle),
+          )
+        : options,
+    [options, needle],
+  );
+  const clamped = Math.max(0, Math.min(filtered.length - 1, activeIndex));
+
+  const commit = (option: ComboOption): void => {
+    onChange(option.value);
+    combo.setOpen(false);
+  };
+
+  return (
+    <div ref={buttonRef} className={cn('relative', className)}>
+      <input
+        ref={inputRef}
+        type="text"
+        role="combobox"
+        aria-expanded={combo.open}
+        aria-controls={combo.open ? `${combo.id}-list` : undefined}
+        aria-autocomplete="list"
+        aria-label={ariaLabel}
+        className={cn('input pr-8', inputClassName)}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => {
+          onChange(event.target.value);
+          combo.setOpen(true);
+          setActiveIndex(0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            combo.setOpen(true);
+            setActiveIndex(Math.min(filtered.length - 1, clamped + 1));
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex(Math.max(0, clamped - 1));
+          } else if (event.key === 'Enter') {
+            if (combo.open && filtered[clamped] && !filtered[clamped].disabled) {
+              event.preventDefault();
+              commit(filtered[clamped]);
+            }
+          } else if (event.key === 'Escape') {
+            combo.setOpen(false);
+          }
+        }}
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-auto absolute inset-y-0 right-0 flex w-7 cursor-pointer items-center justify-center text-muted"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          if (!disabled) combo.setOpen(!combo.open);
+        }}
+      >
+        <ChevronDown size={13} className={cn('transition', combo.open && 'rotate-180')} />
+      </span>
+
+      {combo.open && combo.position
+        ? createPortal(
+            <div id={`${combo.id}-list`}>
+              <div
+                ref={popoverRef}
+                className="combo-popover"
+                style={{
+                  left: combo.position.left,
+                  top: combo.position.top,
+                  width: combo.position.width,
+                  maxHeight: combo.position.maxHeight,
+                }}
+                role="listbox"
+                aria-label={ariaLabel}
+              >
+                <div className="combo-options">
+                  {filtered.length === 0 ? (
+                    <div className="px-3 py-5 text-center text-2xs text-muted">{emptyText}</div>
+                  ) : (
+                    filtered.map((option, index) => (
+                      <OptionRow
+                        key={option.value}
+                        option={option}
+                        selected={option.value === value}
+                        active={index === clamped}
+                        onHover={() => setActiveIndex(index)}
+                        onSelect={() => commit(option)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
             </div>,
             document.body,
           )

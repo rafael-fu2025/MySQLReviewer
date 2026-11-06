@@ -66,7 +66,7 @@ export function WorkspaceModals({
       >
         <div className="mb-3">
           <Input
-            className="text-[12px]"
+            className="text-xs"
             placeholder="Filter history…"
             aria-label="Filter history"
             value={historySearch}
@@ -74,7 +74,7 @@ export function WorkspaceModals({
           />
         </div>
         {historyLoading ? (
-          <div className="flex items-center gap-2 py-8 text-[12px] text-muted">
+          <div className="flex items-center gap-2 py-8 text-xs text-muted">
             <Spinner size={14} /> Loading history…
           </div>
         ) : filtered.length === 0 ? (
@@ -86,12 +86,12 @@ export function WorkspaceModals({
         ) : (
           <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto">
             {filtered.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-line-soft bg-panel-2/50 p-3">
-                <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
+              <div key={entry.id} className="rounded-lg border border-line-soft bg-panel-2 p-3">
+                <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
                   <Badge tone={entry.success ? 'mint' : 'danger'}>
                     {entry.success ? 'ok' : 'error'}
                   </Badge>
-                  <Badge tone="neutral">{entry.kind}</Badge>
+                  <span className="font-mono text-2xs text-muted">{entry.kind}</span>
                   <span>{formatDate(entry.createdAt)}</span>
                   <span>{formatDuration(entry.executionMs)}</span>
                   {entry.database ? <span className="font-mono">{entry.database}</span> : null}
@@ -113,11 +113,11 @@ export function WorkspaceModals({
                     </Button>
                   </div>
                 </div>
-                <div className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] text-ink-soft">
+                <div className="mt-2 max-h-20 overflow-auto whitespace-pre-wrap font-mono text-2xs text-ink-soft">
                   {sqlPreview(entry.sql, 600)}
                 </div>
                 {entry.error ? (
-                  <div className="mt-1 text-[10.5px] text-danger">{entry.error}</div>
+                  <div className="mt-1 text-2xs text-danger">{entry.error}</div>
                 ) : null}
               </div>
             ))}
@@ -132,16 +132,13 @@ export function WorkspaceModals({
               <EmptyState icon={<Bookmark size={20} />} title="No snippets saved" />
             ) : (
               snippets.map((snippet) => (
-                <div
-                  key={snippet.id}
-                  className="rounded-lg border border-line-soft bg-panel-2/50 p-3"
-                >
+                <div key={snippet.id} className="rounded-lg border border-line-soft bg-panel-2 p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] font-semibold text-ink">{snippet.title}</span>
+                    <span className="text-xs font-semibold text-ink">{snippet.title}</span>
                     {snippet.tags.map((tag) => (
-                      <Badge key={tag} tone="neutral">
+                      <span key={tag} className="text-2xs text-muted">
                         {tag}
-                      </Badge>
+                      </span>
                     ))}
                     <div className="ml-auto flex gap-1">
                       <Button
@@ -160,15 +157,15 @@ export function WorkspaceModals({
                       </IconButton>
                     </div>
                   </div>
-                  <div className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] text-muted">
+                  <div className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-2xs text-muted">
                     {sqlPreview(snippet.sql, 600)}
                   </div>
                 </div>
               ))
             )}
           </div>
-          <div className="flex flex-col gap-2 rounded-xl border border-line-soft bg-panel-2/40 p-3">
-            <div className="flex items-center gap-2 text-[12px] font-semibold">
+          <div className="flex flex-col gap-2 rounded-xl border border-line-soft bg-panel-2 p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold">
               <Save size={13} className="text-ember" /> Save current SQL
             </div>
             <Field label="Title">

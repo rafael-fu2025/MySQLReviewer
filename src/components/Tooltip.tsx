@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { cn } from '@/lib/utils';
 
-type TooltipSide = 'right' | 'left' | 'top' | 'bottom';
+export type TooltipSide = 'right' | 'left' | 'top' | 'bottom';
 
 interface TooltipProps {
   label: ReactNode;

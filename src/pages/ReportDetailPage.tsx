@@ -43,18 +43,12 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
           <ScoreRing score={review.score.score} grade={review.score.grade} size={116} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="info">Review</Badge>
-              {report.ai ? (
-                <Badge tone="info">
-                  <Sparkles size={9} /> AI summary
-                </Badge>
-              ) : null}
-              <span className="font-mono text-[10px] text-muted">
-                {formatDate(report.createdAt)}
-              </span>
+              <span className="mono-label">Review</span>
+              {report.ai ? <span className="mono-label">AI summary</span> : null}
+              <span className="font-mono text-2xs text-muted">{formatDate(report.createdAt)}</span>
             </div>
-            <h2 className="mt-2 text-[19px] font-extrabold tracking-tight">{report.title}</h2>
-            <div className="mt-1 text-[11px] text-muted">
+            <h2 className="mt-2 text-xl font-extrabold tracking-tight">{report.title}</h2>
+            <div className="mt-1 text-2xs text-muted">
               {report.profile
                 ? `${report.profile.name} · ${report.profile.user}@${report.profile.host}:${report.profile.port}`
                 : 'No connection snapshot'}
@@ -102,10 +96,10 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
       <Card className="p-4">
         <div className="section-title mb-2">Statement</div>
         <CodeBlock text={report.sql} className="max-h-72" />
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted">
-          <Badge tone="neutral">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-2xs text-muted">
+          <span className="text-2xs text-muted">
             {review.statements.length} statement{review.statements.length === 1 ? '' : 's'}
-          </Badge>
+          </span>
           {review.context.tables.length > 0 ? (
             <span>
               Context tables: {review.context.tables.map((table) => table.table).join(', ')}
@@ -119,7 +113,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
         <Card className="p-4">
           <div className="section-title mb-2">Warnings</div>
           {review.warnings.map((warning, index) => (
-            <div key={index} className="text-[11.5px] text-warn">
+            <div key={index} className="text-2xs text-warn">
               {warning}
             </div>
           ))}
@@ -129,7 +123,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <div className="section-title">Deterministic findings</div>
-          <Badge className="ml-auto">{review.findings.length}</Badge>
+          <span className="ml-auto text-2xs text-muted">{review.findings.length}</span>
         </div>
         <FindingsHint findings={review.findings} />
         <FindingsList
@@ -146,13 +140,13 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
             {review.suggestions.map((suggestion) => (
               <div key={suggestion.statement} className="finding sev-info p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="info">{suggestion.confidence}</Badge>
-                  <span className="font-mono text-[11px] text-ink">
+                  <span className="text-2xs text-muted">{suggestion.confidence}</span>
+                  <span className="font-mono text-2xs text-ink">
                     {suggestion.database}.{suggestion.table} ({suggestion.columns.join(', ')})
                   </span>
                 </div>
                 <div className="finding-message">{suggestion.reason}</div>
-                <CodeBlock text={suggestion.statement} className="mt-2 text-[10.5px]" />
+                <CodeBlock text={suggestion.statement} className="mt-2 text-2xs" />
                 <div className="mt-1 flex justify-end">
                   <CopyButton text={suggestion.statement} label="Copy ALTER" />
                 </div>
@@ -167,9 +161,9 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Sparkles size={14} className="text-ember" />
             <div className="section-title">AI summary</div>
-            <Badge tone="neutral" className="ml-auto">
+            <span className="ml-auto text-2xs text-muted">
               {report.ai.providerName} · {report.ai.model} · {report.ai.verdict}
-            </Badge>
+            </span>
             <CopyButton text={report.ai.markdown} label="Copy" />
           </div>
           {report.ai.markdown ? <Markdown>{report.ai.markdown}</Markdown> : null}
@@ -182,14 +176,14 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
             </div>
           ) : null}
           {report.ai.rewrite ? (
-            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2/40 p-3">
+            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2 p-3">
               <div className="flex items-center gap-2">
                 <Wand2 size={13} className="text-ember" />
-                <span className="text-[12px] font-semibold">Suggested rewrite</span>
+                <span className="text-xs font-semibold">Suggested rewrite</span>
                 <CopyButton text={report.ai.rewrite.sql} label="Copy" className="ml-auto" />
               </div>
               <CodeBlock text={report.ai.rewrite.sql} className="mt-2" />
-              <div className="mt-2 text-[11px] text-muted">{report.ai.rewrite.explanation}</div>
+              <div className="mt-2 text-2xs text-muted">{report.ai.rewrite.explanation}</div>
             </div>
           ) : null}
         </Card>
@@ -238,7 +232,7 @@ export function ReportDetailPage() {
   if (loading) {
     return (
       <div className="page">
-        <div className="flex items-center gap-2 text-[12px] text-muted">
+        <div className="flex items-center gap-2 text-xs text-muted">
           <Spinner size={14} /> Loading report…
         </div>
       </div>
@@ -291,10 +285,10 @@ export function ReportDetailPage() {
         >
           Back to reports
         </Button>
-        <span className="font-mono text-[10px] text-muted">{report.id}</span>
-        <Badge tone={report.kind === 'audit' ? 'ember' : 'info'} className="ml-auto">
+        <span className="font-mono text-2xs text-muted">{report.id}</span>
+        <span className="ml-auto text-2xs text-muted">
           {report.kind === 'audit' ? 'Audit' : 'Review'}
-        </Badge>
+        </span>
       </div>
       {report.kind === 'audit' ? (
         <AuditReportView report={report} />

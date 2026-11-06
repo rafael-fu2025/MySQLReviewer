@@ -84,6 +84,7 @@ function varsOf(snapshot: PerformanceSnapshot | null): [string, string][] {
 export function PerformancePage() {
   const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
+  const currentUser = useAppStore((state) => state.currentUser);
   const unlockedUntil = useAppStore((state) => state.unlockedUntil);
   const toast = useAppStore((state) => state.toast);
   const [snapshot, setSnapshot] = useState<PerformanceSnapshot | null>(null);
@@ -98,6 +99,8 @@ export function PerformancePage() {
   const [killing, setKilling] = useState(false);
   const snapshotRef = useRef<PerformanceSnapshot | null>(null);
 
+  const isAdmin = currentUser?.role === 'admin';
+
   // `unlockedUntil` is an absolute timestamp. The clock is read in an effect
   // so the flag flips exactly when the unlock window closes, instead of
   // reading the time while rendering.
@@ -109,7 +112,7 @@ export function PerformancePage() {
     return () => clearTimeout(timer);
   }, [unlockedUntil]);
 
-  const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
+  const unlocked = isAdmin || Boolean(unlockedUntil && unlockedUntil > now);
 
   const load = async (quiet = false): Promise<void> => {
     if (!activeProfileId) {
@@ -319,7 +322,7 @@ export function PerformancePage() {
             <Card className="p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <SectionTitle>Throughput trend</SectionTitle>
-                <span className="text-[10.5px] text-muted">last {history.length} samples</span>
+                <span className="text-2xs text-muted">last {history.length} samples</span>
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
@@ -356,12 +359,12 @@ export function PerformancePage() {
                   <div className="section-title">Largest tables</div>
                 </div>
                 {snapshot.topTables.length === 0 ? (
-                  <div className="text-[11px] text-muted">No table statistics available.</div>
+                  <div className="text-2xs text-muted">No table statistics available.</div>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {snapshot.topTables.map((table) => (
                       <div key={`${table.database}.${table.table}`}>
-                        <div className="flex items-center justify-between gap-2 font-mono text-[10.5px]">
+                        <div className="flex items-center justify-between gap-2 font-mono text-2xs">
                           <span className="truncate text-ink-soft">
                             {table.database}.{table.table}
                           </span>
@@ -392,7 +395,7 @@ export function PerformancePage() {
                   </Badge>
                 </div>
                 {snapshot.replication.configured ? (
-                  <div className="grid grid-cols-1 gap-2 text-[11.5px]">
+                  <div className="grid grid-cols-1 gap-2 text-2xs">
                     <div className="flex justify-between">
                       <span className="text-muted">IO thread</span>
                       <span className="font-mono">{snapshot.replication.ioRunning ?? '—'}</span>
@@ -411,29 +414,24 @@ export function PerformancePage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-muted">Not configured as a replica.</div>
+                  <div className="text-2xs text-muted">Not configured as a replica.</div>
                 )}
               </Card>
 
               <Card className="p-4 lg:col-span-2">
                 <div className="mb-2 flex items-center gap-2">
                   <div className="section-title">Slow query source</div>
-                  <Badge
-                    tone={snapshot.slowQuerySource === 'none' ? 'warn' : 'mint'}
-                    className="ml-auto"
-                  >
-                    {snapshot.slowQuerySource}
-                  </Badge>
+                  <span className="ml-auto text-2xs text-muted">{snapshot.slowQuerySource}</span>
                 </div>
                 {snapshot.slowQueryAdvice ? (
                   <div className="callout flex items-start gap-2">
                     <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warn" />
-                    <div className="whitespace-pre-wrap font-mono text-[10.5px]">
+                    <div className="whitespace-pre-wrap font-mono text-2xs">
                       {snapshot.slowQueryAdvice}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-muted">
+                  <div className="text-2xs text-muted">
                     Slow query analysis is available from {snapshot.slowQuerySource}.
                   </div>
                 )}
@@ -450,7 +448,7 @@ export function PerformancePage() {
                     className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
                   />
                   <input
-                    className="input input-search py-1.5 text-[11.5px]"
+                    className="input input-search py-1.5 text-2xs"
                     value={processFilter}
                     onChange={(event) => setProcessFilter(event.target.value)}
                     placeholder="Filter by user, host, database, state…"
@@ -489,9 +487,7 @@ export function PerformancePage() {
                         <td>{process.host}</td>
                         <td>{process.db ?? '—'}</td>
                         <td>
-                          <Badge tone={process.command === 'Sleep' ? 'neutral' : 'info'}>
-                            {process.command}
-                          </Badge>
+                          <span className="font-mono text-2xs text-muted">{process.command}</span>
                         </td>
                         <td className={cn(process.timeSeconds > 60 && 'text-warn')}>
                           {process.timeSeconds}s
@@ -506,7 +502,10 @@ export function PerformancePage() {
                             size="sm"
                             disabled={!unlocked || process.command === 'Sleep'}
                             onClick={() => setKillTarget(process)}
-                            title={unlocked ? undefined : 'Unlock writes before killing a session'}
+                            tooltip={
+                              unlocked ? undefined : 'Unlock writes before killing a session'
+                            }
+                            tooltipSide="top"
                           >
                             Kill
                           </Button>
@@ -582,15 +581,15 @@ export function PerformancePage() {
                     className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
                   />
                   <input
-                    className="input input-search py-1.5 text-[11.5px]"
+                    className="input input-search py-1.5 text-2xs"
                     value={variableFilter}
                     onChange={(event) => setVariableFilter(event.target.value)}
                     placeholder="Filter variables…"
                     aria-label="Filter variables"
                   />
                 </div>
-                <Badge>{filteredVariables.length} variables</Badge>
-                <span className="text-[10px] text-muted">
+                <span className="text-2xs text-muted">{filteredVariables.length} variables</span>
+                <span className="text-2xs text-muted">
                   updated {formatRelative(snapshot.generatedAt)}
                 </span>
               </div>
@@ -615,7 +614,7 @@ export function PerformancePage() {
                 </table>
               </div>
               {filteredVariables.length > 800 ? (
-                <div className="border-t border-line-soft px-3 py-2 text-[10px] text-muted">
+                <div className="border-t border-line-soft px-3 py-2 text-2xs text-muted">
                   Showing first 800 of {filteredVariables.length}.
                 </div>
               ) : null}

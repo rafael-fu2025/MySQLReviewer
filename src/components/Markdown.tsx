@@ -2,8 +2,18 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { cn } from '@/lib/utils';
+import { sanitizeModelOutput } from '@/lib/sanitize';
 
-export function Markdown({ children, className }: { children: string; className?: string }) {
+export function Markdown({
+  children,
+  className,
+  sanitize = false,
+}: {
+  children: string;
+  className?: string;
+  sanitize?: boolean;
+}) {
+  const content = sanitize ? sanitizeModelOutput(children) : children;
   return (
     <div className={cn('markdown', className)}>
       <ReactMarkdown
@@ -19,7 +29,7 @@ export function Markdown({ children, className }: { children: string; className?
           ),
         }}
       >
-        {children}
+        {content}
       </ReactMarkdown>
     </div>
   );

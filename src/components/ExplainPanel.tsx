@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, ChevronRight, FileSearch, Zap } from 'lucide-r
 import type { ExplainNode, ExplainResult } from '@shared/types';
 import { formatDuration, formatNumber } from '@/lib/format';
 import { FindingCard } from './Findings';
-import { Badge, Button, CopyButton, EmptyState } from './ui';
+import { Button, CopyButton, EmptyState } from './ui';
 import { cn } from '@/lib/utils';
 
 function flatten(nodes: ExplainNode[], depth = 0): { node: ExplainNode; depth: number }[] {
@@ -13,14 +13,6 @@ function flatten(nodes: ExplainNode[], depth = 0): { node: ExplainNode; depth: n
     out.push(...flatten(node.children, depth + 1));
   }
   return out;
-}
-
-function accessTone(access: string | null): 'danger' | 'warn' | 'mint' | 'neutral' {
-  if (!access) return 'neutral';
-  if (access === 'ALL') return 'danger';
-  if (access === 'index' || access === 'range' || access === 'index_merge') return 'warn';
-  if (['ref', 'eq_ref', 'const', 'system', 'unique_subquery'].includes(access)) return 'mint';
-  return 'neutral';
 }
 
 export function ExplainPanel({
@@ -75,12 +67,12 @@ export function ExplainPanel({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={explain.analyzed ? 'mint' : 'neutral'}>
+        <span className="inline-flex items-center gap-1 font-mono text-2xs text-muted">
           <Activity size={11} /> {explain.analyzed ? 'ANALYZE' : 'EXPLAIN'}
-        </Badge>
-        <Badge tone={explain.insights.length > 0 ? 'warn' : 'mint'}>
+        </span>
+        <span className="text-2xs text-muted">
           {explain.insights.length} plan insight{explain.insights.length === 1 ? '' : 's'}
-        </Badge>
+        </span>
         {onAnalyze && !explain.analyzed ? (
           <Button
             variant="secondary"
@@ -137,7 +129,7 @@ export function ExplainPanel({
                   </td>
                   <td>
                     {node.accessType ? (
-                      <Badge tone={accessTone(node.accessType)}>{node.accessType}</Badge>
+                      <span className="font-mono text-2xs text-muted">{node.accessType}</span>
                     ) : (
                       '—'
                     )}
@@ -164,13 +156,13 @@ export function ExplainPanel({
                       {node.extra.map((extra, index) => (
                         <span
                           key={index}
-                          className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 text-[10px] text-muted"
+                          className="rounded border border-line-soft bg-panel-2 px-1.5 py-0.5 text-2xs text-muted"
                         >
                           {extra}
                         </span>
                       ))}
                       {node.runtimeRows != null ? (
-                        <span className="rounded border border-info/30 bg-info/10 px-1.5 py-0.5 text-[10px] text-info">
+                        <span className="rounded border border-info/30 bg-info/10 px-1.5 py-0.5 text-2xs text-info">
                           runtime rows {formatNumber(node.runtimeRows)}
                         </span>
                       ) : null}
@@ -189,13 +181,13 @@ export function ExplainPanel({
           {explain.suggestions.map((suggestion) => (
             <div key={suggestion.statement} className="finding sev-info p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="info">{suggestion.confidence} confidence</Badge>
-                <span className="font-mono text-[11px] text-ink">
+                <span className="text-2xs text-muted">{suggestion.confidence} confidence</span>
+                <span className="font-mono text-2xs text-ink">
                   {suggestion.database}.{suggestion.table} ({suggestion.columns.join(', ')})
                 </span>
               </div>
               <div className="finding-message">{suggestion.reason}</div>
-              <pre className="code-block mt-2 text-[10.5px]">{suggestion.statement}</pre>
+              <pre className="code-block mt-2 text-2xs">{suggestion.statement}</pre>
               <div className="mt-1 flex justify-end">
                 <CopyButton text={suggestion.statement} label="Copy ALTER" />
               </div>
@@ -204,15 +196,15 @@ export function ExplainPanel({
         </div>
       ) : null}
 
-      <details className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
-        <summary className="cursor-pointer text-[11px] font-semibold text-muted">
+      <details className="rounded-xl border border-line-soft bg-panel-2 p-3">
+        <summary className="cursor-pointer text-2xs font-semibold text-muted">
           Raw plan {explain.analyzed ? '(ANALYZE)' : '(JSON)'}
         </summary>
-        <pre className="code-block mt-2 max-h-80 text-[10.5px]">
+        <pre className="code-block mt-2 max-h-80 text-2xs">
           {typeof explain.raw === 'string' ? explain.raw : JSON.stringify(explain.raw, null, 2)}
         </pre>
         {explain.text ? (
-          <pre className="code-block mt-2 max-h-80 whitespace-pre-wrap text-[10.5px]">
+          <pre className="code-block mt-2 max-h-80 whitespace-pre-wrap text-2xs">
             {explain.text}
           </pre>
         ) : null}

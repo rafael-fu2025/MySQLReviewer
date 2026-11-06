@@ -121,7 +121,7 @@ export function UnlockDialog({
           {sql ? (
             <div>
               <div className="mono-label mb-1">Statement waiting to run</div>
-              <pre className="code-block max-h-40 whitespace-pre-wrap text-[10.5px]">{sql}</pre>
+              <pre className="code-block max-h-40 whitespace-pre-wrap text-2xs">{sql}</pre>
             </div>
           ) : null}
           <Field label="Type UNLOCK WRITES to continue" error={error}>
@@ -154,7 +154,7 @@ export function UnlockDialog({
                   ? 'This statement is classified as destructive.'
                   : 'Run the unlocked statement.'}
               </div>
-              <div className="mt-1 text-[11.5px] text-muted">
+              <div className="mt-1 text-2xs text-muted">
                 {classification?.reason ?? 'Verify the target and keep a backup before proceeding.'}
               </div>
             </div>
@@ -162,7 +162,7 @@ export function UnlockDialog({
           {sql ? (
             <div>
               <div className="mono-label mb-1">Statement</div>
-              <pre className="code-block max-h-56 whitespace-pre-wrap text-[10.5px]">{sql}</pre>
+              <pre className="code-block max-h-56 whitespace-pre-wrap text-2xs">{sql}</pre>
             </div>
           ) : null}
           <Checkbox

@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   Database,
   Edit3,
-  KeyRound,
   Laptop,
   Plus,
   Server,
@@ -25,6 +24,7 @@ import type {
   ThemePreference,
 } from '@shared/types';
 import { APP_VERSION } from '@shared/types';
+import { AGENT_TOOLS } from '@shared/agent-tools';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import {
@@ -48,11 +48,12 @@ import {
   Spinner,
   Switch,
   Tabs,
+  Textarea,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Combobox } from '@/components/Combobox';
 
-type SettingsTab = 'connections' | 'ai' | 'review' | 'safety' | 'appearance' | 'data';
+export type SettingsTab = 'connections' | 'ai' | 'review' | 'safety' | 'appearance' | 'data';
 
 const TAB_IDS: SettingsTab[] = ['connections', 'ai', 'review', 'safety', 'appearance', 'data'];
 
@@ -60,7 +61,7 @@ function parseTab(value: string | null): SettingsTab {
   return TAB_IDS.includes(value as SettingsTab) ? (value as SettingsTab) : 'connections';
 }
 
-type NumericField =
+export type NumericField =
   'rowLimit' | 'queryTimeoutMs' | 'cellMaxChars' | 'aiContextChars' | 'historyLimit';
 
 const NUMERIC_FIELDS: NumericField[] = [
@@ -103,10 +104,280 @@ function validateNumeric(field: NumericField, raw: string): { value?: number; er
   return { value };
 }
 
-/** Settings without the theme, which is applied immediately and never edited through the draft. */
-function withoutTheme(settings: AppSettings): string {
-  const { theme: _theme, ...rest } = settings;
+/**
+ * The settings that travel through the draft. The theme is applied
+ * immediately and the write-unlock switch has its own action, so neither
+ * belongs to the draft.
+ */
+function draftFingerprint(settings: AppSettings): string {
+  const { theme: _theme, writeUnlockEnabled: _writeUnlockEnabled, ...rest } = settings;
   return JSON.stringify(rest);
+}
+
+export interface SettingsHeaderProps {
+  tab: SettingsTab;
+  profileCount: number;
+  providerCount: number;
+  onTabChange: (tab: SettingsTab) => void;
+}
+
+/**
+ * The page heading and the section switcher.
+ *
+ * They live in one block because they belong together: the tab strip is the
+ * only way to leave a section, so it must never scroll away from the
+ * heading. The block is pinned to the top of the scroll container, which keeps
+ * the switcher reachable on a long tab.
+ */
+export function SettingsHeader({
+  tab,
+  profileCount,
+  providerCount,
+  onTabChange,
+}: SettingsHeaderProps) {
+  return (
+    <div className="sticky top-0 z-20 -mx-6 flex flex-col gap-4 bg-canvas px-6 pt-3 pb-3 max-[641px]:-mx-3 max-[641px]:px-3 relative before:absolute before:inset-x-0 before:-top-6 before:h-6 before:content-[''] before:bg-canvas max-[641px]:before:-top-3 max-[641px]:before:h-3">
+      <PageHeader title="Settings" />
+
+      <Tabs
+        items={[
+          {
+            id: 'connections',
+            label: 'Connections',
+            count: profileCount,
+            icon: <Database size={12} />,
+          },
+          {
+            id: 'ai',
+            label: 'AI providers',
+            count: providerCount,
+            icon: <Sparkles size={12} />,
+          },
+          { id: 'review', label: 'Review', icon: <Brain size={12} /> },
+          { id: 'safety', label: 'Safety', icon: <ShieldCheck size={12} /> },
+          { id: 'appearance', label: 'Appearance', icon: <Sun size={12} /> },
+          { id: 'data', label: 'Data & about', icon: <Server size={12} /> },
+        ]}
+        value={tab}
+        onChange={onTabChange}
+      />
+    </div>
+  );
+}
+
+export interface SafetyTabProps {
+  writeUnlockEnabled: boolean;
+  writeUnlockBusy: boolean;
+  savingSettings: boolean;
+  draft: AppSettings;
+  numericDrafts: Record<NumericField, string>;
+  numericErrors: Partial<Record<NumericField, string>>;
+  onToggleWriteUnlock: (enabled: boolean) => void;
+  onToggleMaskSensitive: (enabled: boolean) => void;
+  onToggleAgentTool: (name: string) => void;
+  mcpServersJson: string;
+  mcpError: string | null;
+  onMcpServersChange: (json: string) => void;
+  onMcpServersApply: () => void;
+  onNumericChange: (field: NumericField, raw: string) => void;
+  onNumericBlur: (field: NumericField) => void;
+  onSave: () => void;
+}
+
+/**
+ * The Safety section: the read-only model, the write-unlock switch, the
+ * masking switch and the query limits.
+ */
+export function SafetyTab({
+  writeUnlockEnabled,
+  writeUnlockBusy,
+  savingSettings,
+  draft,
+  numericDrafts,
+  numericErrors,
+  onToggleWriteUnlock,
+  onToggleMaskSensitive,
+  onToggleAgentTool,
+  mcpServersJson,
+  mcpError,
+  onMcpServersChange,
+  onMcpServersApply,
+  onNumericChange,
+  onNumericBlur,
+  onSave,
+}: SafetyTabProps) {
+  return (
+    <div className="flex flex-col gap-3">
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <ShieldCheck size={15} className="text-mint" />
+          <div className="section-title">Read-only by default</div>
+        </div>
+        <div className="callout mint text-2xs">
+          Read-only statements run freely. DML, DDL, and administrative statements require typing{' '}
+          <span className="font-mono">UNLOCK WRITES</span> for a 15-minute per-connection window.
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="section-title mb-3">Write unlocking</div>
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2 p-3">
+          <div>
+            <div className="text-xs font-semibold">Allow write unlocking</div>
+            <div className="mt-0.5 max-w-xl text-2xs leading-4 text-muted">
+              {writeUnlockEnabled
+                ? 'Accounts can unlock writes for their own connection for 15 minutes. Turn this off to make the app read-only for everybody.'
+                : 'Write unlocking is off for every account, administrators included. No account can unlock writes or reveal masked values.'}
+            </div>
+          </div>
+          <Switch
+            label="Allow write unlocking"
+            checked={writeUnlockEnabled}
+            disabled={writeUnlockBusy}
+            onChange={onToggleWriteUnlock}
+          />
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="section-title mb-3">Sensitive data</div>
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2 p-3">
+          <div>
+            <div className="text-xs font-semibold">Mask sensitive columns</div>
+            <div className="mt-0.5 max-w-xl text-2xs leading-4 text-muted">
+              Masks credential-like columns in results; they can be revealed per statement after a
+              confirmation. Not a substitute for grants.
+            </div>
+          </div>
+          <Switch
+            label="Mask sensitive columns"
+            checked={draft.maskSensitiveColumns}
+            onChange={onToggleMaskSensitive}
+          />
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="section-title mb-1">Agent tools</div>
+        <div className="mb-3 max-w-xl text-2xs leading-4 text-muted">
+          What the AI assistant may do on its own when it works as an agent. Every tool runs behind
+          the same guards as the app: read-only scope, masking, row caps and the write lock.
+          Switched-off tools are removed server-side, so the model never sees them.
+        </div>
+        <div className="flex flex-col gap-2">
+          {AGENT_TOOLS.map((tool) => {
+            const disabled = draft.disabledAgentTools?.includes(tool.name) ?? false;
+            return (
+              <div
+                key={tool.name}
+                className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2 p-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold">
+                    {tool.label}{' '}
+                    <span className="font-mono text-2xs font-normal text-muted">{tool.name}</span>
+                  </div>
+                  <div className="mt-0.5 max-w-xl text-2xs leading-4 text-muted">
+                    {tool.description}
+                  </div>
+                </div>
+                <Switch
+                  label={`${tool.label} available to the agent`}
+                  checked={!disabled}
+                  onChange={() => onToggleAgentTool(tool.name)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="section-title mb-1">MCP servers</div>
+        <div className="mb-3 max-w-xl text-2xs leading-4 text-muted">
+          Optional local Model Context Protocol servers the agent may call over stdio. Each entry:{' '}
+          <span className="font-mono">{`{ "name": "docs", "command": "uvx", "args": ["mcp-server-fetch"], "allowedTools": ["fetch"] }`}</span>
+          . The command runs locally with a scrubbed environment; a server that fails to start is
+          skipped. At most 3 servers.
+        </div>
+        <Textarea
+          rows={7}
+          className="min-h-[110px] font-mono text-2xs"
+          value={mcpServersJson}
+          onChange={(event) => onMcpServersChange(event.target.value)}
+          onBlur={onMcpServersApply}
+          aria-label="MCP servers JSON"
+          spellCheck={false}
+        />
+        {mcpError ? (
+          <div className="callout danger mt-2 text-2xs" role="alert">
+            {mcpError}
+          </div>
+        ) : null}
+      </Card>
+      <Card className="p-4">
+        <div className="section-title mb-3">Query limits</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field
+            label="Row cap"
+            hint="Applied as sql_select_limit for interactive queries. 1–10,000."
+            error={numericErrors.rowLimit}
+          >
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={numericDrafts.rowLimit}
+              onChange={(event) => onNumericChange('rowLimit', event.target.value)}
+              onBlur={() => onNumericBlur('rowLimit')}
+              aria-invalid={Boolean(numericErrors.rowLimit)}
+            />
+          </Field>
+          <Field
+            label="Query timeout (ms)"
+            hint="Server-side max_statement_time / max_execution_time, plus client timeout."
+            error={numericErrors.queryTimeoutMs}
+          >
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={numericDrafts.queryTimeoutMs}
+              onChange={(event) => onNumericChange('queryTimeoutMs', event.target.value)}
+              onBlur={() => onNumericBlur('queryTimeoutMs')}
+              aria-invalid={Boolean(numericErrors.queryTimeoutMs)}
+            />
+          </Field>
+          <Field label="Cell size cap (characters)" error={numericErrors.cellMaxChars}>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={numericDrafts.cellMaxChars}
+              onChange={(event) => onNumericChange('cellMaxChars', event.target.value)}
+              onBlur={() => onNumericBlur('cellMaxChars')}
+              aria-invalid={Boolean(numericErrors.cellMaxChars)}
+            />
+          </Field>
+          <Field
+            label="History entries"
+            hint="Server-side query history cap. 50–5,000."
+            error={numericErrors.historyLimit}
+          >
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={numericDrafts.historyLimit}
+              onChange={(event) => onNumericChange('historyLimit', event.target.value)}
+              onBlur={() => onNumericBlur('historyLimit')}
+              aria-invalid={Boolean(numericErrors.historyLimit)}
+            />
+          </Field>
+        </div>
+      </Card>
+      {/* The button saves the whole tab — write unlocking, masking and the
+          query limits — so it sits in a page-level action row, not inside
+          the card that holds the four limit fields. */}
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line-soft pt-3">
+        <Button variant="primary" loading={savingSettings} onClick={onSave}>
+          Save safety settings
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function SettingsPage() {
@@ -116,6 +387,8 @@ export function SettingsPage() {
   const profiles = useAppStore((state) => state.profiles);
   const providers = useAppStore((state) => state.providers);
   const settings = useAppStore((state) => state.settings);
+  // Absent in a settings file written before the switch existed: enabled.
+  const writeUnlockEnabled = settings.writeUnlockEnabled !== false;
   const theme = useAppStore((state) => state.theme);
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const boot = useAppStore((state) => state.boot);
@@ -142,22 +415,29 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [draft, setDraft] = useState<AppSettings>(settings);
+  // The MCP server list is edited as JSON text and applied to the draft on
+  // blur, so a half-typed line never travels to the server.
+  const [mcpServersJson, setMcpServersJson] = useState<string>(() =>
+    JSON.stringify(settings.mcpServers ?? [], null, 2),
+  );
+  const [mcpError, setMcpError] = useState<string | null>(null);
   const [numericDrafts, setNumericDrafts] = useState<Record<NumericField, string>>(() =>
     numericDraftsOf(settings),
   );
   const [numericErrors, setNumericErrors] = useState<Partial<Record<NumericField, string>>>({});
   const [savingSettings, setSavingSettings] = useState(false);
+  const [writeUnlockBusy, setWriteUnlockBusy] = useState(false);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [clearingHistory, setClearingHistory] = useState(false);
-  const appliedSettingsRef = useRef(withoutTheme(settings));
+  const appliedSettingsRef = useRef(draftFingerprint(settings));
 
   useEffect(() => {
-    const snapshot = withoutTheme(settings);
+    const snapshot = draftFingerprint(settings);
     if (snapshot === appliedSettingsRef.current) return;
     const previous = appliedSettingsRef.current;
     appliedSettingsRef.current = snapshot;
     // A theme change rewrites settings without touching these fields; keep unsaved edits intact.
-    if (withoutTheme(draft) !== previous) return;
+    if (draftFingerprint(draft) !== previous) return;
     setDraft(settings);
     setNumericDrafts(numericDraftsOf(settings));
     setNumericErrors({});
@@ -213,10 +493,13 @@ export function SettingsPage() {
     }
     setSavingSettings(true);
     try {
-      await updateSettings({ ...draft, ...numeric, theme });
+      // The write-unlock switch has its own action; it must not ride along with
+      // the draft.
+      const { writeUnlockEnabled: _writeUnlockEnabled, ...draftSettings } = draft;
+      await updateSettings({ ...draftSettings, ...numeric, theme });
       toast('Settings saved.', 'success');
       const saved = useAppStore.getState().settings;
-      appliedSettingsRef.current = withoutTheme(saved);
+      appliedSettingsRef.current = draftFingerprint(saved);
       setDraft(saved);
       setNumericDrafts(numericDraftsOf(saved));
       setNumericErrors({});
@@ -224,6 +507,29 @@ export function SettingsPage() {
       toast(error instanceof Error ? error.message : String(error), 'error');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  /**
+   * The global write-unlock switch. Turning it off makes the whole app
+   * read-only — administrators included — so it is applied on its own instead
+   * of riding along with the settings draft.
+   */
+  const toggleWriteUnlock = async (enabled: boolean): Promise<void> => {
+    setWriteUnlockBusy(true);
+    try {
+      await api.put('/api/admin/settings/write-unlock', { enabled });
+      await refreshSettings();
+      toast(
+        enabled
+          ? 'Write unlocking enabled for every account.'
+          : 'Write unlocking disabled — the app is read-only for everybody.',
+        enabled ? 'success' : 'warn',
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      setWriteUnlockBusy(false);
     }
   };
 
@@ -354,29 +660,11 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Settings" />
-
-      <Tabs
-        items={[
-          {
-            id: 'connections',
-            label: 'Connections',
-            count: profiles.length,
-            icon: <Database size={12} />,
-          },
-          {
-            id: 'ai',
-            label: 'AI providers',
-            count: providers.length,
-            icon: <Sparkles size={12} />,
-          },
-          { id: 'review', label: 'Review', icon: <Brain size={12} /> },
-          { id: 'safety', label: 'Safety', icon: <ShieldCheck size={12} /> },
-          { id: 'appearance', label: 'Appearance', icon: <Sun size={12} /> },
-          { id: 'data', label: 'Data & about', icon: <Server size={12} /> },
-        ]}
-        value={tab}
-        onChange={setTab}
+      <SettingsHeader
+        tab={tab}
+        profileCount={profiles.length}
+        providerCount={providers.length}
+        onTabChange={setTab}
       />
 
       {tab === 'connections' ? (
@@ -403,33 +691,31 @@ export function SettingsPage() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-[13px] font-bold">{profile.name}</span>
+                      <span className="truncate text-sm font-bold">{profile.name}</span>
                       {profile.id === activeProfileId ? <Badge tone="mint">active</Badge> : null}
-                      {profile.ssl?.enabled ? <Badge tone="mint">TLS</Badge> : null}
+                      {profile.writeAccess === 'locked' ? (
+                        <Badge tone="warn">read-only for members</Badge>
+                      ) : null}
                     </div>
-                    <div className="mt-1 font-mono text-[10.5px] text-muted">
+                    <div className="mt-1 font-mono text-2xs text-muted">
                       {profile.user}@{profile.host}:{profile.port}
                       {profile.database ? ` / ${profile.database}` : ''}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Badge tone={profile.passwordSource === 'saved' ? 'mint' : 'warn'}>
-                        <KeyRound size={9} />
-                        {profile.passwordSource === 'saved'
-                          ? 'encrypted password'
-                          : profile.passwordSource === 'session'
-                            ? 'session password'
-                            : 'no saved password'}
-                      </Badge>
-                      <Badge tone="neutral">
-                        {profile.lastUsedAt
-                          ? `used ${formatRelative(profile.lastUsedAt)}`
-                          : 'never used'}
-                      </Badge>
-                      <Badge tone={profile.databaseScope === 'selected' ? 'ember' : 'neutral'}>
-                        {profile.databaseScope === 'selected'
-                          ? `${profile.allowedDatabases.length} DB scope`
-                          : 'all databases'}
-                      </Badge>
+                    <div className="mt-2 text-2xs text-muted">
+                      {profile.ssl?.enabled ? 'TLS · ' : ''}
+                      {profile.passwordSource === 'saved'
+                        ? 'encrypted password'
+                        : profile.passwordSource === 'session'
+                          ? 'session password'
+                          : 'no saved password'}
+                      {' · '}
+                      {profile.lastUsedAt
+                        ? `used ${formatRelative(profile.lastUsedAt)}`
+                        : 'never used'}
+                      {' · '}
+                      {profile.databaseScope === 'selected'
+                        ? `${profile.allowedDatabases.length} DB scope`
+                        : 'all databases'}
                     </div>
                   </div>
                 </div>
@@ -486,8 +772,8 @@ export function SettingsPage() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-line bg-panel-3 text-ember">
                   <Sparkles size={22} />
                 </div>
-                <div className="text-[14px] font-bold">No AI provider configured</div>
-                <div className="max-w-md text-[12px] text-muted">
+                <div className="text-base font-bold">No AI provider configured</div>
+                <div className="max-w-md text-xs text-muted">
                   Reviews work without AI; add a provider for AI feedback.
                 </div>
                 <Button
@@ -509,22 +795,19 @@ export function SettingsPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="truncate text-[13px] font-bold">{provider.name}</span>
+                        <span className="truncate text-sm font-bold">{provider.name}</span>
                         {provider.isDefault ? (
                           <Badge tone="ember">
                             <Star size={9} /> default
                           </Badge>
                         ) : null}
-                        <Badge tone="neutral">{provider.type}</Badge>
+                        <span className="font-mono text-2xs text-muted">{provider.type}</span>
                       </div>
-                      <div className="mt-1 truncate font-mono text-[10px] text-muted">
+                      <div className="mt-1 truncate font-mono text-2xs text-muted">
                         {provider.baseUrl} · {provider.model}
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <Badge tone={provider.hasApiKey ? 'mint' : 'warn'}>
-                          <KeyRound size={9} />
-                          {provider.hasApiKey ? provider.apiKeyHint : 'no key'}
-                        </Badge>
+                      <div className="mt-2 font-mono text-2xs text-muted">
+                        {provider.hasApiKey ? provider.apiKeyHint : 'no key'}
                       </div>
                     </div>
                   </div>
@@ -580,10 +863,10 @@ export function SettingsPage() {
         <Card className="p-4">
           <div className="section-title mb-3">Review behavior</div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2 p-3">
               <div>
-                <div className="text-[12px] font-semibold">Live lint</div>
-                <div className="mt-0.5 text-[10.5px] text-muted">
+                <div className="text-xs font-semibold">Live lint</div>
+                <div className="mt-0.5 text-2xs text-muted">
                   Adds at most one review request per typing pause.
                 </div>
               </div>
@@ -593,10 +876,10 @@ export function SettingsPage() {
                 onChange={(value) => setDraft((current) => ({ ...current, liveLint: value }))}
               />
             </div>
-            <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2 p-3">
               <div>
-                <div className="text-[12px] font-semibold">Include schema by default</div>
-                <div className="mt-0.5 text-[10.5px] text-muted">
+                <div className="text-xs font-semibold">Include schema by default</div>
+                <div className="mt-0.5 text-2xs text-muted">
                   Sends table and index context with reviews.
                 </div>
               </div>
@@ -648,104 +931,63 @@ export function SettingsPage() {
       ) : null}
 
       {tab === 'safety' ? (
-        <div className="flex flex-col gap-3">
-          <Card className="p-4">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <ShieldCheck size={15} className="text-mint" />
-              <div className="section-title">Read-only by default</div>
-            </div>
-            <div className="callout mint text-[11.5px]">
-              Read-only statements run freely. DML, DDL, and administrative statements require
-              typing <span className="font-mono">UNLOCK WRITES</span> for a 15-minute per-connection
-              window.
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="section-title mb-3">Sensitive data</div>
-            <div className="flex items-start justify-between gap-4 rounded-xl border border-line-soft bg-panel-2/40 p-3">
-              <div>
-                <div className="text-[12px] font-semibold">Mask sensitive columns</div>
-                <div className="mt-0.5 max-w-xl text-[10.5px] leading-4 text-muted">
-                  Masks credential-like columns in results; they can be revealed per statement after
-                  a confirmation. Not a substitute for grants.
-                </div>
-              </div>
-              <Switch
-                label="Mask sensitive columns"
-                checked={draft.maskSensitiveColumns}
-                onChange={(value) =>
-                  setDraft((current) => ({ ...current, maskSensitiveColumns: value }))
+        <SafetyTab
+          writeUnlockEnabled={writeUnlockEnabled}
+          writeUnlockBusy={writeUnlockBusy}
+          savingSettings={savingSettings}
+          draft={draft}
+          numericDrafts={numericDrafts}
+          numericErrors={numericErrors}
+          onToggleWriteUnlock={(value) => void toggleWriteUnlock(value)}
+          onToggleMaskSensitive={(value) =>
+            setDraft((current) => ({ ...current, maskSensitiveColumns: value }))
+          }
+          onToggleAgentTool={(name) =>
+            setDraft((current) => {
+              const disabled = new Set(current.disabledAgentTools ?? []);
+              if (disabled.has(name)) disabled.delete(name);
+              else disabled.add(name);
+              return { ...current, disabledAgentTools: [...disabled] };
+            })
+          }
+          mcpServersJson={mcpServersJson}
+          mcpError={mcpError}
+          onMcpServersChange={setMcpServersJson}
+          onMcpServersApply={() => {
+            const text = mcpServersJson.trim();
+            if (!text) {
+              setMcpError(null);
+              setDraft((current) => ({ ...current, mcpServers: [] }));
+              return;
+            }
+            try {
+              const parsed = JSON.parse(text) as unknown;
+              if (!Array.isArray(parsed)) throw new Error('MCP servers must be a JSON array.');
+              for (const server of parsed) {
+                if (!server || typeof server !== 'object') {
+                  throw new Error('Every MCP server must be an object.');
                 }
-              />
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="section-title mb-3">Query limits</div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field
-                label="Row cap"
-                hint="Applied as sql_select_limit for interactive queries. 1–10,000."
-                error={numericErrors.rowLimit}
-              >
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={numericDrafts.rowLimit}
-                  onChange={(event) => updateNumeric('rowLimit', event.target.value)}
-                  onBlur={() => blurNumeric('rowLimit')}
-                  aria-invalid={Boolean(numericErrors.rowLimit)}
-                />
-              </Field>
-              <Field
-                label="Query timeout (ms)"
-                hint="Server-side max_statement_time / max_execution_time, plus client timeout."
-                error={numericErrors.queryTimeoutMs}
-              >
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={numericDrafts.queryTimeoutMs}
-                  onChange={(event) => updateNumeric('queryTimeoutMs', event.target.value)}
-                  onBlur={() => blurNumeric('queryTimeoutMs')}
-                  aria-invalid={Boolean(numericErrors.queryTimeoutMs)}
-                />
-              </Field>
-              <Field label="Cell size cap (characters)" error={numericErrors.cellMaxChars}>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={numericDrafts.cellMaxChars}
-                  onChange={(event) => updateNumeric('cellMaxChars', event.target.value)}
-                  onBlur={() => blurNumeric('cellMaxChars')}
-                  aria-invalid={Boolean(numericErrors.cellMaxChars)}
-                />
-              </Field>
-              <Field
-                label="History entries"
-                hint="Server-side query history cap. 50–5,000."
-                error={numericErrors.historyLimit}
-              >
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  value={numericDrafts.historyLimit}
-                  onChange={(event) => updateNumeric('historyLimit', event.target.value)}
-                  onBlur={() => blurNumeric('historyLimit')}
-                  aria-invalid={Boolean(numericErrors.historyLimit)}
-                />
-              </Field>
-            </div>
-            <div className="mt-3 flex justify-end">
-              <Button
-                variant="primary"
-                loading={savingSettings}
-                onClick={() => void saveSettings()}
-              >
-                Save safety settings
-              </Button>
-            </div>
-          </Card>
-        </div>
+                const entry = server as Record<string, unknown>;
+                if (typeof entry.name !== 'string' || !/^[a-z0-9_-]+$/.test(entry.name)) {
+                  throw new Error('Every MCP server needs a slug "name" (a-z, 0-9, -, _).');
+                }
+                if (typeof entry.command !== 'string' || !entry.command.trim()) {
+                  throw new Error(`MCP server "${entry.name}" needs a "command".`);
+                }
+              }
+              setMcpError(null);
+              setDraft((current) => ({
+                ...current,
+                mcpServers: parsed as AppSettings['mcpServers'],
+              }));
+            } catch (cause) {
+              setMcpError(cause instanceof Error ? cause.message : String(cause));
+            }
+          }}
+          onNumericChange={updateNumeric}
+          onNumericBlur={blurNumeric}
+          onSave={() => void saveSettings()}
+        />
       ) : null}
 
       {tab === 'appearance' ? (
@@ -766,12 +1008,12 @@ export function SettingsPage() {
                   'rounded-xl border p-3 text-left transition',
                   theme === option.id
                     ? 'border-ember/50 bg-ember/5'
-                    : 'border-line-soft bg-panel-2/40 hover:border-line',
+                    : 'border-line-soft bg-panel-2 hover:border-line',
                 )}
                 onClick={() => void setTheme(option.id)}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-semibold">{option.label}</span>
+                  <span className="text-xs font-semibold">{option.label}</span>
                   {theme === option.id ? (
                     <CheckCircle2 size={13} className="ml-auto text-ember" />
                   ) : null}
@@ -786,7 +1028,7 @@ export function SettingsPage() {
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Card className="p-4">
             <div className="section-title mb-3">Local data</div>
-            <div className="flex flex-col gap-2 text-[11.5px]">
+            <div className="flex flex-col gap-2 text-2xs">
               {[
                 ['Data directory', boot?.dataDir ?? '—'],
                 ['Connections', String(profiles.length)],
@@ -799,7 +1041,7 @@ export function SettingsPage() {
                   className="flex items-start justify-between gap-3 border-b border-line-soft py-1.5"
                 >
                   <span className="text-muted">{label}</span>
-                  <span className="max-w-[65%] break-all text-right font-mono text-[10px]">
+                  <span className="max-w-[65%] break-all text-right font-mono text-2xs">
                     {value}
                   </span>
                 </div>
@@ -831,27 +1073,25 @@ export function SettingsPage() {
 
           <Card className="p-4">
             <div className="section-title mb-3">Environment</div>
-            <div className="flex flex-col gap-2 text-[11.5px]">
+            <div className="flex flex-col gap-2 text-2xs">
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">XAMPP detected</span>
-                <span className="font-mono text-[10px]">
-                  {detectedXampp?.path ?? 'not detected'}
-                </span>
+                <span className="font-mono text-2xs">{detectedXampp?.path ?? 'not detected'}</span>
               </div>
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">MySQL port</span>
-                <span className="font-mono text-[10px]">{detectedXampp?.port ?? 3306}</span>
+                <span className="font-mono text-2xs">{detectedXampp?.port ?? 3306}</span>
               </div>
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">App version</span>
-                <span className="font-mono text-[10px]">{boot?.version ?? '—'}</span>
+                <span className="font-mono text-2xs">{boot?.version ?? '—'}</span>
               </div>
               <div className="flex justify-between gap-2 border-b border-line-soft py-1.5">
                 <span className="text-muted">Platform</span>
-                <span className="font-mono text-[10px]">{boot?.platform ?? '—'}</span>
+                <span className="font-mono text-2xs">{boot?.platform ?? '—'}</span>
               </div>
             </div>
-            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2/40 p-3 text-[10.5px] leading-5 text-muted">
+            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2 p-3 text-2xs leading-5 text-muted">
               <div className="mb-1 flex items-center gap-1.5 font-semibold text-ink-soft">
                 <Laptop size={12} /> Local-first by design
               </div>
@@ -944,7 +1184,7 @@ export function SettingsPage() {
         loading={Boolean(busy)}
       />
 
-      <div className="flex items-center justify-between text-[10px] text-muted">
+      <div className="flex items-center justify-between text-2xs text-muted">
         <span>MyLens · local MySQL Review Studio</span>
         <span className="font-mono">v{boot?.version ?? APP_VERSION}</span>
       </div>

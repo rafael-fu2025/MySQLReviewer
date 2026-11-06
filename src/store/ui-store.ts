@@ -18,8 +18,18 @@ interface UiState {
   resetLayout: () => void;
 }
 
+/*
+ * On a first visit below 900px the sidebar starts as a rail (it would eat a
+ * quarter of the viewport otherwise). Unlike the old CSS media query that
+ * hard-forced the rail, this is only the default: the moment the user
+ * toggles, their choice is persisted and honored at every width.
+ */
+function defaultSidebarCollapsed(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
+}
+
 const DEFAULTS = {
-  sidebarCollapsed: false,
+  sidebarCollapsed: defaultSidebarCollapsed(),
   schemaCollapsed: false,
   editorPct: 42,
   resultsMaximized: false,

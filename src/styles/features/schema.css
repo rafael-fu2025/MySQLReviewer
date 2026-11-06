@@ -1,0 +1,353 @@
+/* Schema tree · Collapsible layout — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Schema tree                                                      */
+/* ---------------------------------------------------------------- */
+
+.tree-section {
+  border-bottom: 1px solid var(--color-line-soft);
+}
+.tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+.tree-header:hover {
+  color: var(--color-ink-soft);
+}
+.tree-list {
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.tree-item:hover {
+  background: var(--color-panel-3);
+}
+.tree-item.active {
+  background: color-mix(in oklab, var(--color-ember) 10%, transparent);
+  border-color: color-mix(in oklab, var(--color-ember) 22%, transparent);
+  color: var(--color-ink);
+}
+.tree-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-item .tree-rows {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted);
+}
+
+/* ---------------------------------------------------------------- */
+/* Collapsible layout                                               */
+/* ---------------------------------------------------------------- */
+
+.brand-toggle {
+  grid-area: toggle;
+  margin-left: auto;
+}
+
+/*
+ * Collapsed to a rail, the lockup becomes a single centred column: the mark
+ * on top, the expand toggle underneath. The tagline has no room at this
+ * width, so it is hidden along with the wordmark.
+ */
+.sidebar-collapsed .brand {
+  grid-template-columns: auto;
+  grid-template-areas:
+    'mark'
+    'toggle';
+  justify-items: center;
+  row-gap: 7px;
+}
+.sidebar-collapsed .brand-sub {
+  display: none;
+}
+
+.sidebar-collapsed {
+  width: 76px;
+  flex-basis: 76px;
+  padding: 14px 10px;
+  gap: 14px;
+  align-items: center;
+}
+.sidebar-collapsed .brand {
+  width: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  padding: 0;
+}
+.sidebar-collapsed .brand-toggle {
+  margin-left: 0;
+}
+.sidebar-collapsed .brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+.sidebar-collapsed .brand-copy,
+.sidebar-collapsed .connection-copy,
+.sidebar-collapsed .connection-meta,
+.sidebar-collapsed .nav-label,
+.sidebar-collapsed .nav-item > span,
+.sidebar-collapsed .sidebar-footer .hide-collapse {
+  display: none;
+}
+.sidebar-collapsed .connection-card {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+.sidebar-collapsed .connection-name {
+  justify-content: center;
+  gap: 0;
+}
+.sidebar-collapsed .nav {
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-collapsed .nav > .tip-anchor,
+.sidebar-collapsed .sidebar-footer > .tip-anchor {
+  width: 44px;
+  justify-content: center;
+}
+.sidebar-collapsed .nav-item {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: 12px;
+  position: relative;
+}
+.sidebar-collapsed .nav-item svg {
+  width: 17px;
+  height: 17px;
+}
+.sidebar-collapsed .nav-item.active {
+  background: color-mix(in oklab, var(--color-ember) 14%, transparent);
+  border-color: color-mix(in oklab, var(--color-ember) 24%, transparent);
+}
+.sidebar-collapsed .nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--color-ember);
+  transform: translateY(-50%);
+}
+.sidebar-collapsed .nav-badge {
+  display: none;
+}
+.sidebar-collapsed .sidebar-footer {
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-collapsed .sidebar-footer .nav-item {
+  width: 44px;
+  height: 44px;
+}
+.sidebar-collapsed .sidebar-footer > div {
+  width: 100%;
+  justify-content: center;
+  padding: 0;
+}
+
+.schema-side-collapsed {
+  width: 50px;
+  flex-basis: 50px;
+  align-items: center;
+  background: var(--color-panel);
+}
+.schema-rail {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 12px;
+}
+.schema-rail .icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+.schema-rail-divider {
+  width: 24px;
+  height: 1px;
+  background: var(--color-line-soft);
+  margin: 2px 0;
+}
+.schema-rail-stat {
+  width: 36px;
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in oklab, var(--color-line-soft) 85%, transparent);
+  background: color-mix(in oklab, var(--color-panel-2) 55%, transparent);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.schema-rail-stat span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-muted);
+}
+.schema-rail-stat:hover {
+  background: var(--color-panel-3);
+  border-color: var(--color-line);
+  color: var(--color-ink);
+}
+.schema-rail-stat:hover span {
+  color: var(--color-ink-soft);
+}
+.schema-rail-spacer {
+  flex: 1;
+}
+
+/* Portal tooltip used by the collapsed navigation rails. */
+.tip-anchor-inline {
+  display: inline-flex;
+}
+.tip-anchor-block {
+  display: block;
+  width: 100%;
+}
+.tip {
+  --tip-bg: #141416;
+  position: fixed;
+  z-index: 320;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: var(--tip-bg);
+  color: #f0f0f2;
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  animation: tip-in 0.12s ease both;
+}
+.tip::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+.tip-right::after {
+  left: -10px;
+  top: 50%;
+  margin-top: -5px;
+  border-right-color: var(--tip-bg);
+}
+.tip-left::after {
+  right: -10px;
+  top: 50%;
+  margin-top: -5px;
+  border-left-color: var(--tip-bg);
+}
+.tip-top::after {
+  bottom: -10px;
+  left: 50%;
+  margin-left: -5px;
+  border-top-color: var(--tip-bg);
+}
+.tip-bottom::after {
+  top: -10px;
+  left: 50%;
+  margin-left: -5px;
+  border-bottom-color: var(--tip-bg);
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.schema-mobile-toggle {
+  display: none;
+}
+.schema-mobile-close {
+  display: none;
+}
+.schema-drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .schema-mobile-toggle {
+    display: inline-flex;
+  }
+  .schema-mobile-close {
+    display: inline-flex;
+  }
+  .schema-drawer-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 88;
+    background: rgba(3, 5, 8, 0.62);
+    backdrop-filter: blur(3px);
+    animation: fade-in 0.18s ease;
+  }
+  .workspace.schema-drawer-open .schema-side {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 89;
+    width: min(300px, 86vw);
+    background: var(--color-panel);
+    animation: slide-in-left 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}

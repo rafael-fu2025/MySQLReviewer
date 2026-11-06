@@ -1,22 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Download,
-  FileJson,
-  FileText,
-  Globe2,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Trash2,
-  XCircle,
-} from 'lucide-react';
+import { FileJson, FileText, Globe2, RefreshCw, Search, Trash2, XCircle } from 'lucide-react';
 import type { ReportSummary } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api, downloadReport } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import {
-  Badge,
   Button,
   Card,
   ConfirmDialog,
@@ -136,38 +125,40 @@ export function ReportsPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs
-          items={[
-            { id: 'all', label: 'All', count: reports.length },
-            {
-              id: 'audit',
-              label: 'Audits',
-              count: reports.filter((report) => report.kind === 'audit').length,
-            },
-            {
-              id: 'review',
-              label: 'Reviews',
-              count: reports.filter((report) => report.kind === 'review').length,
-            },
-          ]}
-          value={filter}
-          onChange={setFilter}
-        />
-        <div className="relative ml-auto min-w-[240px]">
-          <Search
-            size={12}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+      {reports.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs
+            items={[
+              { id: 'all', label: 'All', count: reports.length || undefined },
+              {
+                id: 'audit',
+                label: 'Audits',
+                count: reports.filter((report) => report.kind === 'audit').length || undefined,
+              },
+              {
+                id: 'review',
+                label: 'Reviews',
+                count: reports.filter((report) => report.kind === 'review').length || undefined,
+              },
+            ]}
+            value={filter}
+            onChange={setFilter}
           />
-          <Input
-            className="input-search py-1.5 text-[11.5px]"
-            placeholder="Search reports…"
-            aria-label="Search reports"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <div className="relative ml-auto min-w-[240px]">
+            <Search
+              size={12}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <Input
+              className="input-search py-1.5 text-2xs"
+              placeholder="Search reports…"
+              aria-label="Search reports"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -181,35 +172,37 @@ export function ReportsPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-danger/30 bg-danger/10 text-danger">
               <XCircle size={22} />
             </div>
-            <div className="text-[14px] font-bold">Reports could not be loaded</div>
-            <div className="max-w-md text-[12px] text-muted">{loadError}</div>
+            <div className="text-base font-bold">Reports could not be loaded</div>
+            <div className="max-w-md text-xs text-muted">{loadError}</div>
             <Button variant="secondary" icon={<RefreshCw size={12} />} onClick={refresh}>
               Retry
             </Button>
           </div>
         </Card>
       ) : filtered.length === 0 ? (
-        reports.length === 0 ? (
-          <EmptyState
-            icon={<FileText size={24} />}
-            title="No reports yet"
-            action={
-              <Button variant="primary" onClick={() => navigate('/audit')}>
-                Run audit
-              </Button>
-            }
-          />
-        ) : (
-          <EmptyState
-            icon={<Search size={24} />}
-            title="No reports match this filter"
-            action={
-              <Button variant="secondary" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            }
-          />
-        )
+        <div className="empty-anchor">
+          {reports.length === 0 ? (
+            <EmptyState
+              icon={<FileText size={24} />}
+              title="No reports yet"
+              action={
+                <Button variant="primary" onClick={() => navigate('/audit')}>
+                  Run audit
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={<Search size={24} />}
+              title="No reports match this filter"
+              action={
+                <Button variant="secondary" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              }
+            />
+          )}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((report) => (
@@ -218,28 +211,24 @@ export function ReportsPage() {
                 <ScoreRing score={report.score} grade={report.grade} size={68} stroke={6} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone={report.kind === 'audit' ? 'ember' : 'info'}>
+                    <span className="mono-label">
                       {report.kind === 'audit' ? 'Audit' : 'Review'}
-                    </Badge>
-                    {report.hasAi ? (
-                      <Badge tone="info">
-                        <Sparkles size={9} /> AI summary
-                      </Badge>
-                    ) : null}
+                    </span>
+                    {report.hasAi ? <span className="mono-label">AI summary</span> : null}
                   </div>
-                  <div className="mt-1 line-clamp-2 text-[13px] font-semibold text-ink">
+                  <div className="mt-1 line-clamp-2 text-sm font-semibold text-ink">
                     {report.title}
                   </div>
-                  <div className="mt-1 text-[10px] text-muted">{formatDate(report.createdAt)}</div>
+                  <div className="mt-1 text-2xs text-muted">{formatDate(report.createdAt)}</div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
-                <Badge tone="neutral">{report.findingsTotal} findings</Badge>
+              <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
+                <span>{report.findingsTotal} findings</span>
                 {report.databaseScope.length > 0 ? (
-                  <Badge tone="neutral">
+                  <span>
                     {report.databaseScope.slice(0, 2).join(', ')}
                     {report.databaseScope.length > 2 ? '…' : ''}
-                  </Badge>
+                  </span>
                 ) : null}
               </div>
               <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-line-soft pt-2">
@@ -254,13 +243,13 @@ export function ReportsPage() {
                   variant="ghost"
                   size="sm"
                   icon={
-                    exporting === `${report.id}:md` ? <Spinner size={11} /> : <Download size={11} />
+                    exporting === `${report.id}:md` ? <Spinner size={11} /> : <FileText size={11} />
                   }
                   onClick={() => void doExport(report, 'md')}
                   disabled={isExporting(exporting, report.id)}
-                >
-                  Markdown
-                </Button>
+                  aria-label="Export as Markdown"
+                  tooltip="Markdown"
+                />
                 <Button
                   variant="ghost"
                   size="sm"
@@ -269,7 +258,8 @@ export function ReportsPage() {
                   }
                   onClick={() => void doExport(report, 'html')}
                   disabled={isExporting(exporting, report.id)}
-                  title="HTML"
+                  aria-label="Export as HTML"
+                  tooltip="HTML"
                 />
                 <Button
                   variant="ghost"
@@ -283,15 +273,18 @@ export function ReportsPage() {
                   }
                   onClick={() => void doExport(report, 'json')}
                   disabled={isExporting(exporting, report.id)}
-                  title="JSON"
+                  aria-label="Export as JSON"
+                  tooltip="JSON"
                 />
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="ml-auto text-danger"
+                  className="text-danger"
+                  tooltipClassName="ml-auto"
                   icon={<Trash2 size={11} />}
                   onClick={() => setDeleting(report)}
-                  title="Delete report"
+                  aria-label="Delete report"
+                  tooltip="Delete report"
                 />
               </div>
             </Card>

@@ -1,0 +1,246 @@
+/* Score · Results maximize / practice helpers · SQL Lab focus layout and question navigator — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Score                                                            */
+/* ---------------------------------------------------------------- */
+
+.score-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.score-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.score-ring svg {
+  transform: rotate(-90deg);
+}
+.score-ring .score-num {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--color-ink);
+}
+.score-ring .score-grade {
+  position: absolute;
+  bottom: 12%;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--color-muted);
+  font-weight: 700;
+}
+.score-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Results maximize / practice helpers                              */
+/* ---------------------------------------------------------------- */
+
+.results-maximized .editor-wrap,
+.results-maximized .splitter {
+  display: none;
+}
+.practice-question h2 {
+  font-size: var(--text-lg);
+  line-height: 1.3;
+  font-weight: 760;
+}
+.practice-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.score-explainer summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  margin-left: calc(var(--space-2) * -1);
+  border-radius: 6px;
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+  list-style: none;
+}
+.score-explainer summary::-webkit-details-marker {
+  display: none;
+}
+.score-explainer summary:hover {
+  color: var(--color-ink-soft);
+}
+.score-explainer-body {
+  margin-top: 6px;
+  max-width: 560px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-2xs);
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+@media (max-width: 640px) {
+  .practice-score-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* SQL Lab focus layout and question navigator                      */
+/* ---------------------------------------------------------------- */
+
+.practice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 2px 0 0;
+}
+.practice-setup-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+.practice-setup-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+@media (min-width: 760px) {
+  .practice-setup-grid {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    align-items: start;
+  }
+}
+.practice-toolbar-title {
+  font-size: 19px;
+  line-height: 1.2;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+.practice-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.practice-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/*
+ * The question tracker: a compact strip that sits above the schema tables
+ * panel. Every placeholder must render the same shape in every state, so the
+ * cell size is decided here at the grid level — fixed rows matching the
+ * column floor — instead of by `aspect-ratio` on the button. The button is
+ * wrapped in the tooltip's anchor span, and resolving a 1:1 ratio through
+ * that flex wrapper let some boxes come out oval and others flat.
+ */
+.practice-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line-soft);
+  border-radius: 13px;
+  background: var(--color-panel);
+}
+.practice-nav-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-micro);
+  font-weight: 650;
+  color: var(--color-ink-soft);
+}
+.practice-nav-head .icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+}
+.practice-nav-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--color-muted);
+}
+.practice-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+  grid-auto-rows: 26px;
+  gap: 4px;
+}
+/* The tooltip anchor must not size the cell; it fills it and the button
+   fills the anchor, so state classes only ever change colors. */
+.practice-nav-grid .tip-anchor {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.practice-nav-box {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.practice-nav-box:hover {
+  border-color: var(--color-line);
+  background: var(--color-panel-2);
+  color: var(--color-ink);
+}
+.practice-nav-box.answered {
+  background: color-mix(in oklab, var(--color-mint) 16%, transparent);
+  border-color: color-mix(in oklab, var(--color-mint) 42%, transparent);
+  color: var(--color-mint);
+}
+.practice-nav-box.active {
+  border-color: var(--color-ember);
+  color: var(--color-ink);
+  outline: 2px solid color-mix(in oklab, var(--color-ember) 60%, transparent);
+  outline-offset: 1px;
+}
+.practice-nav-flag {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  color: var(--color-warn);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+/*
+ * The coarse-pointer layer in base.css lifts .practice-nav-box to the 44px
+ * hit minimum, so the tracks and the rows grow with it together — the cells
+ * stay as square as the column floor allows at every pointer mode.
+ */
+@media (pointer: coarse) {
+  .practice-nav-grid {
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+    grid-auto-rows: 44px;
+  }
+}
+@media (max-width: 640px) {
+  .practice-toolbar-title {
+    font-size: 17px;
+  }
+}

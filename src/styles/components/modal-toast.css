@@ -1,0 +1,236 @@
+/* Modal / toast / misc — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Modal / toast / misc                                             */
+/* ---------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 8, 0.7);
+  backdrop-filter: blur(5px);
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+  animation: fadeIn 0.14s ease;
+}
+.modal {
+  width: 100%;
+  max-width: 620px;
+  /* Auto block margins center the panel in the backdrop's free space and
+     collapse to zero when it overflows, keeping tall dialogs scrollable. */
+  margin-block: auto;
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  animation: fadeUp 0.18s ease;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal.closing {
+  animation: fadeOut 0.18s ease both;
+}
+.modal.wide {
+  max-width: 880px;
+}
+.modal.narrow {
+  max-width: 440px;
+}
+
+/*
+ * Bottom sheet: edge to edge, anchored to the bottom, sliding in and out.
+ *
+ * The panel is fixed to the viewport rather than laid out in the backdrop.
+ * The backdrop is a scroll container, and a transformed child that overflows
+ * it makes the browser scroll the backdrop to reveal the auto-focused
+ * control. That scroll cancels the slide out, so the sheet appears to fade
+ * instead of rising. Fixing the panel keeps it out of the backdrop's
+ * scrollable overflow, and moving the blur to a pseudo-element leaves the
+ * backdrop free of filters, which would otherwise make it the containing
+ * block for the fixed panel.
+ */
+.modal-sheet-backdrop {
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+}
+.modal-sheet-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 5, 8, 0.7);
+  backdrop-filter: blur(5px);
+  z-index: 0;
+}
+.modal-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  max-width: 100%;
+  border-radius: 18px 18px 0 0;
+  border-bottom: 0;
+  animation: sheetUp 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform;
+}
+.modal-sheet.closing {
+  animation: sheetDown 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+.modal-backdrop.closing {
+  animation: fadeOut 0.2s ease both;
+  pointer-events: none;
+}
+.sheet-grabber {
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-muted) 45%, transparent);
+  flex: 0 0 auto;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 0;
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+}
+.modal-sub {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: 3px;
+}
+.modal-body {
+  padding: 16px 20px;
+  overflow: auto;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 13px 20px;
+  border-top: 1px solid var(--color-line-soft);
+  background: color-mix(in oklab, var(--color-panel-2) 60%, transparent);
+  border-radius: 0 0 16px 16px;
+  flex-wrap: wrap;
+}
+
+.toast-viewport {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel-2);
+  animation: fadeUp 0.18s ease;
+  font-size: 12px;
+  color: var(--color-ink-soft);
+}
+.toast.success {
+  border-color: color-mix(in oklab, var(--color-mint) 30%, var(--color-line));
+}
+.toast.error {
+  border-color: color-mix(in oklab, var(--color-danger) 36%, var(--color-line));
+}
+.toast.warn {
+  border-color: color-mix(in oklab, var(--color-warn) 32%, var(--color-line));
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--color-muted);
+}
+.empty-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  background: var(--color-panel-3);
+  border: 1px solid var(--color-line);
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+.empty-title {
+  color: var(--color-ink);
+  font-weight: 650;
+  font-size: 13px;
+}
+.empty-copy {
+  font-size: 12px;
+  max-width: 420px;
+  line-height: 1.55;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-panel-2) 25%,
+    var(--color-panel-3) 37%,
+    var(--color-panel-2) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 8px;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--color-line);
+  background: var(--color-panel-3);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-panel-3);
+  overflow: hidden;
+}
+.progress > div {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-ember);
+  transition: width 0.3s ease;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}

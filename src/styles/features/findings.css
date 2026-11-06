@@ -1,0 +1,69 @@
+/* Findings — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Findings                                                         */
+/* ---------------------------------------------------------------- */
+
+.finding {
+  border: 1px solid var(--color-line-soft);
+  border-left: 3px solid var(--color-muted);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--color-panel-2) 76%, transparent);
+  padding: 11px 13px;
+}
+.finding.sev-critical {
+  border-left-color: #ff5c6c;
+}
+.finding.sev-high {
+  border-left-color: #ff8a95;
+}
+.finding.sev-medium {
+  border-left-color: var(--color-warn);
+}
+.finding.sev-low {
+  border-left-color: var(--color-mint);
+}
+.finding.sev-info {
+  border-left-color: var(--color-info);
+}
+.finding-title {
+  font-weight: 650;
+  font-size: 12.5px;
+  color: var(--color-ink);
+}
+.finding-message {
+  color: var(--color-ink-soft);
+  font-size: 12px;
+  margin-top: 5px;
+  line-height: 1.55;
+}
+.finding-rec {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+.finding-evidence {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-muted);
+  background: color-mix(in oklab, var(--color-canvas) 55%, transparent);
+  border-radius: 6px;
+  padding: 6px 8px;
+  overflow: auto;
+  max-height: 90px;
+  white-space: pre-wrap;
+}
+
+.severity-rail {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 26px;
+}
+.severity-rail span {
+  width: 7px;
+  border-radius: 2px;
+  background: var(--color-line);
+}

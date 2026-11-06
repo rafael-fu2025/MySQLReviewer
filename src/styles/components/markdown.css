@@ -1,0 +1,89 @@
+/* Markdown — moved verbatim from index.css */
+
+/* ---------------------------------------------------------------- */
+/* Markdown                                                         */
+/* ---------------------------------------------------------------- */
+
+.markdown {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  color: var(--color-ink);
+  font-weight: 720;
+  letter-spacing: -0.015em;
+  margin: 16px 0 6px;
+}
+.markdown h1 {
+  font-size: 19px;
+}
+.markdown h2 {
+  font-size: 16px;
+}
+.markdown h3 {
+  font-size: 14px;
+}
+.markdown p {
+  margin: 7px 0;
+}
+.markdown ul,
+.markdown ol {
+  margin: 7px 0 7px 20px;
+  padding: 0;
+}
+.markdown li {
+  margin: 3px 0;
+}
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--color-panel-3);
+  border: 1px solid var(--color-line-soft);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.markdown pre {
+  background: color-mix(in oklab, #050506 85%, var(--color-panel));
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow: auto;
+  margin: 9px 0;
+}
+.markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #d6d6da;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--color-ember);
+  margin: 9px 0;
+  padding: 2px 0 2px 12px;
+  color: var(--color-muted);
+}
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11.5px;
+  margin: 9px 0;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--color-line);
+  padding: 5px 8px;
+  text-align: left;
+}
+.markdown th {
+  background: var(--color-panel-2);
+}
+.markdown a {
+  color: var(--color-ember);
+}

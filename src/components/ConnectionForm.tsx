@@ -30,6 +30,7 @@ interface FormState {
   databaseScope: 'all' | 'selected';
   allowedDatabases: string[];
   allowServerWideInsights: boolean;
+  writeAccess: 'full' | 'locked';
 }
 
 function initialState(profile?: ConnectionProfile | null): FormState {
@@ -51,6 +52,7 @@ function initialState(profile?: ConnectionProfile | null): FormState {
     databaseScope: profile?.databaseScope ?? 'all',
     allowedDatabases: profile?.allowedDatabases ?? [],
     allowServerWideInsights: profile?.allowServerWideInsights ?? true,
+    writeAccess: profile?.writeAccess ?? 'full',
   };
 }
 
@@ -95,6 +97,13 @@ export function ConnectionForm({
   const passwordId = useId();
   const advancedId = useId();
   const [form, setForm] = useState<FormState>(() => initialState(profile));
+  /**
+   * Server-wide insights read every database on the server, so they cannot
+   * be combined with a narrowed database scope. The value is derived rather
+   * than stored twice, which keeps the control honest: what it shows is what
+   * the server will be told.
+   */
+  const serverWideInsights = form.databaseScope === 'all' && form.allowServerWideInsights;
   const [showPassword, setShowPassword] = useState(false);
   const [advanced, setAdvanced] = useState(form.sslEnabled || Boolean(form.socketPath));
   const [saving, setSaving] = useState(false);
@@ -150,7 +159,8 @@ export function ConnectionForm({
     rememberPassword: form.rememberPassword,
     databaseScope: form.databaseScope,
     allowedDatabases: form.databaseScope === 'selected' ? form.allowedDatabases : [],
-    allowServerWideInsights: form.allowServerWideInsights,
+    allowServerWideInsights: serverWideInsights,
+    writeAccess: form.writeAccess,
   });
 
   const check = (): { ok: boolean; port?: number } => {
@@ -366,10 +376,10 @@ export function ConnectionForm({
         </div>
       </div>
 
-      <div className="rounded-xl border border-line-soft bg-panel-2/40 p-3">
+      <div className="rounded-xl border border-line-soft bg-panel-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <div>
-            <div className="text-[12px] font-semibold">Database access</div>
+            <div className="text-xs font-semibold">Database access</div>
           </div>
           <div className="ml-auto flex gap-1">
             <button
@@ -379,7 +389,6 @@ export function ConnectionForm({
                 setForm((current) => ({
                   ...current,
                   databaseScope: 'all',
-                  allowServerWideInsights: true,
                 }))
               }
             >
@@ -395,8 +404,6 @@ export function ConnectionForm({
                 setForm((current) => ({
                   ...current,
                   databaseScope: 'selected',
-                  allowServerWideInsights:
-                    current.databaseScope === 'selected' ? current.allowServerWideInsights : false,
                 }))
               }
             >
@@ -416,52 +423,71 @@ export function ConnectionForm({
               showSelectAll
             />
             {testDatabases.length === 0 ? (
-              <div className="text-[10px] text-muted">
+              <div className="text-2xs text-muted">
                 Test the connection to load the server’s databases.
-              </div>
-            ) : null}
-            <Checkbox
-              label="Allow server-wide performance and security insights"
-              checked={form.allowServerWideInsights}
-              onChange={(value) => set('allowServerWideInsights', value)}
-            />
-            <div className="text-[10px] leading-4 text-muted">
-              Grants, not this list, are the security boundary.
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                loading={grantBusy}
-                onClick={() => void previewGrant()}
-              >
-                Preview GRANT SQL
-              </Button>
-              {!profile ? (
-                <span className="text-[10px] text-muted">
-                  Save the connection first to generate SQL for a new user.
-                </span>
-              ) : null}
-            </div>
-            {grantSql ? (
-              <div className="rounded-lg border border-line-soft bg-canvas/50 p-2">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="mono-label">Least-privilege SQL · {notExecutedBadge}</span>
-                  <CopyButton text={grantSql} label="Copy" />
-                </div>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-ink-soft">
-                  {grantSql}
-                </pre>
               </div>
             ) : null}
           </div>
         ) : null}
       </div>
 
+      <div className="rounded-xl border border-line-soft bg-panel-2 p-3">
+        <div className="text-xs font-semibold">Permissions</div>
+        <div className="mt-2 flex flex-col gap-2">
+          <Checkbox
+            label="Allow server-wide performance and security insights"
+            checked={serverWideInsights}
+            disabled={form.databaseScope === 'selected'}
+            onChange={(value) => set('allowServerWideInsights', value)}
+          />
+          <div className="text-2xs leading-4 text-muted">
+            {form.databaseScope === 'selected'
+              ? 'Server-wide insights read every database on the server, so they stay off while this connection is limited to selected databases.'
+              : 'Grants, not this list, are the security boundary.'}
+          </div>
+          <Checkbox
+            label="Allow members to write through this connection"
+            checked={form.writeAccess === 'full'}
+            onChange={(value) => set('writeAccess', value ? 'full' : 'locked')}
+          />
+          <div className="text-2xs leading-4 text-muted">
+            {form.writeAccess === 'full'
+              ? 'Members can unlock writes on this connection for 15 minutes, as they can on any other.'
+              : 'This connection is read-only for members: they cannot run write statements on it, and they cannot reveal masked values through it. You keep full write access, and you can change this at any time.'}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={grantBusy}
+              onClick={() => void previewGrant()}
+            >
+              Preview GRANT SQL
+            </Button>
+            {!profile ? (
+              <span className="text-2xs text-muted">
+                Save the connection first to generate SQL for a new user.
+              </span>
+            ) : null}
+          </div>
+          {grantSql ? (
+            <div className="rounded-lg border border-line-soft bg-canvas p-2">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="mono-label">Least-privilege SQL · {notExecutedBadge}</span>
+                <CopyButton text={grantSql} label="Copy" />
+              </div>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-2xs text-ink-soft">
+                {grantSql}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       <button
         type="button"
-        className="flex w-fit items-center gap-1 text-[11px] text-muted hover:text-ink"
+        className="flex w-fit items-center gap-1 text-2xs text-muted hover:text-ink"
         onClick={() => setAdvanced((value) => !value)}
         aria-expanded={advanced}
         aria-controls={advancedId}
@@ -472,7 +498,7 @@ export function ConnectionForm({
       {advanced ? (
         <div
           id={advancedId}
-          className="grid grid-cols-1 gap-3 rounded-xl border border-line-soft bg-panel-2/40 p-3 sm:grid-cols-2"
+          className="grid grid-cols-1 gap-3 rounded-xl border border-line-soft bg-panel-2 p-3 sm:grid-cols-2"
         >
           <Field
             label="Socket path"
@@ -480,7 +506,7 @@ export function ConnectionForm({
             className="sm:col-span-2"
           >
             <Input
-              className="font-mono text-[11.5px]"
+              className="font-mono text-2xs"
               value={form.socketPath}
               onChange={(event) => setEndpoint('socketPath', event.target.value)}
               placeholder="C:/xampp/mysql/mysql.sock"
@@ -504,7 +530,7 @@ export function ConnectionForm({
               </div>
               <Field label="CA file or PEM">
                 <Input
-                  className="font-mono text-[11px]"
+                  className="font-mono text-2xs"
                   value={form.ca}
                   onChange={(event) => set('ca', event.target.value)}
                   placeholder="C:/certs/ca.pem"
@@ -512,7 +538,7 @@ export function ConnectionForm({
               </Field>
               <Field label="Client certificate or PEM">
                 <Input
-                  className="font-mono text-[11px]"
+                  className="font-mono text-2xs"
                   value={form.cert}
                   onChange={(event) => set('cert', event.target.value)}
                   placeholder="C:/certs/client-cert.pem"
@@ -520,7 +546,7 @@ export function ConnectionForm({
               </Field>
               <Field label="Client key or PEM" className="sm:col-span-2">
                 <Input
-                  className="font-mono text-[11px]"
+                  className="font-mono text-2xs"
                   value={form.key}
                   onChange={(event) => set('key', event.target.value)}
                   placeholder="C:/certs/client-key.pem"
@@ -550,7 +576,7 @@ export function ConnectionForm({
               {test.ok ? 'Connection succeeded' : 'Connection failed'}
             </span>
             {test.ok && test.server ? (
-              <span className="font-mono text-[10.5px] text-muted">
+              <span className="font-mono text-2xs text-muted">
                 {test.server.version} · {test.server.flavor} · {test.latencyMs} ms
                 {test.server.uptimeSeconds
                   ? ` · uptime ${Math.round(test.server.uptimeSeconds / 60)} min`

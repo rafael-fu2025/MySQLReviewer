@@ -1,9 +1,9 @@
 # UI copy & noise audit (AI-slop patterns)
 
-**Date:** 2026-10-24
+**Date:** 2026-10-24 · **Status: applied the same day** (commits `refactor(ui): delete copy that restates adjacent UI` → `fix(ai): drop filler fallbacks…` → `refactor(ui): cut filler prose to one line`). Ratified terminology: **statement**, **connection** (not profile), **AI summary**, **Run audit**.
 **Scope:** all user-visible copy and micro-UX across the ten routes, shared components, and the server-side strings that reach the user (AI prompts, parse fallbacks, report exports, error messages).
 **Companion to:** `docs/ui-audit.md` (visual/layout audit — separate scope, already applied).
-**Method:** full read of every page and component, plus a survey of `server/` string templates. Every finding below was verified against the working tree (line numbers are from the current uncommitted state).
+**Method:** full read of every page and component, plus a survey of `server/` string templates. Every finding below was verified against the working tree (line numbers are from the pre-fix state and have drifted).
 
 ---
 
@@ -271,3 +271,22 @@ Clean (verified, no action): all deterministic rule recommendations are specific
 3. **Defects** (P6) — small code fixes; the "last run" mislabel and unconditional XAMPP callout are user-visible wrongness.
 4. **AI output templates** (P7) — prompt tweaks + filler-fallback removal.
 5. **Cadence rewrites** (P4/P5 prose) — copywriting pass, best done last on stable terminology.
+
+---
+
+## Canonical-terms grep checklist (for future PRs)
+
+Run before merging copy changes; every command should return only intended hits:
+
+```bash
+grep -rniE "executive summary|high-impact" src server shared tests   # → none
+grep -rn "Past audits\|Run full audit\|Run an audit" src              # → none
+grep -rni "Configure AI" src                                         # → none
+grep -rn "profile" src/pages src/components                          # → code identifiers only, never user copy
+grep -rnE "query tab|Ask about this query" src                        # → none (canonical: statement)
+grep -rn "loading…\|executing…" --include="*.tsx" src                 # → capitalized only
+grep -rnE "\(s\)" src                                                 # → no "(s)" plurals
+grep -rnE "click to|Click to choose" src                              # → none
+```
+
+Duplicated cross-screen strings live in `src/lib/copy.ts` — extend it instead of re-wording a confirm, hint, or badge that already exists there.

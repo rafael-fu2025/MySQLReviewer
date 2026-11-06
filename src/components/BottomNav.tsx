@@ -18,8 +18,11 @@ interface BottomNavProps {
   items: BottomNavItem[];
   /** Destinations reached through the "More" sheet. */
   overflow: BottomNavItem[];
-  /** Label and state for the AI provider shortcut. */
-  aiLabel: string;
+  /**
+   * Label and state for the AI provider shortcut. Omitted for members, who
+   * have no provider settings to reach.
+   */
+  aiLabel?: string;
   aiActive: boolean;
   theme: ThemePreference;
   onToggleTheme: () => void;
@@ -113,17 +116,19 @@ export function BottomNav({
 
         <div className="sheet-divider" />
 
-        <button
-          type="button"
-          className="sheet-item"
-          onClick={() => {
-            closeSheet();
-            navigate('/settings?tab=ai');
-          }}
-        >
-          <Sparkles size={17} className={aiActive ? 'text-ember' : ''} />
-          <span className="truncate">{aiLabel}</span>
-        </button>
+        {aiLabel ? (
+          <button
+            type="button"
+            className="sheet-item"
+            onClick={() => {
+              closeSheet();
+              navigate('/settings?tab=ai');
+            }}
+          >
+            <Sparkles size={17} className={aiActive ? 'text-ember' : ''} />
+            <span className="truncate">{aiLabel}</span>
+          </button>
+        ) : null}
 
         <button type="button" className="sheet-item" onClick={onToggleTheme}>
           {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}

@@ -53,6 +53,35 @@ export function CommandPalette() {
   const listboxId = useId();
 
   const items = useMemo<PaletteItem[]>(() => {
+    // Members get only their working surfaces; admin screens stay out of the
+    // palette entirely (the server rejects them regardless).
+    const admin = useAppStore.getState().currentUser?.role === 'admin';
+    const adminRoutes: PaletteItem[] = admin
+      ? [
+          {
+            id: 'audit',
+            label: 'Audit',
+            group: 'Navigate',
+            path: '/audit',
+            icon: 'scan',
+          },
+          { id: 'reports', label: 'Reports', group: 'Navigate', path: '/reports', icon: 'file' },
+          {
+            id: 'settings',
+            label: 'Settings',
+            group: 'Navigate',
+            path: '/settings',
+            icon: 'settings',
+          },
+          {
+            id: 'admin',
+            label: 'Admin',
+            group: 'Navigate',
+            path: '/admin',
+            icon: 'shield',
+          },
+        ]
+      : [];
     const list: PaletteItem[] = [
       {
         id: 'workspace',
@@ -69,17 +98,25 @@ export function CommandPalette() {
         icon: 'database',
       },
       { id: 'practice', label: 'SQL Lab', group: 'Navigate', path: '/practice', icon: 'practice' },
-      {
-        id: 'performance',
-        label: 'Performance',
-        group: 'Navigate',
-        path: '/performance',
-        icon: 'activity',
-      },
-      { id: 'security', label: 'Security', group: 'Navigate', path: '/security', icon: 'shield' },
-      { id: 'audit', label: 'Audit', group: 'Navigate', path: '/audit', icon: 'scan' },
-      { id: 'reports', label: 'Reports', group: 'Navigate', path: '/reports', icon: 'file' },
-      { id: 'settings', label: 'Settings', group: 'Navigate', path: '/settings', icon: 'settings' },
+      ...(admin
+        ? [
+            {
+              id: 'performance',
+              label: 'Performance',
+              group: 'Navigate',
+              path: '/performance',
+              icon: 'activity',
+            },
+            {
+              id: 'security',
+              label: 'Security',
+              group: 'Navigate',
+              path: '/security',
+              icon: 'shield',
+            },
+          ]
+        : []),
+      ...adminRoutes,
       {
         id: 'create-database',
         label: 'Create database',
@@ -202,7 +239,7 @@ export function CommandPalette() {
         </div>
       }
       bodyClassName="max-h-[50vh] overflow-auto p-2"
-      footerClassName="flex items-center gap-2 border-t border-line-soft px-3 py-2 text-[10px] text-muted"
+      footerClassName="flex items-center gap-2 border-t border-line-soft px-3 py-2 text-2xs text-muted"
       footer={
         <>
           <Kbd>↑</Kbd>
@@ -230,7 +267,7 @@ export function CommandPalette() {
               {showGroup ? (
                 <div
                   role="presentation"
-                  className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"
+                  className="px-2.5 pb-1 pt-2 text-2xs font-semibold uppercase tracking-[0.12em] text-muted"
                 >
                   {item.group}
                 </div>
@@ -241,7 +278,7 @@ export function CommandPalette() {
                 id={`${listboxId}-option-${item.id}`}
                 aria-selected={position === safeIndex}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px]',
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs',
                   position === safeIndex
                     ? 'bg-ember/12 text-ink'
                     : 'text-ink-soft hover:bg-panel-3',
@@ -256,7 +293,7 @@ export function CommandPalette() {
           );
         })}
         {filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-[12px] text-muted">
+          <div className="px-3 py-6 text-center text-xs text-muted">
             No action matches “{search.trim()}”.
           </div>
         ) : null}

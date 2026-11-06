@@ -1,0 +1,126 @@
+/* @theme, :root design tokens, light theme, CodeMirror syntax vars */
+
+/*
+ * Fonts are bundled (@fontsource-variable, woff2) so every machine renders
+ * identically — no reliance on Segoe UI/Cascadia being installed. Inter's
+ * x-height is taller than Segoe's, so sizes read slightly larger at equal px.
+ */
+@theme {
+  --font-sans: 'Inter Variable', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
+
+  /*
+   * Type ramp — generates the text-* utilities AND the CSS vars used by the
+   * unlayered partials. 10.5px is reserved for uppercase micro-labels, 11px
+   * is the floor for sentence copy. Overridden built-ins: sm/base/lg/3xl.
+   */
+  --text-micro: 10.5px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 34px;
+
+  /*
+   * Dark theme: a real black-grey palette. Surfaces, lines, and text are
+   * neutral (no navy), the brand accent is white, and semantic status colors
+   * (mint/danger/warn/info/violet) keep their hues — they carry meaning.
+   */
+  --color-canvas: #09090a;
+  --color-panel: #0e0e10;
+  --color-panel-2: #121214;
+  --color-panel-3: #17171a;
+  --color-line: #26262a;
+  --color-line-soft: #1d1d21;
+  --color-ink: #f2f2f3;
+  --color-ink-soft: #c9c9ce;
+  --color-muted: #8e8e93;
+  --color-ember: #ffffff;
+  --color-ember-2: #c9c9ce;
+  --color-mint: #2dd4a7;
+  --color-mint-soft: #123b32;
+  --color-danger: #ff5c6c;
+  --color-warn: #f5b544;
+  --color-info: #60a5fa;
+  --color-violet: #a78bfa;
+
+  /* Filled by the primary button and brand mark; ink flips per theme. */
+  --color-cta: #f2f2f3;
+  --color-cta-hover: #ffffff;
+  --color-cta-ink: #0b0b0c;
+}
+
+:root {
+  color-scheme: dark;
+
+  /*
+   * Design tokens — the one place scales live. Primitives below read from
+   * these; new rules should too instead of introducing raw px values.
+   */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --focus-ring: 2px solid var(--color-ember);
+  --hit-min: 44px; /* minimum touch target on pointer:coarse devices */
+
+  --cm-keyword: #ff9a57;
+  --cm-string: #9ee6c4;
+  --cm-number: #8ecbff;
+  --cm-comment: #6f7d91;
+  --cm-variable: #dbe4f0;
+  --cm-function: #c4a8ff;
+  --cm-operator: #ffb07a;
+  --cm-type: #7dd3fc;
+  --cm-property: #ffd28a;
+  --cm-selection: color-mix(in oklab, #93c5fd 30%, transparent);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --cm-keyword: #b84e06;
+  --cm-string: #0f7a5c;
+  --cm-number: #1d4ed8;
+  --cm-comment: #6b7280;
+  --cm-variable: #1f2937;
+  --cm-function: #6d28d9;
+  --cm-operator: #9a6209;
+  --cm-type: #0369a1;
+  --cm-property: #92400e;
+  --cm-selection: color-mix(in oklab, #60a5fa 22%, transparent);
+  --color-canvas: #f5f3ed;
+  --color-panel: #ffffff;
+  --color-panel-2: #fbfaf6;
+  --color-panel-3: #f1eee6;
+  --color-line: #e2ddd2;
+  --color-line-soft: #ece8de;
+  --color-ink: #151a22;
+  --color-ink-soft: #354050;
+  --color-muted: #5b6370;
+  --color-ember: #a84705;
+  --color-ember-2: #8f3c04;
+  --color-mint: #087456;
+  --color-mint-soft: #d9f3ea;
+  --color-danger: #c62737;
+  --color-warn: #885b0c;
+  --color-info: #2158d4;
+  --color-violet: #7c3aed;
+
+  /* Light keeps the warm orange CTA the dark theme replaces with white. */
+  --color-cta: #c2410c;
+  --color-cta-hover: #cc4a10;
+  --color-cta-ink: #ffffff;
+}

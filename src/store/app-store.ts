@@ -7,6 +7,7 @@ import type {
   DatabaseInfo,
   DatabaseObjects,
   DetectedXampp,
+  PublicUser,
   SchemaSummary,
   ServerInfo,
   AiProvider,
@@ -16,13 +17,6 @@ import { DEFAULT_SETTINGS } from '@shared/types';
 import { api, ApiError, setApiToken, setUnauthorizedHandler } from '@/lib/api';
 
 const ACTIVE_KEY = 'mylens.activeProfile';
-
-/**
- * The route the app was opened at. A client side navigation does not change it,
- * so it tells a reload of a page apart from a jump to that page from another
- * part of the app.
- */
-export const BOOT_PATH = typeof window === 'undefined' ? '/' : window.location.pathname;
 
 export interface Toast {
   id: string;
@@ -49,8 +43,14 @@ interface AppState {
   toasts: Toast[];
   theme: ThemePreference;
   paletteOpen: boolean;
+  currentUser: PublicUser | null;
+  needsSetup: boolean;
 
   init: () => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  setupAdmin: (username: string, displayName: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshCurrentUser: () => Promise<void>;
   refreshProfiles: () => Promise<void>;
   refreshProviders: () => Promise<void>;
   refreshSettings: () => Promise<void>;
@@ -133,6 +133,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
   theme: 'dark',
   paletteOpen: false,
+  currentUser: null,
+  needsSetup: false,
 
   init: async () => {
     if (initStarted) return;
@@ -151,6 +153,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         settings: boot.settings,
         detectedXampp: boot.detectedXampp,
         theme: boot.settings.theme,
+        currentUser: boot.currentUser,
+        needsSetup: boot.auth.needsSetup,
         bootError: null,
       });
       applyTheme(boot.settings.theme);
@@ -171,6 +175,77 @@ export const useAppStore = create<AppState>((set, get) => ({
         ready: true,
       });
     }
+  },
+
+  login: async (username, password) => {
+    const result = await api.post<{ user: PublicUser }>('/api/auth/login', {
+      username,
+      password,
+    });
+    const theme = result.user.theme ?? get().settings.theme;
+    set({ currentUser: result.user, needsSetup: false, theme });
+    applyTheme(theme);
+    // The anonymous bootstrap deliberately withholds the API token, the profile
+    // list and the AI providers, and its profile list is unscoped. Re-read it
+    // now that the session cookie exists so the client picks up the token and
+    // the server-scoped lists.
+    const boot = await api.get<BootstrapInfo>('/api/bootstrap');
+    setApiToken(boot.token);
+    set({
+      boot,
+      profiles: boot.profiles,
+      providers: boot.providers,
+      settings: boot.settings,
+      currentUser: boot.currentUser ?? result.user,
+    });
+  },
+
+  setupAdmin: async (username, displayName, password) => {
+    const result = await api.post<{ user: PublicUser }>('/api/auth/setup', {
+      username,
+      displayName,
+      password,
+    });
+    const theme = result.user.theme ?? get().theme;
+    set({ currentUser: result.user, needsSetup: false, theme });
+    applyTheme(theme);
+    const boot = await api.get<BootstrapInfo>('/api/bootstrap');
+    setApiToken(boot.token);
+    set({
+      boot,
+      profiles: boot.profiles,
+      providers: boot.providers,
+      settings: boot.settings,
+      currentUser: boot.currentUser ?? result.user,
+    });
+  },
+
+  logout: async () => {
+    try {
+      await api.post('/api/auth/logout');
+    } catch {
+      // Clearing local state matters more than the server round trip.
+    }
+    const id = get().activeProfileId;
+    if (id) localStorage.removeItem(ACTIVE_KEY);
+    // The token was issued to a signed-in session; drop it so a signed-out
+    // client holds no pre-session credential.
+    setApiToken('');
+    set({
+      currentUser: null,
+      activeProfileId: null,
+      server: null,
+      databases: [],
+      selectedDatabase: null,
+      schema: null,
+      objects: null,
+      unlockedUntil: null,
+    });
+  },
+
+  refreshCurrentUser: async () => {
+    const result = await api.get<{ user: PublicUser | null }>('/api/auth/me');
+    set({ currentUser: result.user });
   },
 
   refreshProfiles: async () => {
@@ -306,7 +381,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ theme });
     applyTheme(theme);
     try {
-      await get().updateSettings({ theme });
+      await api.put<{ theme: ThemePreference }>('/api/settings/theme', { theme });
+      set((state) => ({
+        currentUser: state.currentUser ? { ...state.currentUser, theme } : state.currentUser,
+      }));
     } catch (error) {
       get().toast(`Could not save the theme: ${clientError(error)}`, 'warn');
     }

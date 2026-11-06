@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import type { Finding, FindingCategory, FindingGroup, Severity } from '@shared/types';
 import { CATEGORY_LABELS, SEVERITY_ORDER } from '@shared/types';
-import { Badge, EmptyState, SeverityBadge } from './ui';
+import { EmptyState, SeverityBadge } from './ui';
 import { cn } from '@/lib/utils';
 import { severityCounts } from '@shared/findings';
 import { Combobox } from './Combobox';
@@ -40,13 +40,15 @@ export function FindingCard({
         <SeverityBadge severity={finding.severity} />
         <span className="finding-title">{finding.title}</span>
         {finding.source !== 'rule' ? (
-          <Badge tone={finding.source === 'ai' ? 'info' : 'neutral'}>{finding.source}</Badge>
+          <span className="font-mono text-2xs text-muted">{finding.source}</span>
         ) : null}
-        {finding.confidence === 'low' ? <Badge tone="warn">low confidence</Badge> : null}
-        <span className="ml-auto font-mono text-[10px] text-muted">{finding.ruleId}</span>
+        {finding.confidence === 'low' ? (
+          <span className="text-2xs text-muted">low confidence</span>
+        ) : null}
+        <span className="ml-auto font-mono text-2xs text-muted">{finding.ruleId}</span>
       </div>
       {objectLabel || finding.line ? (
-        <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted">
+        <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-2xs text-muted">
           {objectLabel ? <span>{objectLabel}</span> : null}
           {finding.line ? (
             onJumpToLine ? (
@@ -119,7 +121,7 @@ export function FindingFilters({
       {categories.length > 1 ? (
         <Combobox
           className="min-w-[150px]"
-          buttonClassName="py-1 text-[11px]"
+          buttonClassName="py-1 text-2xs"
           options={[
             { value: 'all', label: 'All categories' },
             ...categories.map((item) => ({
@@ -139,7 +141,7 @@ export function FindingFilters({
           className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
         />
         <input
-          className="input input-search py-1 text-[11px]"
+          className="input input-search py-1 text-2xs"
           value={search}
           onChange={(event) => onSearch(event.target.value)}
           placeholder="Filter findings…"
@@ -292,23 +294,23 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
                 )}
                 <SeverityBadge severity={group.severity} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-semibold text-ink">
+                  <span className="block truncate text-xs font-semibold text-ink">
                     {group.title}
                   </span>
-                  <span className="mt-0.5 block font-mono text-[10px] text-muted">
+                  <span className="mt-0.5 block font-mono text-2xs text-muted">
                     {group.ruleId} · {CATEGORY_LABELS[group.category]}
                   </span>
                 </span>
-                <Badge tone="neutral">{group.count}×</Badge>
+                <span className="font-mono text-2xs text-muted">{group.count}×</span>
               </button>
               {open ? (
                 <div className="flex flex-col gap-2 border-t border-line-soft p-3">
                   {group.instances.map((finding) => (
                     <div
                       key={finding.id}
-                      className="rounded-lg border border-line-soft bg-panel-2/50 p-3"
+                      className="rounded-lg border border-line-soft bg-panel-2 p-3"
                     >
-                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted">
+                      <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
                         {finding.object?.database || finding.object?.table ? (
                           <span className="font-mono">
                             {[finding.object.database, finding.object.table]
@@ -328,14 +330,14 @@ export function GroupedFindings({ groups }: { groups: FindingGroup[] }) {
                           </span>
                         ) : null}
                       </div>
-                      <div className="mt-1 text-[12px] text-ink-soft">{finding.message}</div>
-                      <div className="mt-1 text-[11px] text-muted">
+                      <div className="mt-1 text-xs text-ink-soft">{finding.message}</div>
+                      <div className="mt-1 text-2xs text-muted">
                         <span className="font-semibold">Fix:</span> {finding.recommendation}
                       </div>
                     </div>
                   ))}
                   {group.count > group.instances.length ? (
-                    <div className="text-[11px] text-muted">
+                    <div className="text-2xs text-muted">
                       … and {group.count - group.instances.length} more not shown.
                     </div>
                   ) : null}

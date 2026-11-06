@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -11,7 +11,7 @@ import {
   Square,
   XCircle,
 } from 'lucide-react';
-import type { AuditReport, AuditStep, ReportSummary } from '@shared/types';
+import type { AuditReport, AuditSchedule, AuditStep, ReportSummary } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import { postSse } from '@/lib/sse';
@@ -238,9 +238,9 @@ export function AuditPage() {
         subtitle="Run all checks against the selected databases."
         actions={
           <>
-            <Badge tone="neutral">
-              <Database size={10} /> {selected.size} selected · {totalTables} tables
-            </Badge>
+            <span className="text-2xs text-muted">
+              {selected.size} selected · {totalTables} tables
+            </span>
             <Button variant="ghost" size="sm" icon={<RefreshCw size={12} />} onClick={loadPast}>
               Refresh
             </Button>
@@ -259,14 +259,14 @@ export function AuditPage() {
         <Card className="p-4">
           <div className="flex flex-wrap items-center gap-2">
             <Spinner size={16} />
-            <span className="text-[13px] font-semibold">Running audit</span>
-            <span className="text-[11px] text-muted">{message}</span>
-            <span className="ml-auto font-mono text-[11px]">{progress}%</span>
+            <span className="text-sm font-semibold">Running audit</span>
+            <span className="text-2xs text-muted">{message}</span>
+            <span className="ml-auto font-mono text-2xs">{progress}%</span>
             <Button variant="ghost" size="sm" icon={<Square size={11} />} onClick={stopWatching}>
               Stop watching
             </Button>
           </div>
-          <div className="mt-1 text-[10px] text-muted">
+          <div className="mt-1 text-2xs text-muted">
             Stop watching only closes this view. The audit keeps running on the server and the
             report is still saved to Reports.
           </div>
@@ -277,7 +277,7 @@ export function AuditPage() {
             {steps.map((step) => (
               <div
                 key={step.key}
-                className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-[11px]"
+                className="flex flex-wrap items-center gap-2 border-b border-line-soft py-1.5 text-2xs"
               >
                 <Badge
                   tone={
@@ -297,7 +297,7 @@ export function AuditPage() {
                 <span className="text-ink-soft">{step.label}</span>
                 {step.detail ? <span className="text-muted">— {step.detail}</span> : null}
                 {step.durationMs != null ? (
-                  <span className="ml-auto font-mono text-[10px] text-muted">
+                  <span className="ml-auto font-mono text-2xs text-muted">
                     {formatDuration(step.durationMs)}
                   </span>
                 ) : null}
@@ -305,10 +305,10 @@ export function AuditPage() {
             ))}
           </div>
           {aiText ? (
-            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2/40 p-3">
+            <div className="mt-3 rounded-xl border border-line-soft bg-panel-2 p-3">
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles size={13} className="text-ember" />
-                <span className="text-[11.5px] font-semibold">AI summary</span>
+                <span className="text-2xs font-semibold">AI summary</span>
               </div>
               <Markdown>{aiText}</Markdown>
             </div>
@@ -353,7 +353,7 @@ export function AuditPage() {
                 </Button>
               </div>
               <Input
-                className="mb-3 text-[12px]"
+                className="mb-3 text-xs"
                 placeholder="Filter databases…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -367,7 +367,7 @@ export function AuditPage() {
                       'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition',
                       selected.has(database.name)
                         ? 'border-ember/40 bg-ember/5'
-                        : 'border-line-soft bg-panel-2/35 hover:border-line',
+                        : 'border-line-soft bg-panel-2 hover:border-line',
                     )}
                     onClick={() => toggleDatabase(database.name)}
                   >
@@ -382,10 +382,10 @@ export function AuditPage() {
                       {selected.has(database.name) ? <CheckCircle2 size={11} /> : null}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] font-semibold text-ink">
+                      <span className="block truncate text-xs font-semibold text-ink">
                         {database.name}
                       </span>
-                      <span className="block font-mono text-[10px] text-muted">
+                      <span className="block font-mono text-2xs text-muted">
                         {database.tableCount} tables · {database.viewCount} views ·{' '}
                         {formatBytes(database.sizeBytes)}
                       </span>
@@ -432,7 +432,7 @@ export function AuditPage() {
                           </Field>
                           <Field label="Model">
                             <Input
-                              className="font-mono text-[11px]"
+                              className="font-mono text-2xs"
                               value={model}
                               onChange={(event) => setModel(event.target.value)}
                             />
@@ -465,7 +465,7 @@ export function AuditPage() {
                 >
                   Run audit
                 </Button>
-                <div className="mt-2 text-center text-[10px] text-muted">
+                <div className="mt-2 text-center text-2xs text-muted">
                   Read-only — schema, indexes, accounts, configuration, and query performance.
                 </div>
               </Card>
@@ -488,15 +488,15 @@ export function AuditPage() {
                       <button
                         key={item.id}
                         type="button"
-                        className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2/40 px-2.5 py-2 text-left hover:border-ember/35"
+                        className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2 px-2.5 py-2 text-left hover:border-ember/35"
                         onClick={() => navigate(`/reports/${item.id}`)}
                       >
                         <FileText size={13} className="text-muted" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[11px] text-ink-soft">
+                          <span className="block truncate text-2xs text-ink-soft">
                             {item.title}
                           </span>
-                          <span className="block text-[10px] text-muted">
+                          <span className="block text-2xs text-muted">
                             {formatDate(item.createdAt)} · {item.findingsTotal} findings
                           </span>
                         </span>
@@ -510,10 +510,176 @@ export function AuditPage() {
                   </div>
                 </Card>
               ) : null}
+
+              <AuditSchedulesCard
+                profileId={activeProfileId}
+                databases={Array.from(selected)}
+                onSaved={loadPast}
+              />
             </div>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Recurring audit schedules, administrators only. A schedule reruns the
+ * deterministic pipeline on its interval — never the AI step — and drops the
+ * report into the normal Reports page.
+ */
+function AuditSchedulesCard({
+  profileId,
+  databases,
+  onSaved,
+}: {
+  profileId: string | null;
+  databases: string[];
+  onSaved: () => void;
+}) {
+  const currentUser = useAppStore((state) => state.currentUser);
+  const toast = useAppStore((state) => state.toast);
+  const [schedules, setSchedules] = useState<AuditSchedule[] | null>(null);
+  const [intervalHours, setIntervalHours] = useState('24');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const admin = currentUser?.role === 'admin';
+
+  const load = useCallback(async (): Promise<void> => {
+    try {
+      const loaded = await api.get<AuditSchedule[]>('/api/audit/schedules');
+      setSchedules(loaded);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!admin) return;
+    void (async () => {
+      await load();
+    })();
+  }, [admin, load]);
+
+  if (!admin) return null;
+
+  const create = async (): Promise<void> => {
+    if (!profileId || databases.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post('/api/audit/schedules', {
+        profileId,
+        databases,
+        intervalHours: Math.max(1, Math.min(Number(intervalHours) || 24, 168)),
+      });
+      await load();
+      onSaved();
+      toast?.('Audit scheduled.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async (schedule: AuditSchedule): Promise<void> => {
+    setBusy(true);
+    try {
+      await api.put(`/api/audit/schedules/${schedule.id}`, { enabled: !schedule.enabled });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (schedule: AuditSchedule): Promise<void> => {
+    setBusy(true);
+    try {
+      await api.del(`/api/audit/schedules/${schedule.id}`);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="section-title mb-1">Scheduled audits</div>
+      <div className="mb-3 max-w-xl text-2xs leading-4 text-muted">
+        Rerun the deterministic checks on an interval — no AI, no unattended cost. Reports land in
+        Reports.
+      </div>
+      {error ? (
+        <div className="callout danger mb-2 text-2xs" role="alert">
+          {error}
+        </div>
+      ) : null}
+      <div className="flex items-end gap-2">
+        <Field label="Every (hours)" className="w-28">
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={168}
+            value={intervalHours}
+            onChange={(event) => setIntervalHours(event.target.value)}
+          />
+        </Field>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          disabled={!profileId || databases.length === 0}
+          onClick={() => void create()}
+        >
+          Schedule current selection
+        </Button>
+      </div>
+      {schedules && schedules.length > 0 ? (
+        <div className="mt-3 flex flex-col gap-1.5">
+          {schedules.map((schedule) => (
+            <div
+              key={schedule.id}
+              className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2 px-2.5 py-2 text-2xs"
+            >
+              <Badge
+                tone={
+                  schedule.lastStatus === 'error' ? 'danger' : schedule.enabled ? 'mint' : 'neutral'
+                }
+              >
+                {schedule.lastStatus ?? (schedule.enabled ? 'pending' : 'off')}
+              </Badge>
+              <span className="min-w-0 flex-1 truncate text-muted">
+                every {schedule.intervalHours}h · {schedule.databases.join(', ')}
+                {schedule.lastError ? ` · ${schedule.lastError}` : ''}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void toggle(schedule)}
+              >
+                {schedule.enabled ? 'Pause' : 'Resume'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void remove(schedule)}
+              >
+                Delete
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Card>
   );
 }

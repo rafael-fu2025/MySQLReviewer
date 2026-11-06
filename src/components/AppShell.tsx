@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -7,6 +7,7 @@ import {
   FileText,
   FlaskConical,
   Lock,
+  LogOut,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -18,12 +19,14 @@ import {
   Sun,
   Terminal,
   Unlock,
+  UserCog,
 } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
 import { useUiStore } from '@/store/ui-store';
 import { APP_VERSION } from '@shared/types';
 import { formatBytes } from '@/lib/format';
-import { Badge, Button, IconButton, Kbd, Spinner } from './ui';
+import { resetScrollTop } from '@/lib/scroll';
+import { Button, ConfirmDialog, IconButton, Kbd, Spinner } from './ui';
 import { cn } from '@/lib/utils';
 import { useNow } from '@/lib/hooks';
 import { Combobox } from './Combobox';
@@ -31,15 +34,26 @@ import { CommandPalette } from './CommandPalette';
 import { BottomNav } from './BottomNav';
 import { Tooltip } from './Tooltip';
 
+/** Page-level fallback: the shell stays mounted while a route chunk loads. */
+function PageFallback() {
+  return (
+    <div className="flex min-h-full flex-1 items-center justify-center gap-2 text-xs text-muted">
+      <Spinner size={14} />
+      Loading…
+    </div>
+  );
+}
+
 const NAV = [
-  { to: '/workspace', label: 'Workspace', icon: Terminal, primary: true },
-  { to: '/database', label: 'Database', icon: Database, primary: true },
-  { to: '/practice', label: 'SQL Lab', icon: FlaskConical, primary: true },
-  { to: '/performance', label: 'Performance', icon: Activity, primary: false },
-  { to: '/security', label: 'Security', icon: ShieldCheck, primary: false },
-  { to: '/audit', label: 'Audit', icon: ScanSearch, primary: true },
-  { to: '/reports', label: 'Reports', icon: FileText, primary: false },
-  { to: '/settings', label: 'Settings', icon: Settings, primary: false },
+  { to: '/workspace', label: 'Workspace', icon: Terminal, primary: true, adminOnly: false },
+  { to: '/database', label: 'Database', icon: Database, primary: true, adminOnly: false },
+  { to: '/practice', label: 'SQL Lab', icon: FlaskConical, primary: true, adminOnly: false },
+  { to: '/performance', label: 'Performance', icon: Activity, primary: false, adminOnly: true },
+  { to: '/security', label: 'Security', icon: ShieldCheck, primary: false, adminOnly: true },
+  { to: '/audit', label: 'Audit', icon: ScanSearch, primary: true, adminOnly: true },
+  { to: '/reports', label: 'Reports', icon: FileText, primary: false, adminOnly: true },
+  { to: '/settings', label: 'Settings', icon: Settings, primary: false, adminOnly: true },
+  { to: '/admin', label: 'Admin', icon: UserCog, primary: false, adminOnly: true },
 ];
 
 const PAGE_META: Record<string, { title: string; sub: string }> = {
@@ -90,7 +104,10 @@ const SELF_TITLED_ROUTES = new Set([
   '/audit',
   '/reports',
   '/settings',
+  '/admin',
 ]);
+
+const PAGE_META_ADMIN = { title: 'Admin', sub: 'Users, connections, sandboxes, and activity.' };
 
 function formatCountdown(ms: number): string {
   const seconds = Math.max(0, Math.ceil(ms / 1000));
@@ -113,6 +130,8 @@ function useIsNarrow(): boolean {
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
+  const mainRef = useRef<HTMLElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const server = useAppStore((state) => state.server);
   const profiles = useAppStore((state) => state.profiles);
   const activeProfileId = useAppStore((state) => state.activeProfileId);
@@ -128,9 +147,13 @@ export function AppShell() {
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
   const setPaletteOpen = useAppStore((state) => state.setPaletteOpen);
+  const currentUser = useAppStore((state) => state.currentUser);
+  const logout = useAppStore((state) => state.logout);
   const version = useAppStore((state) => state.boot?.version ?? APP_VERSION);
   const now = useNow(1000);
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const narrow = useIsNarrow();
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
@@ -139,17 +162,24 @@ export function AppShell() {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
   const scoped = activeProfile?.databaseScope === 'selected';
   const hideServerWide = Boolean(scoped && !activeProfile?.allowServerWideInsights);
+  const isAdmin = currentUser?.role === 'admin';
   const navItems = NAV.filter(
-    (item) => !(hideServerWide && (item.to === '/performance' || item.to === '/security')),
+    (item) =>
+      // Members get only their working surfaces; server-wide and management
+      // screens are admin territory (the server rejects them regardless).
+      !(isAdmin === false && item.adminOnly) &&
+      !(hideServerWide && (item.to === '/performance' || item.to === '/security')),
   );
   const primaryNav = navItems.filter((item) => item.primary);
   const overflowNav = navItems.filter((item) => !item.primary);
   const defaultProvider = providers.find((provider) => provider.isDefault);
   const meta =
     PAGE_META[location.pathname] ??
-    (location.pathname.startsWith('/reports/')
-      ? { title: 'Report', sub: 'Saved audit details and exports.' }
-      : { title: 'MyLens', sub: '' });
+    (location.pathname === '/admin'
+      ? PAGE_META_ADMIN
+      : location.pathname.startsWith('/reports/')
+        ? { title: 'Report', sub: 'Saved audit details and exports.' }
+        : { title: 'MyLens', sub: '' });
   const showMeta = !SELF_TITLED_ROUTES.has(location.pathname);
 
   const unlocked = Boolean(unlockedUntil && unlockedUntil > now);
@@ -165,6 +195,14 @@ export function AppShell() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setPaletteOpen]);
+
+  // A new route starts at the top of its own page. Without this the scroll
+  // position of the page you came from carries over, and the new page's
+  // heading can end up above the fold.
+  useEffect(() => {
+    resetScrollTop(contentRef.current);
+    resetScrollTop(mainRef.current);
+  }, [location.pathname]);
 
   const refreshAll = async (): Promise<void> => {
     setRefreshing(true);
@@ -222,7 +260,7 @@ export function AppShell() {
           >
             <IconButton
               label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              nativeTitle={false}
+              tooltip={false}
               onClick={(event) => {
                 event.stopPropagation();
                 toggleSidebar();
@@ -267,7 +305,16 @@ export function AppShell() {
             </div>
             <div className="connection-meta">
               {server
-                ? `${server.version} · ${scoped ? `${activeProfile?.allowedDatabases.length ?? 0} DB scope` : 'all databases'}`
+                ? currentUser?.role === 'member'
+                  ? // Members live in their sandboxes; the profile's own scope
+                    // would describe the admin's view, not theirs.
+                    `${server.version} · ${
+                      currentUser.assignments
+                        .filter((assignment) => assignment.profileId === activeProfileId)
+                        .map((assignment) => assignment.sandbox)
+                        .join(', ') || 'sandbox'
+                    }`
+                  : `${server.version} · ${scoped ? `${activeProfile?.allowedDatabases.length ?? 0} DB scope` : 'all databases'}`
                 : '—'}
             </div>
           </div>
@@ -299,37 +346,39 @@ export function AppShell() {
         </nav>
 
         <div className="sidebar-footer">
-          <Tooltip
-            label={defaultProvider ? `AI · ${defaultProvider.name}` : 'Add provider'}
-            side="right"
-            block
-            disabled={!compactSidebar}
-          >
-            <button
-              type="button"
-              className="nav-item w-full"
-              onClick={() => navigate('/settings?tab=ai')}
+          {isAdmin ? (
+            <Tooltip
+              label={defaultProvider ? `AI · ${defaultProvider.name}` : 'Add provider'}
+              side="right"
+              block
+              disabled={!compactSidebar}
             >
-              <Sparkles size={16} className={defaultProvider ? 'text-ember' : ''} />
-              <span className="truncate">
-                {defaultProvider ? defaultProvider.name : 'Add provider'}
-              </span>
-              {defaultProvider ? (
-                <span className="nav-badge">
-                  {defaultProvider.model.split('/').pop()?.slice(0, 10)}
+              <button
+                type="button"
+                className="nav-item w-full"
+                onClick={() => navigate('/settings?tab=ai')}
+              >
+                <Sparkles size={16} className={defaultProvider ? 'text-ember' : ''} />
+                <span className="truncate">
+                  {defaultProvider ? defaultProvider.name : 'Add provider'}
                 </span>
-              ) : null}
-            </button>
-          </Tooltip>
+                {defaultProvider ? (
+                  <span className="nav-badge">
+                    {defaultProvider.model.split('/').pop()?.slice(0, 10)}
+                  </span>
+                ) : null}
+              </button>
+            </Tooltip>
+          ) : null}
           <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] text-muted hide-collapse">v{version} · local</span>
+            <span className="text-2xs text-muted hide-collapse">v{version} · local</span>
             <Tooltip
               label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
               side="top"
             >
               <IconButton
                 label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-                nativeTitle={false}
+                tooltip={false}
                 onClick={() => void setTheme(theme === 'light' ? 'dark' : 'light')}
               >
                 {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
@@ -339,7 +388,7 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main" ref={mainRef}>
         <header className="topbar">
           {showMeta ? (
             <div className="min-w-0 flex-1">
@@ -359,31 +408,34 @@ export function AppShell() {
               if (value) setDatabase(value);
             }}
             placeholder="Select database…"
-            className="order-last w-full basis-full md:order-none md:w-[190px] md:basis-auto xl:w-[230px]"
-            buttonClassName="py-1.5 text-[11.5px]"
+            className="order-last w-full basis-full min-[901px]:order-none min-[901px]:w-[190px] min-[901px]:basis-auto xl:w-[230px]"
+            buttonClassName="py-1.5 text-2xs"
             clearable={false}
             maxHeight={360}
           />
 
           {scoped ? (
-            <Badge tone="ember" className="hidden sm:inline-flex">
+            <span className="hidden text-2xs text-muted sm:inline">
               {activeProfile?.allowedDatabases.length ?? 0} DB scope
-            </Badge>
+            </span>
           ) : null}
 
-          <button
-            type="button"
-            className={cn('badge cursor-pointer', unlocked ? 'sev-medium' : 'text-muted')}
-            onClick={() => {
-              if (unlocked) void lockWrites();
-            }}
-            title={unlocked ? 'Lock writes now' : undefined}
-          >
-            {unlocked ? <Unlock size={11} /> : <Lock size={11} />}
-            <span className="hidden md:inline">
-              {unlocked ? `Unlocked ${formatCountdown(remaining)}` : 'Read-only'}
-            </span>
-          </button>
+          {!isAdmin ? (
+            <Tooltip label="Lock writes now" side="bottom" disabled={!unlocked}>
+              <button
+                type="button"
+                className={cn('badge cursor-pointer', unlocked ? 'sev-medium' : 'text-muted')}
+                onClick={() => {
+                  if (unlocked) void lockWrites();
+                }}
+              >
+                {unlocked ? <Unlock size={11} /> : <Lock size={11} />}
+                <span className="hidden md:inline">
+                  {unlocked ? `Unlocked ${formatCountdown(remaining)}` : 'Read-only'}
+                </span>
+              </button>
+            </Tooltip>
+          ) : null}
 
           <IconButton label="Refresh schema" onClick={() => void refreshAll()}>
             {refreshing ? <Spinner size={15} /> : <RefreshCw size={15} />}
@@ -400,9 +452,28 @@ export function AppShell() {
               <Kbd>Ctrl K</Kbd>
             </span>
           </button>
+
+          {currentUser ? (
+            <div
+              className={cn(
+                'flex items-center gap-2 border-l border-line-soft pl-3',
+                'max-sm:pl-2',
+              )}
+            >
+              <div className="hidden flex-col items-end leading-tight min-[420px]:flex">
+                <span className="text-2xs font-semibold">{currentUser.displayName}</span>
+                <span className="text-micro uppercase tracking-wide text-muted">
+                  {currentUser.role}
+                </span>
+              </div>
+              <IconButton label="Sign out" onClick={() => setConfirmSignOut(true)}>
+                <LogOut size={14} />
+              </IconButton>
+            </div>
+          ) : null}
         </header>
 
-        {unlocked ? (
+        {unlocked && !isAdmin ? (
           <div className="px-4 pt-3">
             <div className="callout danger flex flex-wrap items-center gap-2">
               <Unlock size={14} className="text-danger" />
@@ -422,21 +493,50 @@ export function AppShell() {
           </div>
         ) : null}
 
-        <div className={cn('content', location.pathname === '/workspace' && 'flush')}>
-          <Outlet />
+        <div
+          ref={contentRef}
+          className={cn('content', location.pathname === '/workspace' && 'flush')}
+        >
+          <Suspense fallback={<PageFallback />}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 
       <BottomNav
         items={primaryNav}
         overflow={overflowNav}
-        aiLabel={defaultProvider ? defaultProvider.name : 'Add provider'}
+        aiLabel={isAdmin ? (defaultProvider ? defaultProvider.name : 'Add provider') : undefined}
         aiActive={Boolean(defaultProvider)}
         theme={theme}
         onToggleTheme={() => void setTheme(theme === 'light' ? 'dark' : 'light')}
       />
 
       <CommandPalette />
+
+      <ConfirmDialog
+        open={confirmSignOut}
+        onClose={() => {
+          if (!signingOut) setConfirmSignOut(false);
+        }}
+        onConfirm={() => {
+          setSigningOut(true);
+          void logout()
+            .then(() => navigate('/login'))
+            .finally(() => {
+              setSigningOut(false);
+              setConfirmSignOut(false);
+            });
+        }}
+        title="Sign out?"
+        message={
+          currentUser
+            ? `Sign out of MyLens as ${currentUser.displayName}? You'll need your password to get back in.`
+            : 'Sign out of MyLens?'
+        }
+        confirmLabel="Sign out"
+        loading={signingOut}
+      />
     </div>
   );
 }
