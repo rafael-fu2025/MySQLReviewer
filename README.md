@@ -6,6 +6,8 @@ A local-first MySQL/MariaDB review app for your XAMPP server. It connects to you
 
 ![MyLens](https://img.shields.io/badge/local--first-yes-2dd4a7) ![MySQL](https://img.shields.io/badge/MySQL-5.7%20%7C%208.x-ff8a3d) ![MariaDB](https://img.shields.io/badge/MariaDB-10.x-ff8a3d)
 
+![The MyLens sign-in screen, with the query observatory on the left and the member sign-in form on the right.](docs/images/sign-in.png)
+
 ## Quick start
 
 ### One click
