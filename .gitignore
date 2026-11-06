@@ -4,8 +4,11 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# Local application state (credentials, sessions, history, and encryption key)
-/data/
+# Local application state (credentials, sessions, history, and encryption key).
+# data/northwind is the checked-in sample schema the tests and the extractor
+# use, so it stays tracked - everything else under data/ is runtime state.
+/data/*
+!/data/northwind/
 
 # Generated UI captures and layout assets
 /.snapshot/

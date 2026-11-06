@@ -147,13 +147,17 @@ describe('agent MCP client', () => {
     expect(command).toBe('cmd');
     expect(args).toEqual(['--x']);
     expect(options.shell).toBeUndefined();
+    // The child gets only the allowlisted keys that exist in this environment.
+    // TEMP/TMP are Windows-only in practice, so assert the set membership
+    // rather than a fixed list.
+    const allowed = ['COMSPEC', 'HOME', 'LANG', 'PATH', 'SYSTEMROOT', 'TEMP', 'TMP'];
     expect(Object.keys(options.env).sort()).toEqual(
-      ['COMSPEC', 'HOME', 'LANG', 'PATH', 'SYSTEMROOT', 'TEMP', 'TMP']
-        .filter((key) =>
-          key === 'COMSPEC' || key === 'SYSTEMROOT' ? process.platform === 'win32' : true,
-        )
-        .sort(),
+      allowed.filter((key) => Boolean(process.env[key])).sort(),
     );
+    // Nothing outside the allowlist may leak in.
+    for (const key of Object.keys(options.env)) {
+      expect(allowed).toContain(key);
+    }
   });
 
   it('kills every child on shutdown', async () => {

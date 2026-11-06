@@ -1,0 +1,50 @@
+{
+  "source": "https://www.w3schools.com/mysql/trymysql.asp?filename=trysql_select_all",
+  "endpoint": "https://tryit.w3schools.com/trymysql_view.php",
+  "backendVersion": "5.7.44-rds.20250508",
+  "extractedAt": "2026-10-20T12:45:50.150Z",
+  "outFile": "C:\\Users\\udtoh_lmtzs7k\\MySQLReviewer\\data\\northwind\\northwind.sql",
+  "bytes": 104167,
+  "tables": {
+    "Categories": {
+      "rows": 8,
+      "columns": 3,
+      "createSql": "CREATE TABLE `Categories` (\n  `CategoryID` int(11) NOT NULL AUTO_INCREMENT,\n  `CategoryName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Description` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  PRIMARY KEY (`CategoryID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Customers": {
+      "rows": 91,
+      "columns": 7,
+      "createSql": "CREATE TABLE `Customers` (\n  `CustomerID` int(11) NOT NULL AUTO_INCREMENT,\n  `CustomerName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `ContactName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Address` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `City` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `PostalCode` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Country` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  PRIMARY KEY (`CustomerID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Employees": {
+      "rows": 9,
+      "columns": 6,
+      "createSql": "CREATE TABLE `Employees` (\n  `EmployeeID` int(11) NOT NULL AUTO_INCREMENT,\n  `LastName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `FirstName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `BirthDate` date DEFAULT NULL,\n  `Photo` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Notes` longtext,\n  PRIMARY KEY (`EmployeeID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "OrderDetails": {
+      "rows": 2155,
+      "columns": 4,
+      "createSql": "CREATE TABLE `OrderDetails` (\n  `OrderDetailID` int(11) NOT NULL AUTO_INCREMENT,\n  `OrderID` int(11) DEFAULT NULL,\n  `ProductID` int(11) DEFAULT NULL,\n  `Quantity` int(11) DEFAULT NULL,\n  PRIMARY KEY (`OrderDetailID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Orders": {
+      "rows": 830,
+      "columns": 5,
+      "createSql": "CREATE TABLE `Orders` (\n  `OrderID` int(11) NOT NULL AUTO_INCREMENT,\n  `CustomerID` int(11) DEFAULT NULL,\n  `EmployeeID` int(11) DEFAULT NULL,\n  `OrderDate` date DEFAULT NULL,\n  `ShipperID` int(11) DEFAULT NULL,\n  PRIMARY KEY (`OrderID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Products": {
+      "rows": 77,
+      "columns": 6,
+      "createSql": "CREATE TABLE `Products` (\n  `ProductID` int(11) NOT NULL AUTO_INCREMENT,\n  `ProductName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `SupplierID` int(11) DEFAULT NULL,\n  `CategoryID` int(11) DEFAULT NULL,\n  `Unit` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Price` decimal(10,2) DEFAULT NULL,\n  PRIMARY KEY (`ProductID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Shippers": {
+      "rows": 3,
+      "columns": 3,
+      "createSql": "CREATE TABLE `Shippers` (\n  `ShipperID` int(11) NOT NULL AUTO_INCREMENT,\n  `ShipperName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Phone` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  PRIMARY KEY (`ShipperID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    },
+    "Suppliers": {
+      "rows": 29,
+      "columns": 8,
+      "createSql": "CREATE TABLE `Suppliers` (\n  `SupplierID` int(11) NOT NULL AUTO_INCREMENT,\n  `SupplierName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `ContactName` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Address` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `City` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `PostalCode` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Country` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  `Phone` varchar(255) CHARACTER SET utf8 DEFAULT NULL,\n  PRIMARY KEY (`SupplierID`)\n) ENGINE=InnoDB DEFAULT CHARSET=latin1"
+    }
+  }
+}
