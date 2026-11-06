@@ -8,6 +8,17 @@ A local-first MySQL/MariaDB review app for your XAMPP server. It connects to you
 
 ![The MyLens sign-in screen, with the query observatory on the left and the member sign-in form on the right.](docs/images/sign-in.png)
 
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/workspace.png" alt="The MyLens workspace: the Northwind schema tree on the left, a SQL editor in the middle with the query and its results below it, and the AI assistant panel on the right."></td>
+    <td width="50%"><img src="docs/images/workspace-composer.png" alt="The same MyLens workspace with the assistant's composer focused, ready to ask a follow-up question about the statement in the editor."></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Schema tree, SQL editor, results grid, and the AI assistant.</sub></td>
+    <td align="center"><sub>The assistant, mid-conversation.</sub></td>
+  </tr>
+</table>
+
 ## Quick start
 
 ### One click
