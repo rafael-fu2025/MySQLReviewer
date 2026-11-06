@@ -1,13 +1,42 @@
+# Dependencies and generated build/test output
 node_modules/
 dist/
-data/
 coverage/
-.snapshot/
-scripts/ui-layout/app.css
-scripts/ui-layout/*.png
+*.tsbuildinfo
+
+# Local application state (credentials, sessions, history, and encryption key)
+/data/
+
+# Generated UI captures and layout assets
+/.snapshot/
+/scripts/ui-layout/app.css
+/scripts/ui-layout/*.png
+
+# Local environment files; allow sanitized templates
 .env
 .env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Local AI tooling and installed agent skills
+/.mimosa/
+/.zcode/
+/.agents/skills/
+/.workbuddy-ai/
+
+# Generated local command output and verification responses
+/.gate-out.txt
+/.lint-out.txt
+/.measure-out.txt
+/.vitest-out.txt
+/.verify-resp.json
+/.secret.key
 *.log
+
+# OS and editor temporary files
 .DS_Store
 Thumbs.db
-*.tsbuildinfo
+*~
+*.swp
+*.swo
