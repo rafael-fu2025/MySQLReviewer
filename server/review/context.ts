@@ -6,8 +6,8 @@ import type {
   SchemaTable,
 } from '../../shared/types';
 import { classifySql } from './sql-classifier';
-import { significantTokens, tokenize } from './tokenizer';
-import type { RuleContext } from './rules/types';
+import { isRecord } from './ast-utils';
+import type { RuleContext, VirtualTable } from './rules/types';
 
 const parserModule = sqlParser as unknown as typeof import('node-sql-parser');
 const parser = new parserModule.Parser();
@@ -77,6 +77,107 @@ function collectCteNames(node: unknown, out: Set<string>): void {
   for (const value of Object.values(record)) collectCteNames(value, out);
 }
 
+/**
+ * The output columns of a `SELECT`, lower-cased.
+ *
+ * Returns `null` when the full list is unknown, which happens for `SELECT *`
+ * and for expressions that are not aliased (MySQL derives their name from the
+ * expression, so the list cannot be reconstructed reliably).
+ */
+function selectOutputColumns(ast: unknown): Set<string> | null {
+  if (!isRecord(ast) || ast.type !== 'select') return null;
+  const columns = Array.isArray(ast.columns) ? ast.columns : [];
+  const names = new Set<string>();
+  for (const column of columns) {
+    if (!isRecord(column)) return null;
+    const alias = typeof column.as === 'string' ? column.as : null;
+    if (alias) {
+      names.add(alias.toLowerCase());
+      continue;
+    }
+    const expr = column.expr;
+    if (!isRecord(expr)) return null;
+    if (expr.type === 'star') return null;
+    if (expr.type === 'column_ref' && typeof expr.column === 'string' && expr.column !== '*') {
+      names.add(expr.column.toLowerCase());
+      continue;
+    }
+    return null;
+  }
+  return names;
+}
+
+/** The `SELECT` behind a `WITH` entry or a derived table. */
+function nestedSelect(node: unknown): unknown {
+  if (!isRecord(node)) return null;
+  if (isRecord(node.ast)) return node.ast;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = nestedSelect(item);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Collects the CTEs and derived tables of the script together with the
+ * columns they expose.
+ *
+ * Their columns are not part of the schema, so a rule that resolves a column
+ * against the schema must not report them as missing.
+ */
+function collectVirtualTables(node: unknown, out: Map<string, VirtualTable>): void {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectVirtualTables(item, out);
+    return;
+  }
+  const record = node as Record<string, unknown>;
+
+  const withNode = record.with;
+  if (withNode) {
+    const entries = Array.isArray(withNode) ? withNode : [withNode];
+    for (const entry of entries) {
+      if (!isRecord(entry)) continue;
+      const nameNode = entry.name;
+      const name =
+        typeof nameNode === 'string'
+          ? nameNode
+          : isRecord(nameNode) && typeof nameNode.value === 'string'
+            ? nameNode.value
+            : null;
+      if (!name) continue;
+      const explicit = Array.isArray(entry.columns)
+        ? entry.columns.filter((item): item is string => typeof item === 'string')
+        : null;
+      const columns =
+        explicit && explicit.length > 0
+          ? new Set(explicit.map((item) => item.toLowerCase()))
+          : selectOutputColumns(nestedSelect(entry.stmt));
+      out.set(name.toLowerCase(), { name: name.toLowerCase(), columns });
+    }
+  }
+
+  const from = record.from;
+  if (Array.isArray(from)) {
+    for (const entry of from) {
+      if (!isRecord(entry)) continue;
+      const alias = typeof entry.as === 'string' ? entry.as : null;
+      const expr = entry.expr;
+      if (!alias || !isRecord(expr)) continue;
+      const inner = nestedSelect(expr);
+      if (!inner) continue;
+      out.set(alias.toLowerCase(), {
+        name: alias.toLowerCase(),
+        columns: selectOutputColumns(inner),
+      });
+    }
+  }
+
+  for (const value of Object.values(record)) collectVirtualTables(value, out);
+}
+
 export interface BuildContextInput {
   sql: string;
   schema: SchemaSnapshot | null;
@@ -84,7 +185,9 @@ export interface BuildContextInput {
 
 export function buildRuleContext(input: BuildContextInput): RuleContext {
   const classified = classifySql(input.sql);
-  const tokens = significantTokens(tokenize(input.sql));
+  // The classifier already tokenized the whole script; reuse that list
+  // instead of tokenizing the same SQL a second time.
+  const tokens = classified.tokens;
   const asts: unknown[] = [];
   for (const statement of classified.statements) {
     asts.push(parseAst(statement.sql));
@@ -95,6 +198,9 @@ export function buildRuleContext(input: BuildContextInput): RuleContext {
 
   const cteNames = new Set<string>();
   for (const ast of asts) collectCteNames(ast, cteNames);
+
+  const virtualTables = new Map<string, VirtualTable>();
+  for (const ast of asts) collectVirtualTables(ast, virtualTables);
 
   const referencedTables: string[] = [];
   const aliases = new Map<string, string>();
@@ -165,6 +271,7 @@ export function buildRuleContext(input: BuildContextInput): RuleContext {
     tableLookup,
     referencedTables,
     aliases,
+    virtualTables,
   };
 }
 

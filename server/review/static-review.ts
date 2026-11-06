@@ -3,7 +3,7 @@ import { AppError, mapDbError } from '../errors';
 import { getSettings } from '../store/settings';
 import { getSchemaSnapshot } from '../db/introspection';
 import { runExplain } from '../db/explain';
-import { assertSqlScope } from '../db/scope';
+import { assertDatabaseAllowed, assertSqlScope } from '../db/scope';
 import { classifySql } from './sql-classifier';
 import { buildContextInfo, buildRuleContext } from './context';
 import { dedupeFindings } from './findings';
@@ -18,6 +18,8 @@ export interface StaticReviewInput {
   includeSchema?: boolean;
   includeExplain?: boolean;
   analyze?: boolean;
+  /** Narrows a member session to their sandbox databases. */
+  scopeOverride?: { allowed: string[] };
 }
 
 export async function runStaticReview(input: StaticReviewInput): Promise<StaticReviewResult> {
@@ -26,7 +28,12 @@ export async function runStaticReview(input: StaticReviewInput): Promise<StaticR
   const classified = classifySql(sql);
   if (classified.empty) throw new AppError('EMPTY_SQL', 'There is no SQL to review.', 400);
   if (input.profileId) {
-    await assertSqlScope(input.profileId, sql, input.database ?? null);
+    await assertSqlScope(input.profileId, sql, input.database ?? null, input.scopeOverride);
+    // The schema snapshot is a database read of its own: it has to be inside
+    // the same scope as the statement under review.
+    if (input.database) {
+      await assertDatabaseAllowed(input.profileId, input.database, input.scopeOverride);
+    }
   }
 
   const settings = await getSettings();
@@ -53,6 +60,7 @@ export async function runStaticReview(input: StaticReviewInput): Promise<StaticR
     try {
       explain = await runExplain(input.profileId, sql, input.database ?? null, {
         analyze: Boolean(input.analyze),
+        scopeOverride: input.scopeOverride,
       });
       findings.push(...explain.insights);
     } catch (error) {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { clearHistory, listHistory } from '../store/history';
+import { currentUser } from '../auth';
 import { asyncHandler, parseQuery } from './util';
 
 const HistoryQuery = z.object({
@@ -13,16 +14,25 @@ export const historyRouter = Router();
 historyRouter.get(
   '/',
   asyncHandler(async (req, res) => {
+    const user = currentUser(req);
     const query = parseQuery(HistoryQuery, req);
-    res.json({ data: await listHistory(query.profileId, query.limit ?? 100) });
+    res.json({
+      data: await listHistory(
+        query.profileId,
+        query.limit ?? 100,
+        // Members are scoped to their own statements; admins see everything.
+        user.role === 'member' ? user.id : undefined,
+      ),
+    });
   }),
 );
 
 historyRouter.delete(
   '/',
   asyncHandler(async (req, res) => {
+    const user = currentUser(req);
     const query = parseQuery(HistoryQuery, req);
-    await clearHistory(query.profileId);
+    await clearHistory(query.profileId, user.role === 'member' ? user.id : undefined);
     res.json({ data: { cleared: true } });
   }),
 );

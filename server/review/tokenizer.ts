@@ -17,6 +17,22 @@ const WORD_START = /[A-Za-z_\u0080-\uFFFF]/;
 const WORD_PART = /[A-Za-z0-9_$\u0080-\uFFFF]/;
 const DIGIT = /[0-9]/;
 
+/**
+ * MySQL only starts a `--` comment when the second dash is followed by
+ * whitespace or a control character. `SELECT 1--2` is `1 - (-2)` for the
+ * server, so a tokenizer that treats every `--` as a comment hides the rest of
+ * the statement from the scope checker.
+ */
+function startsDashComment(sql: string, index: number): boolean {
+  // `--` at the very end of the input is still a comment.
+  if (index >= sql.length) return true;
+  const ch = sql[index];
+  if (ch === ' ') return true;
+  const code = ch.charCodeAt(0);
+  // Control characters (tab, newline, carriage return, …).
+  return code < 0x20 || code === 0x7f;
+}
+
 export function tokenize(sql: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
@@ -77,8 +93,9 @@ export function tokenize(sql: string): Token[] {
     const startLine = line;
     const startColumn = column;
 
-    // Line comments
-    if (ch === '#' || (ch === '-' && next === '-')) {
+    // Line comments. `#` always starts one; `--` only when the second dash is
+    // followed by whitespace or a control character, exactly as MySQL reads it.
+    if (ch === '#' || (ch === '-' && next === '-' && startsDashComment(sql, i + 2))) {
       while (i < sql.length && sql[i] !== '\n') advance();
       push('comment', sql.slice(start, i), start, i, startLine, startColumn, depth);
       continue;
@@ -250,46 +267,185 @@ export interface SplitStatement {
 }
 
 /**
- * Split on top-level semicolons. Semicolons inside strings, comments, and
- * parentheses are ignored. Empty/comment-only segments are dropped.
+ * A `DELIMITER` directive.
+ *
+ * `DELIMITER` is a command of the mysql **client**, not of the server: the
+ * client uses it to decide where one statement ends, so the text after it
+ * never reaches the server. The rule mirrors the client - the word must be
+ * the first thing on its line, and the rest of the line is the terminator.
  */
-export function splitStatements(sql: string): SplitStatement[] {
-  const tokens = tokenize(sql);
-  const statements: SplitStatement[] = [];
-  let segmentStart = 0;
-  let segmentStartLine = 1;
-  let segmentHasCode = false;
+export interface DelimiterDirective {
+  /** The statement terminator that applies from here on. */
+  terminator: string;
+  /** Offset of the directive word in the source. */
+  start: number;
+  /** Offset just past the terminator. */
+  end: number;
+}
 
-  const flush = (endOffset: number): void => {
-    if (!segmentHasCode) return;
-    const text = sql.slice(segmentStart, endOffset);
-    const segmentTokens = tokens.filter(
-      (token) => token.start >= segmentStart && token.end <= endOffset,
-    );
-    statements.push({
-      sql: text.trim(),
-      start: segmentStart,
-      end: endOffset,
-      line: segmentStartLine,
-      tokens: segmentTokens,
-    });
-    segmentHasCode = false;
-  };
-
+/**
+ * Find the `DELIMITER` directives of a script.
+ *
+ * Only a word that stands alone at the start of its line counts, and the
+ * terminator must be a single non-empty run of non-whitespace characters.
+ * Anything else is ordinary SQL and is left alone.
+ */
+function findDelimiterDirectives(sql: string, tokens: Token[]): DelimiterDirective[] {
+  const directives: DelimiterDirective[] = [];
   for (const token of tokens) {
-    if (token.kind !== 'comment' && !segmentHasCode) {
-      segmentHasCode = true;
-      segmentStartLine = token.line;
+    if (token.kind !== 'word' || token.quoted) continue;
+    if (token.value.toUpperCase() !== 'DELIMITER') continue;
+    // Only whitespace may precede the word on its line.
+    const lineStart = sql.lastIndexOf('\n', token.start - 1) + 1;
+    if (sql.slice(lineStart, token.start).trim() !== '') continue;
+    const lineEnd = sql.indexOf('\n', token.end);
+    const lineEndOffset = lineEnd === -1 ? sql.length : lineEnd;
+    const rest = sql.slice(token.end, lineEndOffset);
+    // A trailing comment is not part of the terminator.
+    let contentEnd = rest.length;
+    for (const other of tokens) {
+      if (other.kind === 'comment' && other.start >= token.end && other.start < lineEndOffset) {
+        contentEnd = other.start - token.end;
+        break;
+      }
     }
-    if (token.kind === 'comment') continue;
-    if (token.kind === 'punct' && token.value === ';' && token.depth === 0) {
-      flush(token.start);
-      segmentStart = token.end;
-      segmentStartLine = token.line;
-      segmentHasCode = false;
+    const raw = rest.slice(0, contentEnd);
+    const terminator = raw.trim();
+    if (terminator === '' || /\s/.test(terminator)) continue;
+    directives.push({
+      terminator,
+      start: token.start,
+      end: token.end + raw.indexOf(terminator) + terminator.length,
+    });
+  }
+  return directives;
+}
+
+/**
+ * The character ranges a custom terminator must not match inside: string
+ * literals, comments and backtick-quoted identifiers.
+ */
+function terminatorUnsafeRanges(tokens: Token[]): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const token of tokens) {
+    if (
+      token.kind === 'string' ||
+      token.kind === 'comment' ||
+      (token.kind === 'word' && token.quoted)
+    ) {
+      ranges.push([token.start, token.end]);
     }
   }
-  flush(sql.length);
+  return ranges;
+}
+
+/** The offsets at which a custom terminator appears in code. */
+function findTerminatorOffsets(
+  sql: string,
+  from: number,
+  to: number,
+  terminator: string,
+  unsafe: Array<[number, number]>,
+): number[] {
+  const offsets: number[] = [];
+  let index = sql.indexOf(terminator, from);
+  while (index !== -1 && index < to) {
+    const end = index + terminator.length;
+    const inside = unsafe.some(([start, stop]) => start < end && index < stop);
+    if (!inside) offsets.push(index);
+    index = sql.indexOf(terminator, end);
+  }
+  return offsets;
+}
+
+/**
+ * Whether the script contains a `DELIMITER` directive.
+ *
+ * A routine whose body is wrapped in one is a single statement; the same
+ * routine without a directive is cut apart at the semicolons in its body.
+ */
+export function hasDelimiterDirective(sql: string, tokens?: Token[]): boolean {
+  return findDelimiterDirectives(sql, tokens ?? tokenize(sql)).length > 0;
+}
+
+/**
+ * Split one region of a script on the given terminator.
+ */
+function splitRegion(
+  sql: string,
+  allTokens: Token[],
+  from: number,
+  to: number,
+  terminator: string,
+  unsafe: Array<[number, number]> = [],
+): SplitStatement[] {
+  const statements: SplitStatement[] = [];
+  const cuts: Array<{ contentEnd: number; nextStart: number }> = [];
+  if (terminator === ';') {
+    for (const token of allTokens) {
+      if (token.start < from || token.end > to) continue;
+      if (token.kind === 'punct' && token.value === ';' && token.depth === 0) {
+        cuts.push({ contentEnd: token.start, nextStart: token.end });
+      }
+    }
+  } else {
+    for (const offset of findTerminatorOffsets(sql, from, to, terminator, unsafe)) {
+      cuts.push({ contentEnd: offset, nextStart: offset + terminator.length });
+    }
+  }
+  cuts.push({ contentEnd: to, nextStart: to });
+
+  let segmentStart = from;
+  for (const cut of cuts) {
+    const segmentTokens = allTokens.filter(
+      (token) => token.start >= segmentStart && token.end <= cut.contentEnd,
+    );
+    // A segment that holds nothing but comments is not a statement.
+    const codeTokens = segmentTokens.filter((token) => token.kind !== 'comment');
+    if (codeTokens.length > 0) {
+      statements.push({
+        sql: sql.slice(segmentStart, cut.contentEnd).trim(),
+        start: segmentStart,
+        end: cut.contentEnd,
+        line: codeTokens[0].line,
+        tokens: segmentTokens,
+      });
+    }
+    segmentStart = cut.nextStart;
+  }
+  return statements;
+}
+
+/**
+ * Split a script into statements.
+ *
+ * The script is split on the current statement terminator, which is `;` unless
+ * a `DELIMITER` directive changes it. Semicolons inside strings, comments and
+ * parentheses are ignored. A `DELIMITER` directive is a client-side
+ * instruction: it is consumed here and never becomes a statement, so it is
+ * never sent to the server.
+ *
+ * When the caller already tokenized the script it can pass the token list in,
+ * so the script is not tokenized twice.
+ */
+export function splitStatements(sql: string, tokens?: Token[]): SplitStatement[] {
+  const allTokens = tokens ?? tokenize(sql);
+  const directives = findDelimiterDirectives(sql, allTokens);
+  if (directives.length === 0) {
+    return splitRegion(sql, allTokens, 0, sql.length, ';');
+  }
+  const unsafe = terminatorUnsafeRanges(allTokens);
+  const statements: SplitStatement[] = [];
+  let regionStart = 0;
+  let terminator = ';';
+  for (const directive of directives) {
+    statements.push(
+      ...splitRegion(sql, allTokens, regionStart, directive.start, terminator, unsafe),
+    );
+    terminator = directive.terminator;
+    regionStart = directive.end;
+  }
+  statements.push(...splitRegion(sql, allTokens, regionStart, sql.length, terminator, unsafe));
   return statements;
 }
 

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { StaticReviewResult, StoredReviewReport } from '../../shared/types';
+import { assertProfileAssigned, requireAdmin, sandboxScopeOverride } from '../auth';
 import { getProfile } from '../store/profiles';
 import { saveReport } from '../store/reports';
 import { resolveProvider } from '../store/providers';
@@ -90,7 +91,13 @@ reviewRouter.post(
   '/static',
   asyncHandler(async (req, res) => {
     const body = parseBody(StaticReviewSchema, req);
-    const result = await runStaticReview(body);
+    // A review may read the schema of the connection it names, so the profile
+    // has to be assigned to the caller and the scope has to be narrowed.
+    if (body.profileId) assertProfileAssigned(req, body.profileId);
+    const result = await runStaticReview({
+      ...body,
+      scopeOverride: body.profileId ? sandboxScopeOverride(req.user, body.profileId) : undefined,
+    });
     res.json({ data: result });
   }),
 );
@@ -99,6 +106,10 @@ reviewRouter.post(
   '/ai',
   asyncHandler(async (req, res) => {
     const body = parseBody(AiReviewBodySchema, req);
+    if (body.profileId) assertProfileAssigned(req, body.profileId);
+    const scopeOverride = body.profileId
+      ? sandboxScopeOverride(req.user, body.profileId)
+      : undefined;
     const resolved = await resolveProvider(body.providerId);
     const provider = body.model?.trim()
       ? { ...resolved.public, model: body.model.trim() }
@@ -126,6 +137,7 @@ reviewRouter.post(
         resolved.apiKey,
         (text) => sse.send('delta', { text }),
         controller.signal,
+        { scopeOverride },
       );
       sse.send('result', { review: result.review });
       sse.send('done', {});
@@ -143,6 +155,9 @@ reviewRouter.post(
 reviewRouter.post(
   '/save',
   asyncHandler(async (req, res) => {
+    // Reports are admin artifacts (audits already are); members can run
+    // reviews but only the admin keeps them.
+    requireAdmin(req);
     const body = parseBody(SaveReviewSchema, req);
     const review = await resolveReviewForSave(body);
     const profile = body.profileId ? await getProfile(body.profileId).catch(() => null) : null;

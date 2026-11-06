@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { DATA_DIR } from '../config';
 import { AppError } from '../errors';
+import { assertProviderUrl } from '../ai/http';
 import type { AiProvider, AiProviderInput, AiProviderType } from '../../shared/types';
 import { decryptSecret, encryptSecret, maskSecret } from './crypto';
 import { JsonStore } from './json-store';
@@ -25,6 +26,8 @@ interface StoredProvider {
   temperature: number;
   maxTokens: number;
   streaming: boolean;
+  /** Anthropic extended thinking; absent on records written before the flag. */
+  thinkingEnabled?: boolean;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
@@ -123,6 +126,27 @@ export async function decryptProviderHeaders(
   return out;
 }
 
+/**
+ * The public shape of a custom header value. The real value is a gateway
+ * credential, so only a masked hint is ever returned to a client.
+ */
+export function maskHeaderValue(value: string): string {
+  if (!value) return '••••';
+  return maskSecret(value) ?? '••••';
+}
+
+/** Masks every custom header value of a provider. */
+export async function maskProviderHeaders(
+  headers: Record<string, string> | undefined,
+): Promise<Record<string, string>> {
+  const plain = await decryptProviderHeaders(headers);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(plain)) {
+    out[key] = maskHeaderValue(value);
+  }
+  return out;
+}
+
 function validate(input: AiProviderInput): AiProviderInput {
   const name = input.name?.trim();
   const baseUrl = input.baseUrl?.trim();
@@ -132,6 +156,9 @@ function validate(input: AiProviderInput): AiProviderInput {
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw new AppError('VALIDATION', 'Base URL must start with http:// or https://.');
   }
+  // The base URL is fetched with the decrypted API key attached, so it must
+  // not be able to carry credentials, a query string, or a metadata address.
+  assertProviderUrl(baseUrl);
   if (!model) throw new AppError('VALIDATION', 'Model name is required.');
   if (!['openai', 'anthropic', 'google'].includes(input.type)) {
     throw new AppError('VALIDATION', 'Unsupported provider type.');
@@ -144,6 +171,10 @@ function validate(input: AiProviderInput): AiProviderInput {
   };
 }
 
+/**
+ * The shape that is safe to send to a client: the custom header values are
+ * masked, never decrypted.
+ */
 async function toPublic(provider: StoredProvider): Promise<AiProvider> {
   let hint: string | null = null;
   if (provider.apiKeyEnc) {
@@ -163,15 +194,25 @@ async function toPublic(provider: StoredProvider): Promise<AiProvider> {
     apiKeyHint: hint,
     authHeader: provider.authHeader,
     authPrefix: provider.authPrefix,
-    headers: await decryptProviderHeaders(provider.headers),
+    headers: await maskProviderHeaders(provider.headers),
     extraBody: provider.extraBody,
     temperature: provider.temperature,
     maxTokens: provider.maxTokens,
     streaming: provider.streaming,
+    thinkingEnabled: provider.thinkingEnabled ?? false,
     isDefault: provider.isDefault,
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt,
   };
+}
+
+/**
+ * The runtime shape, with the decrypted custom headers. It is used to build
+ * the outbound request to the provider and must never be returned to a client.
+ */
+async function toRuntime(provider: StoredProvider): Promise<AiProvider> {
+  const base = await toPublic(provider);
+  return { ...base, headers: await decryptProviderHeaders(provider.headers) };
 }
 
 export async function listProviders(): Promise<AiProvider[]> {
@@ -190,12 +231,25 @@ export async function getProvider(id: string): Promise<AiProvider> {
   return toPublic(await getStoredProvider(id));
 }
 
+/**
+ * The runtime shape of a provider, with the decrypted custom headers. Use it
+ * only to build an outbound request; never send it to a client.
+ */
+export async function getProviderRuntime(id: string): Promise<AiProvider> {
+  return toRuntime(await getStoredProvider(id));
+}
+
 export async function getProviderApiKey(id: string): Promise<string | null> {
   const provider = await getStoredProvider(id);
   if (!provider.apiKeyEnc) return null;
   return decryptSecret(provider.apiKeyEnc);
 }
 
+/**
+ * Resolves the provider to use. The `public` member is the runtime shape: it
+ * carries the decrypted custom headers so the outbound request can be built.
+ * It must never be returned to a client.
+ */
 export async function resolveProvider(
   id?: string | null,
 ): Promise<{ stored: StoredProvider; public: AiProvider; apiKey: string | null }> {
@@ -215,7 +269,7 @@ export async function resolveProvider(
   const stored = await getStoredProvider(effectiveId);
   return {
     stored,
-    public: await toPublic(stored),
+    public: await toRuntime(stored),
     apiKey: stored.apiKeyEnc ? await decryptSecret(stored.apiKeyEnc) : null,
   };
 }
@@ -248,6 +302,7 @@ export async function createProvider(input: AiProviderInput): Promise<AiProvider
     temperature: clampNumber(clean.temperature, 0, 2, 0.2),
     maxTokens: Math.trunc(clampNumber(clean.maxTokens, 16, 128_000, 4096)),
     streaming: clean.streaming !== false,
+    thinkingEnabled: clean.thinkingEnabled === true,
     isDefault: Boolean(clean.isDefault) || file.providers.length === 0,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -282,6 +337,21 @@ export async function updateProvider(id: string, input: AiProviderInput): Promis
       apiKeyEnc = await encryptSecret(clean.apiKey);
     }
 
+    // The client edits the masked header values it was given. An unchanged
+    // placeholder must not overwrite the stored secret with the mask.
+    const previousPlain = await decryptProviderHeaders(previous.headers);
+    const submitted = sanitizeHeaders(clean.headers);
+    const mergedHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(submitted)) {
+      const current = previousPlain[key];
+      if (current !== undefined && value === maskHeaderValue(current)) {
+        // Keep the stored secret; it is encrypted again below.
+        mergedHeaders[key] = current;
+        continue;
+      }
+      mergedHeaders[key] = value;
+    }
+
     updated = {
       ...previous,
       name: clean.name,
@@ -293,11 +363,12 @@ export async function updateProvider(id: string, input: AiProviderInput): Promis
       apiKeyEnc,
       authHeader: (clean.authHeader ?? defaults.authHeader).trim(),
       authPrefix: clean.authPrefix ?? defaults.authPrefix,
-      headers: await encryptProviderHeaders(sanitizeHeaders(clean.headers)),
+      headers: await encryptProviderHeaders(mergedHeaders),
       extraBody: sanitizeExtraBody(clean.extraBody),
       temperature: clampNumber(clean.temperature, 0, 2, previous.temperature),
       maxTokens: Math.trunc(clampNumber(clean.maxTokens, 16, 128_000, previous.maxTokens)),
       streaming: clean.streaming !== false,
+      thinkingEnabled: clean.thinkingEnabled === true,
       isDefault: clean.isDefault ?? previous.isDefault,
       updatedAt: now(),
     };

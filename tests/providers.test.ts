@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { completeOpenAi, streamOpenAi } from '../server/ai/openai';
 import { completeAnthropic } from '../server/ai/anthropic';
-import { completeGoogle } from '../server/ai/google';
-import { decryptProviderHeaders, encryptProviderHeaders } from '../server/store/providers';
+import { completeGoogle, listGoogleModels } from '../server/ai/google';
+import { complete, resetAiLimits } from '../server/ai';
+import { assertProviderUrl, extractJsonPayload, readBoundedText, readSse } from '../server/ai/http';
+import {
+  decryptProviderHeaders,
+  encryptProviderHeaders,
+  createProvider,
+} from '../server/store/providers';
 import { canReuseStoredPassword } from '../server/routes/connections';
 import { testProvider } from './fixtures';
 
@@ -97,7 +103,7 @@ describe('AI provider adapters', () => {
     });
   });
 
-  it('parses a Google Gemini response and appends the API key', async () => {
+  it('parses a Google Gemini response and sends the API key in a header', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -123,9 +129,62 @@ describe('AI provider adapters', () => {
 
     expect(result.text).toBe('Hello Gemini');
     expect(result.usage?.totalTokens).toBe(6);
-    const [url] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain(':generateContent');
-    expect(String(url)).toContain('key=secret');
+    // F-35: the key must not travel in the query string.
+    expect(String(url)).not.toContain('secret');
+    expect(String(url)).not.toContain('key=');
+    expect((init as RequestInit).headers).toMatchObject({ 'x-goog-api-key': 'secret' });
+  });
+
+  it('F-37 refuses a model name that would walk out of the request path', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+    const provider = {
+      ...testProvider,
+      type: 'google' as const,
+      baseUrl: 'https://generativelanguage.test/v1beta',
+      model: '../../admin',
+    };
+
+    await expect(
+      completeGoogle(provider, 'secret', [{ role: 'user', content: 'Hi' }]),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('F-37 refuses a model name that contains a path separator', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+    const provider = {
+      ...testProvider,
+      type: 'google' as const,
+      baseUrl: 'https://generativelanguage.test/v1beta',
+      model: 'models/gemini-test',
+    };
+
+    await expect(
+      completeGoogle(provider, 'secret', [{ role: 'user', content: 'Hi' }]),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('F-35 keeps the Google key out of the model listing URL', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ models: [{ name: 'models/gemini-test' }] }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = {
+      ...testProvider,
+      type: 'google' as const,
+      baseUrl: 'https://generativelanguage.test/v1beta',
+      model: 'gemini-test',
+    };
+    const models = await listGoogleModels(provider, 'secret');
+
+    expect(models).toEqual(['gemini-test']);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).not.toContain('secret');
+    expect((init as RequestInit).headers).toMatchObject({ 'x-goog-api-key': 'secret' });
   });
 
   it('maps provider errors without leaking the key', async () => {
@@ -211,5 +270,160 @@ describe('connection test credential reuse', () => {
         socketPath: '/tmp/mysql.sock',
       }),
     ).toBe(false);
+  });
+});
+
+describe('F-12 the provider base URL is validated', () => {
+  it('accepts a plain http(s) URL', () => {
+    expect(assertProviderUrl('https://api.example.test/v1').hostname).toBe('api.example.test');
+    expect(assertProviderUrl('http://127.0.0.1:11434/v1').hostname).toBe('127.0.0.1');
+  });
+
+  it('refuses a URL that is not http(s)', () => {
+    expect(() => assertProviderUrl('file:///etc/passwd')).toThrow();
+    expect(() => assertProviderUrl('gopher://example.test')).toThrow();
+    expect(() => assertProviderUrl('not a url')).toThrow();
+  });
+
+  it('refuses credentials, a query string and a metadata address', () => {
+    expect(() => assertProviderUrl('https://user:pass@api.example.test/v1')).toThrow();
+    expect(() => assertProviderUrl('https://api.example.test/v1?key=abc')).toThrow();
+    expect(() => assertProviderUrl('https://169.254.169.254/latest/meta-data')).toThrow();
+    expect(() => assertProviderUrl('https://0.0.0.0/v1')).toThrow();
+  });
+
+  it('refuses to store a provider with an unsafe base URL', async () => {
+    await expect(
+      createProvider({
+        name: 'Unsafe provider',
+        type: 'openai',
+        baseUrl: 'https://169.254.169.254/latest',
+        model: 'test-model',
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('F-15 a provider response cannot exhaust the memory', () => {
+  it('refuses a body that is larger than the ceiling', async () => {
+    const response = new Response('x'.repeat(4096), { status: 200 });
+    await expect(readBoundedText(response, 1024)).rejects.toMatchObject({
+      code: 'AI_RESPONSE_TOO_LARGE',
+    });
+  });
+
+  it('reads a body that fits', async () => {
+    const response = new Response('hello', { status: 200 });
+    expect(await readBoundedText(response, 1024)).toBe('hello');
+  });
+
+  it('refuses a stream that grows past the ceiling', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode('a'.repeat(64)));
+        controller.enqueue(encoder.encode('b'.repeat(64)));
+        controller.close();
+      },
+    });
+    const response = new Response(stream, { status: 200 });
+    await expect(readSse(response, () => undefined, { maxBytes: 32 })).rejects.toMatchObject({
+      code: 'AI_RESPONSE_TOO_LARGE',
+    });
+  });
+});
+
+describe('F-13 a malformed provider answer is repaired locally', () => {
+  it('extracts the JSON object out of a wrapped answer', () => {
+    const answer = 'Here is the review:\n{"verdict":"pass","summary":"ok"}';
+    expect(extractJsonPayload(answer)).toBe('{"verdict":"pass","summary":"ok"}');
+  });
+
+  it('leaves a prose answer untouched', () => {
+    const answer = 'The query joins three tables; watch the fan-out.';
+    expect(extractJsonPayload(answer)).toBe(answer);
+  });
+
+  it('returns the JSON object to the caller instead of the wrapped text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: 'Here is the review:\n{"verdict":"pass","summary":"ok"}',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]);
+
+    expect(result.text).toBe('{"verdict":"pass","summary":"ok"}');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('F-17 the AI endpoints are rate limited and bounded', () => {
+  afterEach(() => {
+    resetAiLimits();
+  });
+
+  it('refuses more than sixty provider calls per minute', async () => {
+    resetAiLimits();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
+    for (let index = 0; index < 60; index += 1) {
+      await complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]);
+    }
+
+    await expect(
+      complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]),
+    ).rejects.toMatchObject({ code: 'AI_RATE_LIMIT' });
+  });
+
+  it('refuses to queue more than eight provider calls', async () => {
+    resetAiLimits();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        await gate;
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    const pending: Promise<unknown>[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      pending.push(
+        complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]).catch(() => undefined),
+      );
+    }
+
+    await expect(
+      complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]),
+    ).rejects.toMatchObject({ code: 'AI_BUSY' });
+
+    release();
+    await Promise.all(pending);
   });
 });

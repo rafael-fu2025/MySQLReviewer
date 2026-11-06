@@ -41,10 +41,26 @@ export async function getPracticeSet(id: string): Promise<PracticeSet> {
   return set;
 }
 
-export async function listPracticeSets(profileId?: string, limit = 20): Promise<PracticeSet[]> {
+export async function listPracticeSets(
+  profileId?: string,
+  limit = 20,
+  userId?: string,
+): Promise<PracticeSet[]> {
   const file = await store.read();
-  const sets = profileId ? file.sets.filter((set) => set.profileId === profileId) : file.sets;
+  let sets = profileId ? file.sets.filter((set) => set.profileId === profileId) : file.sets;
+  // Members see only the sets they generated; pre-admin sets are admin-only.
+  if (userId) {
+    sets = sets.filter((set) => set.userId === userId);
+  }
   return sets.slice(0, Math.max(1, Math.min(50, limit)));
+}
+
+/** Records who generated a set; called right after the set is persisted. */
+export async function stampPracticeSetOwner(setId: string, userId: string): Promise<void> {
+  await store.update((current) => ({
+    sets: current.sets.map((set) => (set.id === setId ? { ...set, userId } : set)),
+    attempts: current.attempts,
+  }));
 }
 
 export async function addPracticeAttempt(attempt: PracticeAttempt): Promise<PracticeAttempt> {
@@ -58,11 +74,15 @@ export async function addPracticeAttempt(attempt: PracticeAttempt): Promise<Prac
 export async function listPracticeAttempts(
   profileId?: string,
   limit = 30,
+  userId?: string,
 ): Promise<PracticeAttempt[]> {
   const file = await store.read();
-  const attempts = profileId
+  let attempts = profileId
     ? file.attempts.filter((attempt) => attempt.profileId === profileId)
     : file.attempts;
+  if (userId) {
+    attempts = attempts.filter((attempt) => attempt.userId === userId);
+  }
   return attempts.slice(0, Math.max(1, Math.min(100, limit)));
 }
 
@@ -74,24 +94,53 @@ export async function listPracticeAttempts(
 export async function listPracticeAttemptsForSet(
   profileId: string,
   setId: string,
+  userId?: string,
 ): Promise<PracticeAttempt[]> {
   const file = await store.read();
-  return file.attempts.filter(
+  let filtered = file.attempts.filter(
     (attempt) => attempt.profileId === profileId && attempt.setId === setId,
   );
+  if (userId) {
+    filtered = filtered.filter((attempt) => attempt.userId === userId);
+  }
+  return filtered;
 }
 
-export async function clearPracticeAttempts(profileId?: string): Promise<void> {
+/** Records who submitted an attempt; called right after it is persisted. */
+export async function stampPracticeAttemptOwner(
+  profileId: string,
+  setId: string,
+  questionId: string,
+  userId: string,
+): Promise<void> {
   await store.update((current) => ({
     sets: current.sets,
-    attempts: profileId
-      ? current.attempts.filter((attempt) => attempt.profileId !== profileId)
-      : [],
+    attempts: current.attempts.map((attempt) =>
+      attempt.profileId === profileId &&
+      attempt.setId === setId &&
+      attempt.questionId === questionId
+        ? { ...attempt, userId }
+        : attempt,
+    ),
   }));
 }
 
-export async function getPracticeProgress(profileId: string): Promise<PracticeProgress> {
-  const attempts = await listPracticeAttempts(profileId, 500);
+export async function clearPracticeAttempts(profileId?: string, userId?: string): Promise<void> {
+  await store.update((current) => ({
+    sets: current.sets,
+    attempts: current.attempts.filter((attempt) => {
+      const matchesProfile = profileId ? attempt.profileId === profileId : true;
+      const matchesUser = userId ? attempt.userId === userId : true;
+      return !(matchesProfile && matchesUser);
+    }),
+  }));
+}
+
+export async function getPracticeProgress(
+  profileId: string,
+  userId?: string,
+): Promise<PracticeProgress> {
+  const attempts = await listPracticeAttempts(profileId, 500, userId);
   const topicMap = new Map<PracticeTopic, { attempts: number; total: number; best: number }>();
   for (const item of PRACTICE_TOPICS) {
     topicMap.set(item.id, { attempts: 0, total: 0, best: 0 });

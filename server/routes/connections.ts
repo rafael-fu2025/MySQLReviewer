@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { ConnectResult, TestConnectionResult } from '../../shared/types';
+import type { ConnectResult, TestConnectionResult, UnlockResult } from '../../shared/types';
 import {
   connectProfile,
   disconnectProfile,
@@ -14,6 +14,9 @@ import {
 import { listDatabases } from '../db/introspection';
 import { generateGrantSql } from '../db/grants';
 import { AppError } from '../errors';
+import { assertProfileAssigned, requireAdmin, sandboxScopeOverride } from '../auth';
+import { logActivity } from '../store/activity';
+import { findUserById, resolveWriteUnlock } from '../store/users';
 import {
   createProfile,
   deleteProfile,
@@ -49,6 +52,11 @@ const ConnectionSchema = z.object({
   databaseScope: z.enum(['all', 'selected']).optional(),
   allowedDatabases: z.array(z.string().max(200)).max(200).optional(),
   allowServerWideInsights: z.boolean().optional(),
+  /**
+   * Whether members may write through this connection. `locked` makes it
+   * read-only for members; an administrator keeps full write access.
+   */
+  writeAccess: z.enum(['full', 'locked']).optional(),
 });
 
 const TestSchema = ConnectionSchema.extend({
@@ -65,6 +73,21 @@ const UnlockSchema = z.object({
 });
 
 export const connectionsRouter = Router();
+
+/**
+ * The unlock state as the policy sees it. An account the policy forbids from
+ * unlocking has no grant, even if one is still sitting in memory.
+ */
+async function effectiveUnlockState(profileId: string, userId: string): Promise<UnlockResult> {
+  const user = await findUserById(userId);
+  if (user?.role === 'admin') {
+    return { unlocked: true, until: null, ttlSeconds: 0 };
+  }
+  const state = unlockState(profileId, userId);
+  const decision = await resolveWriteUnlock(profileId, userId);
+  if (decision.permitted) return state;
+  return { unlocked: false, until: null, ttlSeconds: 0 };
+}
 
 export interface PasswordReuseTarget {
   host: string;
@@ -101,14 +124,26 @@ export function canReuseStoredPassword(
 
 connectionsRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    res.json({ data: await listProfiles() });
+  asyncHandler(async (req, res) => {
+    const user = req.user;
+    const all = await listProfiles();
+    // Members see only the connections assigned to them.
+    const data =
+      user && user.role === 'member'
+        ? all.filter((profile) =>
+            user.assignments.some((assignment) => assignment.profileId === profile.id),
+          )
+        : all;
+    res.json({ data });
   }),
 );
 
 connectionsRouter.post(
   '/test',
   asyncHandler(async (req, res) => {
+    // Testing probes arbitrary hosts with supplied credentials — that is an
+    // admin capability, not something a member account should be able to do.
+    requireAdmin(req);
     const body = parseBody(TestSchema, req);
     let password = body.password;
     if (password === undefined && body.profileId) {
@@ -138,18 +173,35 @@ connectionsRouter.post(
 connectionsRouter.post(
   '/',
   asyncHandler(async (req, res) => {
+    const user = requireAdmin(req);
     const body = parseBody(ConnectionSchema, req);
-    res.status(201).json({ data: await createProfile(body) });
+    const profile = await createProfile(body);
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'admin-connection-create',
+      profileId: profile.id,
+      detail: `"${profile.name}" (${profile.user}@${profile.host}:${profile.port})`,
+    });
+    res.status(201).json({ data: profile });
   }),
 );
 
 connectionsRouter.put(
   '/:id',
   asyncHandler(async (req, res) => {
+    const user = requireAdmin(req);
     const id = param(req, 'id');
     const body = parseBody(ConnectionSchema, req);
     const profile = await updateProfile(id, body);
     await invalidateProfile(id);
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'admin-connection-update',
+      profileId: id,
+      detail: `"${profile.name}" updated`,
+    });
     res.json({ data: profile });
   }),
 );
@@ -157,9 +209,18 @@ connectionsRouter.put(
 connectionsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
+    const user = requireAdmin(req);
     const id = param(req, 'id');
+    const profile = await getProfile(id);
     await invalidateProfile(id);
     await deleteProfile(id);
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'admin-connection-delete',
+      profileId: id,
+      detail: `"${profile.name}" deleted`,
+    });
     res.json({ data: { deleted: true } });
   }),
 );
@@ -167,6 +228,7 @@ connectionsRouter.delete(
 connectionsRouter.post(
   '/:id/grant-sql',
   asyncHandler(async (req, res) => {
+    requireAdmin(req);
     const id = param(req, 'id');
     await getProfile(id);
     const body = parseBody(
@@ -187,16 +249,25 @@ connectionsRouter.post(
 connectionsRouter.post(
   '/:id/connect',
   asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
     const body = parseBody(ConnectSchema, req);
     await getProfile(id);
     const server = await connectProfile(id, body.password);
-    const databases = await listDatabases(id);
+    const override = sandboxScopeOverride(user, id);
+    const databases = await listDatabases(id, override);
     const result: ConnectResult = {
       server,
       databases,
-      unlock: unlockState(id),
+      unlock: await effectiveUnlockState(id, user.id),
     };
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'connect',
+      profileId: id,
+      detail: `${server.flavor} ${server.version}`,
+    });
     res.json({ data: result });
   }),
 );
@@ -204,9 +275,16 @@ connectionsRouter.post(
 connectionsRouter.post(
   '/:id/disconnect',
   asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
     await disconnectProfile(id);
-    lockWrites(id);
+    lockWrites(id, user.id, { profileWide: user.role === 'admin' });
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'disconnect',
+      profileId: id,
+    });
     res.json({ data: { disconnected: true } });
   }),
 );
@@ -214,28 +292,69 @@ connectionsRouter.post(
 connectionsRouter.get(
   '/:id/unlock',
   asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
-    res.json({ data: unlockState(id) });
+    res.json({ data: await effectiveUnlockState(id, user.id) });
   }),
 );
 
 connectionsRouter.post(
   '/:id/unlock',
   asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
+    if (user.role === 'admin') {
+      res.json({
+        data: {
+          unlocked: true,
+          until: null,
+          ttlSeconds: 0,
+        },
+      });
+      return;
+    }
+    // The policy is checked before the phrase: an account the policy forbids
+    // from unlocking must not be able to open a grant at all.
+    const decision = await resolveWriteUnlock(id, user.id);
+    if (!decision.permitted) {
+      throw new AppError('WRITE_UNLOCK_DISABLED', decision.message, 403, {
+        blocker: decision.blocker,
+      });
+    }
     const body = parseBody(UnlockSchema, req);
-    if (!isWritesUnlocked(id)) {
+    if (!isWritesUnlocked(id, user.id)) {
       // The server performs the phrase check; this call also validates the profile.
       await getProfile(id);
     }
-    res.json({ data: unlockWrites(id, body.phrase) });
+    const result = unlockWrites(id, user.id, body.phrase, {
+      profileWide: false,
+    });
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'unlock',
+      profileId: id,
+      detail: result.unlocked ? 'Writes unlocked for 15 minutes' : 'Unlock attempt failed',
+    });
+    res.json({ data: result });
   }),
 );
 
 connectionsRouter.post(
   '/:id/lock',
   asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
-    res.json({ data: lockWrites(id) });
+    if (user.role === 'admin') {
+      res.json({ data: { unlocked: true, until: null, ttlSeconds: 0 } });
+      return;
+    }
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'lock',
+      profileId: id,
+    });
+    res.json({ data: lockWrites(id, user.id, { profileWide: false }) });
   }),
 );

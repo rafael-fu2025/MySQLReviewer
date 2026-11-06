@@ -18,6 +18,7 @@ import { getSettings } from '../store/settings';
 import { getCachedServerInfo } from '../db/manager';
 import { getSchemaSnapshot } from '../db/introspection';
 import { assertDatabaseAllowed, assertSqlScope } from '../db/scope';
+import { AppError } from '../errors';
 import { buildRuleContext, schemaToText } from '../review/context';
 import { runStaticReview } from '../review/static-review';
 import { complete, stream, type ChatMessage, type ChatUsage } from './index';
@@ -28,37 +29,104 @@ import {
   buildReviewMessages,
 } from './prompts';
 
+/**
+ * A model answer is data, not code: one field of the wrong type must not throw
+ * the whole review away. Every field is therefore coerced to the shape the
+ * parser expects, and a value that cannot be coerced becomes `null` instead of
+ * failing the parse.
+ */
+function coerceText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function coerceNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/** A line number: the model often quotes it as a string ("12"). */
+function coerceLine(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value.trim(), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+const AiTextSchema = z.preprocess(coerceText, z.string().nullish());
+const AiNumberSchema = z.preprocess(coerceNumber, z.number().nullish());
+const AiLineSchema = z.preprocess(coerceLine, z.number().nullish());
+
 const AiFindingSchema = z
   .object({
-    severity: z.string().nullish(),
-    category: z.string().nullish(),
-    title: z.string().nullish(),
-    detail: z.string().nullish(),
-    message: z.string().nullish(),
-    recommendation: z.string().nullish(),
-    line: z.number().nullish(),
-    evidence: z.string().nullish(),
-    table: z.string().nullish(),
-    column: z.string().nullish(),
+    severity: AiTextSchema,
+    category: AiTextSchema,
+    title: AiTextSchema,
+    detail: AiTextSchema,
+    message: AiTextSchema,
+    recommendation: AiTextSchema,
+    line: AiLineSchema,
+    evidence: AiTextSchema,
+    table: AiTextSchema,
+    column: AiTextSchema,
   })
   .passthrough();
 
 const AiRewriteSchema = z
   .object({
-    sql: z.string(),
-    explanation: z.string().nullish(),
+    sql: AiTextSchema,
+    explanation: AiTextSchema,
   })
   .passthrough();
 
+/** A rewrite that is a bare SQL string is accepted; a rewrite without SQL is dropped. */
+const AiRewriteField = z.preprocess((value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return { sql: value };
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  return null;
+}, AiRewriteSchema.nullish());
+
+/** Findings that are not objects cannot be findings: they are dropped, not fatal. */
+const AiFindingsSchema = z.preprocess((value) => {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => item !== null && typeof item === 'object' && !Array.isArray(item));
+}, z.array(AiFindingSchema).nullish());
+
 const AiReviewSchema = z
   .object({
-    verdict: z.string().nullish(),
-    score: z.number().nullish(),
-    summary: z.string().nullish(),
-    findings: z.array(AiFindingSchema).nullish(),
-    rewrite: AiRewriteSchema.nullish(),
+    verdict: AiTextSchema,
+    score: AiNumberSchema,
+    summary: AiTextSchema,
+    findings: AiFindingsSchema,
+    rewrite: AiRewriteField,
   })
   .passthrough();
+
+/** The fields that make a JSON object a review rather than something else. */
+const REVIEW_FIELDS = ['verdict', 'score', 'summary', 'findings', 'rewrite'] as const;
+
+function looksLikeReview(value: Record<string, unknown>): boolean {
+  return REVIEW_FIELDS.some((field) => value[field] !== undefined);
+}
+
+/**
+ * How many findings of one provider answer are kept. The provider body is byte
+ * capped, but the item count is not, so a long answer must not turn into an
+ * unbounded finding list.
+ */
+export const MAX_AI_FINDINGS = 200;
 
 interface ParsedAiReview {
   verdict: AiReview['verdict'];
@@ -66,6 +134,10 @@ interface ParsedAiReview {
   summary?: string;
   findings: Finding[];
   rewrite: AiReview['rewrite'];
+  /** True when the provider sent more findings than were kept. */
+  findingsTruncated: boolean;
+  /** How many findings the provider sent. */
+  findingsTotal: number;
 }
 
 const SEVERITY_MAP: Record<string, Finding['severity']> = {
@@ -169,15 +241,22 @@ export function extractJsonObject(text: string): unknown | null {
 
 export function parseAiReview(text: string): ParsedAiReview | null {
   const parsedRaw = extractJsonObject(text);
-  if (!parsedRaw) return null;
+  if (!parsedRaw || typeof parsedRaw !== 'object' || Array.isArray(parsedRaw)) return null;
   const container = parsedRaw as Record<string, unknown>;
   const candidate =
-    container.review && typeof container.review === 'object' ? container.review : container;
+    container.review && typeof container.review === 'object' && !Array.isArray(container.review)
+      ? (container.review as Record<string, unknown>)
+      : container;
+  // The shape stays strict at the top level: an object that is not a review at
+  // all is rejected instead of being shown as an empty, passing review.
+  if (!looksLikeReview(candidate)) return null;
   const parsed = AiReviewSchema.safeParse(candidate);
   if (!parsed.success) return null;
 
+  const rawFindings = parsed.data.findings ?? [];
   const findings: Finding[] = [];
-  for (const raw of parsed.data.findings ?? []) {
+  for (const raw of rawFindings) {
+    if (findings.length >= MAX_AI_FINDINGS) break;
     const title = (raw.title ?? '').trim() || 'AI review finding';
     const severity = normalizeSeverity(raw.severity);
     const category = normalizeCategory(raw.category);
@@ -238,7 +317,15 @@ export function parseAiReview(text: string): ParsedAiReview | null {
         }
       : null;
 
-  return { verdict, score, summary, findings, rewrite };
+  return {
+    verdict,
+    score,
+    summary,
+    findings,
+    rewrite,
+    findingsTruncated: rawFindings.length > findings.length,
+    findingsTotal: rawFindings.length,
+  };
 }
 
 function usageToShared(usage: ChatUsage | null): AiReview['usage'] {
@@ -250,12 +337,23 @@ function usageToShared(usage: ChatUsage | null): AiReview['usage'] {
   };
 }
 
+/** What the caller has to know about the provider calls that produced a review. */
+export interface AiReviewCallInfo {
+  /** A second, billable request was made to repair an unparsable answer. */
+  repairAttempted: boolean;
+  /** A second, billable request was made because the streaming call failed. */
+  streamingFallback: boolean;
+  /** Non-fatal problems the caller should see. */
+  warnings: string[];
+}
+
 function aiReviewFrom(
   parsed: ParsedAiReview | null,
   raw: string,
   provider: AiProvider,
   usage: ChatUsage | null,
   durationMs: number,
+  call: AiReviewCallInfo,
 ): AiReview {
   if (!parsed) {
     return {
@@ -270,7 +368,16 @@ function aiReviewFrom(
       markdown: raw,
       usage: usageToShared(usage),
       durationMs,
+      repairAttempted: call.repairAttempted,
+      streamingFallback: call.streamingFallback,
+      warnings: call.warnings.length > 0 ? call.warnings : undefined,
     };
+  }
+  const warnings = [...call.warnings];
+  if (parsed.findingsTruncated) {
+    warnings.push(
+      `The provider returned ${parsed.findingsTotal} findings; only the first ${parsed.findings.length} are shown.`,
+    );
   }
   return {
     providerId: provider.id,
@@ -284,17 +391,28 @@ function aiReviewFrom(
     markdown: raw,
     usage: usageToShared(usage),
     durationMs,
+    repairAttempted: call.repairAttempted,
+    streamingFallback: call.streamingFallback,
+    findingsTruncated: parsed.findingsTruncated,
+    findingsTotal: parsed.findingsTotal,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
-async function schemaTextFor(
+export interface AiScopeOptions {
+  /** Narrows a member session to their sandbox databases. */
+  scopeOverride?: { allowed: string[] };
+}
+
+export async function schemaTextFor(
   profileId: string | null | undefined,
   database: string | null | undefined,
   sql: string,
-): Promise<{ text: string; truncated: boolean }> {
+  scopeOverride?: { allowed: string[] },
+): Promise<{ text: string; truncated: boolean; error?: string }> {
   if (!profileId || !database) return { text: '', truncated: false };
   try {
-    await assertDatabaseAllowed(profileId, database);
+    await assertDatabaseAllowed(profileId, database, scopeOverride);
     const settings = await getSettings();
     const snapshot = await getSchemaSnapshot(profileId, database);
     const context = buildRuleContext({
@@ -306,9 +424,40 @@ async function schemaTextFor(
       text,
       truncated: text.endsWith('-- [schema context truncated]'),
     };
-  } catch {
-    return { text: '', truncated: false };
+  } catch (error) {
+    // A schema that could not be read is not an empty schema: the failure is
+    // reported so the review cannot pass for a schema-aware review.
+    return {
+      text: '',
+      truncated: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
+}
+
+/**
+ * Provider failures a second request cannot fix. Every fallback or repair call
+ * is billed again, so it is only worth making when the failure could plausibly
+ * be specific to the first attempt.
+ */
+const NON_RETRYABLE_AI_CODES = new Set([
+  'AI_CANCELLED',
+  'AI_AUTH',
+  'AI_RATE_LIMIT',
+  'AI_BUSY',
+  'AI_BAD_REQUEST',
+  'AI_RESPONSE_TOO_LARGE',
+]);
+
+/**
+ * Whether a failed streaming call is worth a second (billable) non-streaming
+ * call. A cancelled request, a rejected key, a rate limit or a busy server
+ * fails the same way the second time, so those failures are not retried.
+ */
+export function isRetryableStreamFailure(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return false;
+  if (error instanceof AppError && NON_RETRYABLE_AI_CODES.has(error.code)) return false;
+  return true;
 }
 
 export interface AiReviewRunResult {
@@ -322,15 +471,20 @@ export async function runAiReview(
   apiKey: string | null,
   onDelta: (text: string) => void,
   signal?: AbortSignal,
+  options: AiScopeOptions = {},
 ): Promise<AiReviewRunResult> {
   const started = Date.now();
+  const scopeOverride = options.scopeOverride;
   if (request.profileId) {
-    await assertSqlScope(request.profileId, request.sql, request.database ?? null);
+    await assertSqlScope(request.profileId, request.sql, request.database ?? null, scopeOverride);
   }
   const server = request.profileId ? getCachedServerInfo(request.profileId) : null;
 
   let findings = request.findings ?? [];
   let explain: ExplainResult | null = request.explain ?? null;
+  // Declared before the deterministic pass so that a failure there can be
+  // reported rather than silently swallowed.
+  const warnings: string[] = [];
   if (!request.findings || (request.includeExplain && !request.explain)) {
     try {
       const staticResult = await runStaticReview({
@@ -340,15 +494,27 @@ export async function runAiReview(
         includeSchema: request.includeSchema !== false,
         includeExplain: Boolean(request.includeExplain),
         analyze: Boolean(request.analyze),
+        scopeOverride,
       });
       if (!request.findings) findings = staticResult.findings;
       if (!explain) explain = staticResult.explain;
-    } catch {
-      // AI review can continue without deterministic findings.
+    } catch (error) {
+      // The AI review can continue without deterministic findings, but it must
+      // say so: an empty finding set silently presented reads as "no issues".
+      warnings.push(
+        `The deterministic review could not be completed (${
+          error instanceof Error ? error.message : String(error)
+        }), so this review is based on the AI answer alone.`,
+      );
     }
   }
 
-  const schema = await schemaTextFor(request.profileId, request.database, request.sql);
+  const schema = await schemaTextFor(
+    request.profileId,
+    request.database,
+    request.sql,
+    scopeOverride,
+  );
 
   const messages = buildReviewMessages({
     sql: request.sql,
@@ -363,6 +529,8 @@ export async function runAiReview(
   let raw: string;
   let usage: ChatUsage | null;
   let sawDelta = false;
+  let repairAttempted = false;
+  let streamingFallback = false;
   const handleDelta = (delta: string): void => {
     sawDelta = true;
     onDelta(delta);
@@ -390,7 +558,13 @@ export async function runAiReview(
       if (raw) handleDelta(raw);
     }
   } catch (error) {
-    if (!sawDelta && provider.streaming) {
+    // The fallback is a second provider call and therefore a second bill: it
+    // is only made when the failure could be specific to the streaming call.
+    if (!sawDelta && provider.streaming && isRetryableStreamFailure(error, signal)) {
+      streamingFallback = true;
+      warnings.push(
+        'The streaming request failed, so the answer was fetched with a second provider call, which was billed again.',
+      );
       const result = await complete(provider, apiKey, messages, {
         temperature: provider.temperature,
         maxTokens: provider.maxTokens,
@@ -405,7 +579,11 @@ export async function runAiReview(
   }
 
   let parsed = parseAiReview(raw);
-  if (!parsed && raw.trim()) {
+  if (!parsed && raw.trim() && !signal?.aborted) {
+    // A repair round trip is a second bill: it is skipped once the request was
+    // cancelled and it is reported when it happens. The repair request carries
+    // the broken answer, not the schema and the SQL again.
+    repairAttempted = true;
     try {
       const repair = await complete(provider, apiKey, buildRepairMessages(messages, raw), {
         temperature: 0,
@@ -418,15 +596,30 @@ export async function runAiReview(
           parsed = repaired;
           raw = repair.text;
           usage = repair.usage ?? usage;
+          warnings.push(
+            'The provider answer was not a valid review and was repaired with a second provider call, which was billed again.',
+          );
         }
       }
     } catch {
       // Fall back to the markdown response.
     }
   }
+  if (!parsed && raw.trim()) {
+    warnings.push('The provider answer could not be parsed as a review.');
+  }
+  if (schema.error) {
+    warnings.push(
+      `The schema could not be read (${schema.error}), so this review is based on the SQL alone.`,
+    );
+  }
 
   return {
-    review: aiReviewFrom(parsed, raw, provider, usage, Date.now() - started),
+    review: aiReviewFrom(parsed, raw, provider, usage, Date.now() - started, {
+      repairAttempted,
+      streamingFallback,
+      warnings,
+    }),
     raw,
   };
 }
@@ -437,18 +630,25 @@ export async function runAiChat(
   apiKey: string | null,
   onDelta: (text: string) => void,
   signal?: AbortSignal,
+  options: AiScopeOptions = {},
 ): Promise<{ text: string; usage: ChatUsage | null }> {
   const context = request.context;
+  const scopeOverride = options.scopeOverride;
   if (context?.profileId) {
     if (context.database) {
-      await assertDatabaseAllowed(context.profileId, context.database);
+      await assertDatabaseAllowed(context.profileId, context.database, scopeOverride);
     }
     if (context.sql) {
-      await assertSqlScope(context.profileId, context.sql, context.database ?? null);
+      await assertSqlScope(context.profileId, context.sql, context.database ?? null, scopeOverride);
     }
   }
   const server = context?.profileId ? getCachedServerInfo(context.profileId) : null;
-  const schema = await schemaTextFor(context?.profileId, context?.database, context?.sql ?? '');
+  const schema = await schemaTextFor(
+    context?.profileId,
+    context?.database,
+    context?.sql ?? '',
+    scopeOverride,
+  );
   const messages = buildChatMessages({
     messages: request.messages,
     sql: context?.sql,

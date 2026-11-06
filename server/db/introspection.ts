@@ -22,6 +22,7 @@ import type {
 import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError } from '../errors';
 import { getSettings } from '../store/settings';
+import { resolveWriteUnlock } from '../store/users';
 import { withConnection, getCachedServerInfo, connectProfile } from './manager';
 import { applyQueryGuards } from './dialect';
 import { estimateBytes, mysqlTypeName, serializeCell } from './serialize';
@@ -70,7 +71,10 @@ export function invalidateSchemaCache(profileId?: string, database?: string): vo
   }
 }
 
-export async function listDatabases(profileId: string): Promise<DatabaseInfo[]> {
+export async function listDatabases(
+  profileId: string,
+  override?: { allowed: string[] },
+): Promise<DatabaseInfo[]> {
   const rows = await withConnection(profileId, async (conn) => {
     const [result] = await conn.query<Row[]>(
       `SELECT
@@ -99,7 +103,7 @@ export async function listDatabases(profileId: string): Promise<DatabaseInfo[]> 
         collation: nullableStr(row.collation),
       };
     }),
-    await getDatabaseScope(profileId),
+    await getDatabaseScope(profileId, override),
   );
 }
 
@@ -752,16 +756,38 @@ export async function getSchemaSnapshot(
   return snapshot;
 }
 
+/**
+ * The table-data request plus the caller. The write unlock belongs to one
+ * user, so the reveal gate has to name them; without a user id only the
+ * profile-wide grant an administrator holds applies.
+ */
+export interface TableDataOptions extends TableDataRequest {
+  userId?: string;
+}
+
 export async function getTableData(
   profileId: string,
   database: string,
   table: string,
-  request: TableDataRequest = {},
+  request: TableDataOptions = {},
 ): Promise<QueryResult> {
   const settings = await getSettings();
   const limit = Math.max(1, Math.min(1000, Math.trunc(request.limit ?? 100)));
   const offset = Math.max(0, Math.trunc(request.offset ?? 0));
   const started = performance.now();
+  const writeAccess = await resolveWriteUnlock(profileId, request.userId);
+  const reveal = request.revealSensitive === true;
+  if (reveal && !writeAccess.allowed) {
+    // Revealing masked values is a write-level action, not a read convenience.
+    // The query path enforces the same rule (server/db/query.ts).
+    throw new AppError(
+      'REVEAL_LOCKED',
+      writeAccess.blocker
+        ? writeAccess.message
+        : 'Unlock writes for this connection before revealing masked values.',
+      403,
+    );
+  }
 
   return withConnection(profileId, async (conn) => {
     const [columnRows] = await conn.query<Row[]>(
@@ -807,13 +833,18 @@ export async function getTableData(
     }
 
     await conn.query('USE ??', [database]);
+    // One row more than requested: the extra row is the only reliable proof
+    // that the result was truncated.
     const statement = `SELECT * FROM ??${fragments.length ? ` WHERE ${fragments.join(' AND ')}` : ''}${orderSql} LIMIT ? OFFSET ?`;
     const params: unknown[] = [table, ...filterParams];
     if (orderColumn) params.push(orderColumn);
-    params.push(limit, offset);
+    params.push(limit + 1, offset);
 
     const server = getCachedServerInfo(profileId) ?? (await connectProfile(profileId));
-    const guards = await applyQueryGuards(conn, server, settings);
+    const guards = await applyQueryGuards(conn, server, {
+      ...settings,
+      rowLimit: Math.max(settings.rowLimit, limit + 1),
+    });
     try {
       const [rawRows, fields] = await conn.query({
         sql: statement,
@@ -836,30 +867,33 @@ export async function getTableData(
           originalName: str(extended.orgName ?? extended.name),
           table: extended.table ? str(extended.table) : null,
           database: extended.database ? str(extended.database) : null,
-          typeName: mysqlTypeName(Number(extended.type ?? 0)),
+          typeName: mysqlTypeName(Number(extended.type ?? 0), Number(extended.flags ?? 0)),
           typeCode: Number(extended.type ?? 0),
           flags: Number(extended.flags ?? 0),
         };
       });
       const masked = maskResultRows(columns, serialized, {
         enabled: settings.maskSensitiveColumns,
-        reveal: request.revealSensitive === true,
+        reveal,
+        sql: statement,
       });
+      const truncated = masked.rows.length > limit;
+      const visibleRows = truncated ? masked.rows.slice(0, limit) : masked.rows;
       return {
         sql: statement,
         database,
         kind: 'read',
         columns: masked.columns,
-        rows: masked.rows,
-        rowCount: masked.rows.length,
-        truncated: masked.rows.length >= limit,
+        rows: visibleRows,
+        rowCount: visibleRows.length,
+        truncated,
         affectedRows: 0,
         insertId: null,
         info: '',
         warnings: [],
         executionMs: Math.round(now - started),
-        bytesApprox: estimateBytes(masked.rows),
-        unlocked: false,
+        bytesApprox: estimateBytes(visibleRows),
+        unlocked: writeAccess.allowed,
         masked: masked.masked,
       } satisfies QueryResult;
     } finally {
@@ -871,6 +905,7 @@ export async function getTableData(
 export async function getTopTables(
   profileId: string,
   limit = 10,
+  override?: { allowed: string[] },
 ): Promise<{ database: string; table: string; rowsEstimate: number; totalBytes: number }[]> {
   const rows = await withConnection(profileId, async (conn) => {
     const [result] = await conn.query<Row[]>(
@@ -884,7 +919,7 @@ export async function getTopTables(
     );
     return result;
   });
-  const scope = await getDatabaseScope(profileId);
+  const scope = await getDatabaseScope(profileId, override);
   return rows
     .map((row) => ({
       database: str(row.TABLE_SCHEMA),

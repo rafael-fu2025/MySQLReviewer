@@ -55,4 +55,15 @@ describe('scoring', () => {
     const score = scoreFindings([finding('info')]);
     expect(score.score).toBe(100);
   });
+
+  it('never produces NaN for a non-canonical severity (R-15)', () => {
+    const malformed = {
+      ...finding('info'),
+      severity: 'CRITICAL' as unknown as Finding['severity'],
+    };
+    const score = scoreFindings([malformed]);
+    expect(Number.isNaN(score.score)).toBe(false);
+    expect(score.grade).toBe('A');
+    expect(score.score).toBe(100);
+  });
 });

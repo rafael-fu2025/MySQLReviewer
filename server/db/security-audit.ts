@@ -1,9 +1,17 @@
 import type { RowDataPacket } from 'mysql2/promise';
-import type { CoverageItem, DbUser, GrantInfo, SecurityConfigSnapshot } from '../../shared/types';
+import type {
+  CoverageItem,
+  DbUser,
+  GrantInfo,
+  SecurityAuditResult,
+  SecurityConfigSnapshot,
+} from '../../shared/types';
 import { SYSTEM_SCHEMAS } from '../../shared/types';
 import { AppError } from '../errors';
-import { withConnection } from './manager';
+import { withConnection, getCachedServerInfo } from './manager';
 import { getGlobalVariables } from './metrics';
+import { dedupeFindings } from '../review/findings';
+import { runConfigRules, runSecurityRules } from '../review/rules';
 
 interface Row extends RowDataPacket {
   [key: string]: unknown;
@@ -27,6 +35,35 @@ export interface SecurityData {
 
 function str(value: unknown): string {
   return value == null ? '' : String(value);
+}
+
+/**
+ * Quote an identifier for display. A backtick inside the name is doubled.
+ * Mirrors `quoteIdent` in `server/db/grants.ts`, which is not exported.
+ */
+export function quoteIdent(value: string): string {
+  return `\`${value.replace(/`/g, '``')}\``;
+}
+
+/**
+ * Render one GRANT line for the privilege audit. Schema and table names are
+ * quoted, so a name that contains a backtick cannot break out of the
+ * identifier and change the meaning of the statement.
+ */
+export function formatGrantStatement(input: {
+  privilegeType: string;
+  schema?: string | null;
+  table?: string | null;
+  grantOption?: boolean;
+}): string {
+  let scope = '*.*';
+  if (input.schema && input.table) {
+    scope = `${quoteIdent(input.schema)}.${quoteIdent(input.table)}`;
+  } else if (input.schema) {
+    scope = `${quoteIdent(input.schema)}.*`;
+  }
+  const withGrant = input.grantOption ? ' WITH GRANT OPTION' : '';
+  return `GRANT ${input.privilegeType} ON ${scope}${withGrant}`;
 }
 
 function bool(value: unknown): boolean {
@@ -249,17 +286,30 @@ export async function getGrants(profileId: string, user: string, host: string): 
     });
 
     for (const row of result.userRows) {
-      const withGrant = bool(row.IS_GRANTABLE) ? ' WITH GRANT OPTION' : '';
-      grants.push(`GRANT ${str(row.PRIVILEGE_TYPE)} ON *.*${withGrant}`);
+      grants.push(
+        formatGrantStatement({
+          privilegeType: str(row.PRIVILEGE_TYPE),
+          grantOption: bool(row.IS_GRANTABLE),
+        }),
+      );
     }
     for (const row of result.schemaRows) {
-      const withGrant = bool(row.IS_GRANTABLE) ? ' WITH GRANT OPTION' : '';
-      grants.push(`GRANT ${str(row.PRIVILEGE_TYPE)} ON \`${str(row.TABLE_SCHEMA)}\`.*${withGrant}`);
+      grants.push(
+        formatGrantStatement({
+          privilegeType: str(row.PRIVILEGE_TYPE),
+          schema: str(row.TABLE_SCHEMA),
+          grantOption: bool(row.IS_GRANTABLE),
+        }),
+      );
     }
     for (const row of result.tableRows) {
-      const withGrant = bool(row.IS_GRANTABLE) ? ' WITH GRANT OPTION' : '';
       grants.push(
-        `GRANT ${str(row.PRIVILEGE_TYPE)} ON \`${str(row.TABLE_SCHEMA)}\`.\`${str(row.TABLE_NAME)}\`${withGrant}`,
+        formatGrantStatement({
+          privilegeType: str(row.PRIVILEGE_TYPE),
+          schema: str(row.TABLE_SCHEMA),
+          table: str(row.TABLE_NAME),
+          grantOption: bool(row.IS_GRANTABLE),
+        }),
       );
     }
     if (grants.length === 0) grants.push('GRANT USAGE ON *.*');
@@ -267,4 +317,32 @@ export async function getGrants(profileId: string, user: string, host: string): 
   } catch (error) {
     throw new AppError('GRANTS_UNAVAILABLE', (error as Error).message, 403);
   }
+}
+
+/**
+ * The full security audit: raw account/config data plus the security and
+ * config rule findings, deduplicated. This is the composition the
+ * `/security` route renders; it is exported here so the agent's
+ * `security_audit` tool produces exactly the same result.
+ */
+export async function runSecurityAudit(
+  profileId: string,
+  variables?: Record<string, string>,
+): Promise<SecurityAuditResult> {
+  const vars = variables ?? (await getGlobalVariables(profileId));
+  const server = getCachedServerInfo(profileId);
+  const data = await collectSecurityData(profileId, vars);
+  const findings = dedupeFindings([
+    ...runSecurityRules(data),
+    ...runConfigRules(vars, server).filter(
+      (finding) => finding.category === 'security' || finding.category === 'config',
+    ),
+  ]);
+  return {
+    users: data.users,
+    findings,
+    config: data.config,
+    coverage: data.coverage,
+    generatedAt: data.generatedAt,
+  };
 }

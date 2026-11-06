@@ -14,6 +14,13 @@ export function severityCounts(findings: Finding[]): Record<Severity, number> {
     low: 0,
     info: 0,
   };
-  for (const finding of findings) counts[finding.severity] += 1;
+  for (const finding of findings) {
+    // A non-canonical severity (an AI provider can answer "CRITICAL") must not
+    // create a stray key: `counts['CRITICAL']` is undefined, and `undefined + 1`
+    // is NaN, which then shows up as a NaN bucket in the client filters.
+    if (Object.prototype.hasOwnProperty.call(counts, finding.severity)) {
+      counts[finding.severity] += 1;
+    }
+  }
   return counts;
 }

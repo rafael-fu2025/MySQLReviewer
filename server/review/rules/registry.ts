@@ -1,7 +1,7 @@
 import { describeRules, type RuleCatalogEntry } from './descriptor';
 import { SQL_SCRIPT_HEAD_RULES, SQL_SCRIPT_TAIL_RULES, SQL_STATEMENT_RULES } from './sql-rules';
 import { QUERY_SCHEMA_RULES } from './query-schema-rules';
-import { SCHEMA_RULES } from './schema-rules';
+import { SCHEMA_RULES, UNUSED_INDEX_RULE } from './schema-rules';
 import { SECURITY_DEFINER_RULES, SECURITY_USER_RULES } from './security-rules';
 import { CONFIG_RULES } from './config-rules';
 import { PERFORMANCE_RULES } from './performance-rules';
@@ -23,6 +23,10 @@ export const RULE_CATALOG: RuleCatalogEntry[] = [
   ...describeRules('security', SECURITY_DEFINER_RULES),
   ...describeRules('config', CONFIG_RULES),
   ...describeRules('performance', PERFORMANCE_RULES),
+  // Produced by the audit from the server's index-usage statistics rather
+  // than from a rule module, but it is a rule the engine can emit, so the
+  // catalog lists it.
+  UNUSED_INDEX_RULE,
 ];
 
 /** Rules indexed by id, for lookup by consumers that need rule metadata. */

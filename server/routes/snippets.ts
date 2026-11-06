@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { createSnippet, deleteSnippet, listSnippets, updateSnippet } from '../store/snippets';
+import { currentUser } from '../auth';
 import { asyncHandler, param, parseBody } from './util';
 
 const SnippetSchema = z.object({
@@ -13,31 +14,43 @@ export const snippetsRouter = Router();
 
 snippetsRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    res.json({ data: await listSnippets() });
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    res.json({
+      data: await listSnippets(user.role === 'member' ? user.id : undefined),
+    });
   }),
 );
 
 snippetsRouter.post(
   '/',
   asyncHandler(async (req, res) => {
+    const user = currentUser(req);
     const body = parseBody(SnippetSchema, req);
-    res.status(201).json({ data: await createSnippet(body) });
+    res.status(201).json({ data: await createSnippet(body, user.id) });
   }),
 );
 
 snippetsRouter.put(
   '/:id',
   asyncHandler(async (req, res) => {
+    const user = currentUser(req);
     const body = parseBody(SnippetSchema, req);
-    res.json({ data: await updateSnippet(param(req, 'id'), body) });
+    res.json({
+      data: await updateSnippet(
+        param(req, 'id'),
+        body,
+        user.role === 'member' ? user.id : undefined,
+      ),
+    });
   }),
 );
 
 snippetsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    await deleteSnippet(param(req, 'id'));
+    const user = currentUser(req);
+    await deleteSnippet(param(req, 'id'), user.role === 'member' ? user.id : undefined);
     res.json({ data: { deleted: true } });
   }),
 );

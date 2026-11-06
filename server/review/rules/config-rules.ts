@@ -90,12 +90,9 @@ export const CONFIG_RULES: Rule<ConfigRuleInput>[] = [
     },
     ({ variables }) => {
       const bindAddress = value(variables, 'bind_address');
-      if (
-        bindAddress &&
-        bindAddress !== 'NULL' &&
-        bindAddress !== '0.0.0.0' &&
-        bindAddress !== '*'
-      ) {
+      // `0.0.0.0` and `*` are the IPv4 wildcards, `::` the IPv6 one.
+      const wildcard = new Set(['0.0.0.0', '*', '::']);
+      if (bindAddress && bindAddress !== 'NULL' && !wildcard.has(bindAddress)) {
         return null;
       }
       return {

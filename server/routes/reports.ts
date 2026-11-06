@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { deleteReport, getReport, listReports } from '../store/reports';
 import { reportFileName, reportToHtml, reportToMarkdown } from '../review/report';
+import { logActivity } from '../store/activity';
+import { currentUser, requireAdmin } from '../auth';
 import { asyncHandler, param, parseQuery } from './util';
 
 const ListQuery = z.object({
@@ -13,6 +15,17 @@ const ExportQuery = z.object({
 });
 
 export const reportsRouter = Router();
+
+// Reports are admin artifacts: audits are admin-only, and review saves are
+// gated at creation. Members never see this router.
+reportsRouter.use((req, _res, next) => {
+  try {
+    requireAdmin(req);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 reportsRouter.get(
   '/',
@@ -66,7 +79,17 @@ reportsRouter.get(
 reportsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    await deleteReport(param(req, 'id'));
+    const user = currentUser(req);
+    const id = param(req, 'id');
+    const report = await getReport(id);
+    await deleteReport(id);
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'report-delete',
+      profileId: report.profile?.id,
+      detail: `"${report.title}" deleted`,
+    });
     res.json({ data: { deleted: true } });
   }),
 );

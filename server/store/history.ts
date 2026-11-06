@@ -22,6 +22,7 @@ export interface HistoryInput {
   executionMs: number;
   rowCount: number | null;
   error?: string | null;
+  userId?: string;
 }
 
 export async function addHistory(input: HistoryInput): Promise<HistoryEntry> {
@@ -36,6 +37,7 @@ export async function addHistory(input: HistoryInput): Promise<HistoryEntry> {
     rowCount: input.rowCount,
     error: input.error ? input.error.slice(0, 2_000) : null,
     createdAt: new Date().toISOString(),
+    ...(input.userId ? { userId: input.userId } : {}),
   };
   const settings = await getSettings();
   await store.update((current) => ({
@@ -44,20 +46,38 @@ export async function addHistory(input: HistoryInput): Promise<HistoryEntry> {
   return entry;
 }
 
-export async function listHistory(profileId?: string, limit = 100): Promise<HistoryEntry[]> {
+export async function listHistory(
+  profileId?: string,
+  limit = 100,
+  userId?: string,
+): Promise<HistoryEntry[]> {
   const file = await store.read();
-  const filtered = profileId
+  let filtered = profileId
     ? file.entries.filter((entry) => entry.profileId === profileId)
     : file.entries;
+  // Members see only their own statements. Pre-admin entries (no userId)
+  // belong to the admin and stay invisible to members.
+  if (userId) {
+    filtered = filtered.filter((entry) => entry.userId === userId);
+  }
   return filtered.slice(0, Math.max(1, Math.min(500, limit)));
 }
 
-export async function clearHistory(profileId?: string): Promise<void> {
-  if (!profileId) {
+/**
+ * Removes entries matching the given constraints. A member passes their own
+ * userId, so clearing "their" history never touches anyone else's entries on
+ * a shared connection; an admin passing only profileId clears all of it.
+ */
+export async function clearHistory(profileId?: string, userId?: string): Promise<void> {
+  if (!profileId && !userId) {
     await store.write({ entries: [] });
     return;
   }
   await store.update((current) => ({
-    entries: current.entries.filter((entry) => entry.profileId !== profileId),
+    entries: current.entries.filter((entry) => {
+      const matchesProfile = profileId ? entry.profileId === profileId : true;
+      const matchesUser = userId ? entry.userId === userId : true;
+      return !(matchesProfile && matchesUser);
+    }),
   }));
 }

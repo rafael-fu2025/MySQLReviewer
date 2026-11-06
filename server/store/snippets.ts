@@ -35,12 +35,17 @@ function validate(input: SnippetInput): SnippetInput {
   return { title: title.slice(0, 120), sql: sql.slice(0, 100_000), tags };
 }
 
-export async function listSnippets(): Promise<Snippet[]> {
+/**
+ * Snippets are personal: members see and manage only their own. Entries
+ * created before the admin layer (no userId) belong to the admin.
+ */
+export async function listSnippets(userId?: string): Promise<Snippet[]> {
   const file = await store.read();
-  return [...file.snippets].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const visible = userId ? file.snippets.filter((s) => s.userId === userId) : file.snippets;
+  return [...visible].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export async function createSnippet(input: SnippetInput): Promise<Snippet> {
+export async function createSnippet(input: SnippetInput, userId: string): Promise<Snippet> {
   const clean = validate(input);
   const timestamp = new Date().toISOString();
   const snippet: Snippet = {
@@ -50,17 +55,25 @@ export async function createSnippet(input: SnippetInput): Promise<Snippet> {
     tags: clean.tags ?? [],
     createdAt: timestamp,
     updatedAt: timestamp,
+    userId,
   };
   await store.update((current) => ({ snippets: [snippet, ...current.snippets].slice(0, 500) }));
   return snippet;
 }
 
-export async function updateSnippet(id: string, input: SnippetInput): Promise<Snippet> {
+export async function updateSnippet(
+  id: string,
+  input: SnippetInput,
+  userId?: string,
+): Promise<Snippet> {
   const clean = validate(input);
   let updated: Snippet | null = null;
   await store.update((current) => {
     const index = current.snippets.findIndex((snippet) => snippet.id === id);
     if (index < 0) throw new AppError('SNIPPET_NOT_FOUND', 'Snippet not found.', 404);
+    if (userId && current.snippets[index].userId !== userId) {
+      throw new AppError('SNIPPET_FORBIDDEN', 'This snippet belongs to another account.', 403);
+    }
     updated = {
       ...current.snippets[index],
       title: clean.title,
@@ -76,11 +89,13 @@ export async function updateSnippet(id: string, input: SnippetInput): Promise<Sn
   return updated;
 }
 
-export async function deleteSnippet(id: string): Promise<void> {
+export async function deleteSnippet(id: string, userId?: string): Promise<void> {
   await store.update((current) => {
-    if (!current.snippets.some((snippet) => snippet.id === id)) {
-      throw new AppError('SNIPPET_NOT_FOUND', 'Snippet not found.', 404);
+    const snippet = current.snippets.find((entry) => entry.id === id);
+    if (!snippet) throw new AppError('SNIPPET_NOT_FOUND', 'Snippet not found.', 404);
+    if (userId && snippet.userId !== userId) {
+      throw new AppError('SNIPPET_FORBIDDEN', 'This snippet belongs to another account.', 403);
     }
-    return { snippets: current.snippets.filter((snippet) => snippet.id !== id) };
+    return { snippets: current.snippets.filter((entry) => entry.id !== id) };
   });
 }

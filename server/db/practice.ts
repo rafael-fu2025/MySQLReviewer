@@ -461,6 +461,7 @@ export async function validateReferenceSql(
   profileId: string,
   database: string,
   sql: string,
+  scopeOverride?: { allowed: string[] },
 ): Promise<QueryResult> {
   const classified = classifySql(sql);
   if (classified.empty) {
@@ -487,5 +488,6 @@ export async function validateReferenceSql(
     timeoutMs: 5_000,
     skipHistory: true,
     revealSensitive: false,
+    scopeOverride,
   });
 }

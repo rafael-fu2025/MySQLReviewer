@@ -114,14 +114,50 @@ export interface QueryGuards {
   cleanup: () => Promise<void>;
 }
 
+/**
+ * How the server-side statement timeout is enforced.
+ *
+ * - `session-all`: the server aborts *any* statement that runs too long
+ *   (MariaDB's `max_statement_time`).
+ * - `session-select`: the server aborts long SELECTs only. MySQL's
+ *   `max_execution_time` is documented to apply to read-only SELECT
+ *   statements, so it cannot bound an UPDATE/DELETE/DDL.
+ * - `watchdog`: the server has no session-wide statement timeout, so the
+ *   caller has to kill the statement from a second connection.
+ */
+export type StatementTimeoutMode = 'session-all' | 'session-select' | 'watchdog';
+
+export function resolveStatementTimeoutMode(
+  flavor: SqlFlavor,
+  isReadOnly: boolean,
+): StatementTimeoutMode {
+  if (flavor === 'mariadb') return 'session-all';
+  return isReadOnly ? 'session-select' : 'watchdog';
+}
+
+export interface QueryGuardOptions {
+  /**
+   * The statement only reads. Read-only statements get MySQL's SELECT-only
+   * timeout; everything else needs the watchdog.
+   */
+  isReadOnly?: boolean;
+  /**
+   * Apply the server-side row cap. Turn it off for copies that must move
+   * every row of a table.
+   */
+  includeRowLimit?: boolean;
+}
+
 export async function applyQueryGuards(
   conn: Queryable,
   server: ServerInfo,
   settings: { rowLimit: number; queryTimeoutMs: number },
+  options: QueryGuardOptions = {},
 ): Promise<QueryGuards> {
   const cleanupParts: string[] = [];
+  const mode = resolveStatementTimeoutMode(server.flavor, options.isReadOnly ?? true);
 
-  if (server.flavor === 'mariadb') {
+  if (mode === 'session-all') {
     try {
       await conn.query('SET SESSION max_statement_time = ?', [
         Number((settings.queryTimeoutMs / 1000).toFixed(3)),
@@ -130,7 +166,7 @@ export async function applyQueryGuards(
     } catch {
       // Variable unavailable; the client-side timeout still applies.
     }
-  } else {
+  } else if (mode === 'session-select') {
     try {
       await conn.query('SET SESSION max_execution_time = ?', [Math.trunc(settings.queryTimeoutMs)]);
       cleanupParts.push('SET SESSION max_execution_time = 0');
@@ -139,13 +175,15 @@ export async function applyQueryGuards(
     }
   }
 
-  try {
-    await conn.query('SET SESSION sql_select_limit = ?', [
-      Math.max(1, Math.trunc(settings.rowLimit)),
-    ]);
-    cleanupParts.push('SET SESSION sql_select_limit = DEFAULT');
-  } catch {
-    // Older/alternative servers may not support it; the UI still shows the cap.
+  if (options.includeRowLimit !== false) {
+    try {
+      await conn.query('SET SESSION sql_select_limit = ?', [
+        Math.max(1, Math.trunc(settings.rowLimit)),
+      ]);
+      cleanupParts.push('SET SESSION sql_select_limit = DEFAULT');
+    } catch {
+      // Older/alternative servers may not support it; the UI still shows the cap.
+    }
   }
 
   return {
@@ -158,5 +196,53 @@ export async function applyQueryGuards(
         }
       }
     },
+  };
+}
+
+/**
+ * Extra time the client waits after the server-side deadline, so the kill
+ * issued by the watchdog has a chance to land before the socket is torn down.
+ */
+export const WATCHDOG_KILL_GRACE_MS = 2_000;
+
+export interface StatementWatchdog {
+  /** Stops the watchdog. Safe to call more than once. */
+  cancel: () => void;
+}
+
+/**
+ * Abort a statement that overran its deadline. `KILL QUERY` stops the
+ * statement but keeps the connection alive, which matters because MySQL has
+ * no session-wide statement timeout: `max_execution_time` covers read-only
+ * SELECT statements only.
+ */
+export async function killServerQuery(pool: Pool, threadId: number): Promise<void> {
+  const killer = await pool.getConnection();
+  try {
+    await killer.query('KILL QUERY ?', [threadId]);
+  } finally {
+    killer.release();
+  }
+}
+
+/**
+ * Kill the statement running on `threadId` once `timeoutMs` has passed.
+ * The kill is issued from a second pooled connection, so the connection that
+ * runs the statement is the one that receives the error.
+ */
+export function startStatementWatchdog(options: {
+  pool: Pool;
+  threadId: number;
+  timeoutMs: number;
+  /** Called when the watchdog fires, before the kill is sent. */
+  onKill?: () => void;
+}): StatementWatchdog {
+  const timer = setTimeout(() => {
+    options.onKill?.();
+    void killServerQuery(options.pool, options.threadId).catch(() => undefined);
+  }, options.timeoutMs);
+  timer.unref?.();
+  return {
+    cancel: () => clearTimeout(timer),
   };
 }

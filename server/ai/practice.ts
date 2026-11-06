@@ -36,12 +36,34 @@ import {
   listPracticeAttemptsForSet,
   savePracticeSet,
 } from '../store/practice';
-import { complete, stream } from './index';
+import { complete, stream, type ChatMessage } from './index';
 import { extractJsonObject } from './analyze';
 import {
   buildPracticeEvaluationMessages,
   buildPracticeGenerationMessages,
 } from './practice-prompts';
+
+/**
+ * A repair round trip is a second billable provider call, so it has to stay
+ * small: only the system prompt (which carries the required JSON shape) and
+ * the unparsable answer are resent. The schema, the sample data and the SQL
+ * context are dropped.
+ */
+export function buildPracticeRepairMessages(
+  original: ChatMessage[],
+  raw: string,
+  shape: string,
+): ChatMessage[] {
+  const system = original.find((message) => message.role === 'system');
+  return [
+    ...(system ? [system] : []),
+    { role: 'assistant', content: raw.slice(0, 20_000) },
+    {
+      role: 'user',
+      content: `Your previous response was not valid JSON. Return the same ${shape} again as exactly one JSON object matching the required shape. Start with { and end with }. No markdown fences, no prose.`,
+    },
+  ];
+}
 
 const PRACTICE_TOPIC_IDS = new Set(PRACTICE_TOPICS.map((topic) => topic.id));
 
@@ -62,6 +84,98 @@ const QuestionSchema = z
     execute: z.boolean().optional(),
   })
   .passthrough();
+
+/**
+ * Hard bounds for a stored practice question. The prompt asks the model to be
+ * brief, but the store must not grow with whatever the model answered, so
+ * every free-text field and every list is bounded before it is written.
+ */
+export const PRACTICE_STORAGE_LIMITS = {
+  title: 180,
+  scenario: 6_000,
+  brokenSql: 20_000,
+  referenceSql: 20_000,
+  expectedResult: 6_000,
+  hint: 2_000,
+  hints: 10,
+  topic: 64,
+  topics: 14,
+  table: 128,
+  tables: 20,
+} as const;
+
+function boundText(value: string | null | undefined, max: number): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value);
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
+}
+
+/**
+ * SQL is cut at a statement boundary when there is one, so a bounded statement
+ * stays a statement.
+ */
+function boundSql(value: string | null | undefined, max: number): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value);
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastSemicolon = cut.lastIndexOf(';');
+  if (lastSemicolon > 0) return cut.slice(0, lastSemicolon + 1);
+  return cut;
+}
+
+function boundList(values: string[] | undefined, maxItems: number, maxLength: number): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((item) => typeof item === 'string')
+    .slice(0, maxItems)
+    .map((item) => item.slice(0, maxLength));
+}
+
+/**
+ * Applies the storage bounds to a generated question. The prompt-level limits
+ * are a request, this is the guarantee: a huge or hostile model answer cannot
+ * bloat the practice store.
+ */
+export function boundPracticeQuestion(question: {
+  title: string;
+  scenario: string;
+  brokenSql?: string | null;
+  referenceSql?: string | null;
+  expectedResult?: string | null;
+  hints?: string[];
+  topics?: string[];
+  tables?: string[];
+}): {
+  title: string;
+  scenario: string;
+  brokenSql: string | null;
+  referenceSql: string | null;
+  expectedResult: string | null;
+  hints: string[];
+  topics: string[];
+  tables: string[];
+} {
+  return {
+    title: boundText(question.title, PRACTICE_STORAGE_LIMITS.title) ?? '',
+    scenario: boundText(question.scenario, PRACTICE_STORAGE_LIMITS.scenario) ?? '',
+    brokenSql: boundSql(question.brokenSql, PRACTICE_STORAGE_LIMITS.brokenSql),
+    referenceSql: boundSql(question.referenceSql, PRACTICE_STORAGE_LIMITS.referenceSql),
+    expectedResult: boundText(question.expectedResult, PRACTICE_STORAGE_LIMITS.expectedResult),
+    hints: boundList(question.hints, PRACTICE_STORAGE_LIMITS.hints, PRACTICE_STORAGE_LIMITS.hint),
+    topics: boundList(
+      question.topics,
+      PRACTICE_STORAGE_LIMITS.topics,
+      PRACTICE_STORAGE_LIMITS.topic,
+    ),
+    tables: boundList(
+      question.tables,
+      PRACTICE_STORAGE_LIMITS.tables,
+      PRACTICE_STORAGE_LIMITS.table,
+    ),
+  };
+}
 
 const GenerationSchema = z
   .object({
@@ -151,12 +265,20 @@ function questionKind(type: PracticeQuestion['type']): {
   };
 }
 
+export interface PracticeScopeOptions {
+  /** Narrows a member session to their sandbox databases. */
+  scopeOverride?: { allowed: string[] };
+}
+
 async function schemaTextForTables(
   profileId: string,
   database: string,
   tables: string[],
   maxChars: number,
+  scopeOverride?: { allowed: string[] },
 ): Promise<{ text: string; includedTables: string[] }> {
+  // The schema is a read of the named database: it has to be in scope.
+  await assertDatabaseAllowed(profileId, database, scopeOverride);
   const snapshot = await getSchemaSnapshot(profileId, database);
   const selected =
     tables.length > 0
@@ -201,8 +323,10 @@ export async function generatePracticeSet(
   apiKey: string | null,
   onDelta: (text: string) => void,
   signal?: AbortSignal,
+  options: PracticeScopeOptions = {},
 ): Promise<PracticeGenerationRunResult> {
-  await assertDatabaseAllowed(request.profileId, request.database);
+  const scopeOverride = options.scopeOverride;
+  await assertDatabaseAllowed(request.profileId, request.database, scopeOverride);
   const settings = await getSettings();
   const server = getCachedServerInfo(request.profileId);
   const schema = await schemaTextForTables(
@@ -210,6 +334,7 @@ export async function generatePracticeSet(
     request.database,
     request.tables ?? [],
     settings.aiContextChars,
+    scopeOverride,
   );
   const tableNames = schema.includedTables;
   const sample = request.includeSampleData
@@ -267,20 +392,14 @@ export async function generatePracticeSet(
   }
 
   let parsed = parseGeneration(raw);
-  if (!parsed && raw.trim()) {
+  if (!parsed && raw.trim() && !signal?.aborted) {
+    // The repair is a second bill: it is skipped once the request was
+    // cancelled, and it does not resend the schema and the SQL.
     try {
       const repair = await complete(
         provider,
         apiKey,
-        [
-          ...messages,
-          { role: 'assistant', content: raw.slice(0, 30_000) },
-          {
-            role: 'user',
-            content:
-              'Return the same challenge set again as exactly one JSON object matching the requested shape. No markdown fences or prose.',
-          },
-        ],
+        buildPracticeRepairMessages(messages, raw, 'challenge set'),
         { temperature: 0, maxTokens: provider.maxTokens, signal },
       );
       parsed = parseGeneration(repair.text);
@@ -305,13 +424,30 @@ export async function generatePracticeSet(
   for (const rawQuestion of parsed.questions) {
     if (questions.length >= request.count) break;
     const kind = questionKind(rawQuestion.type);
+    // The stored copy is bounded; the checks below still look at the answer
+    // the model gave, so a long answer is not mistaken for a missing one.
+    const bounded = boundPracticeQuestion({
+      title: rawQuestion.title,
+      scenario: rawQuestion.scenario,
+      brokenSql: rawQuestion.brokenSql,
+      referenceSql: rawQuestion.referenceSql,
+      expectedResult: rawQuestion.expectedResult,
+      hints: rawQuestion.hints,
+      topics: rawQuestion.topics,
+      tables: rawQuestion.tables,
+    });
     const referenceSql = rawQuestion.referenceSql?.trim() || null;
     let execute = Boolean(
       kind.executableCandidate && rawQuestion.execute !== false && referenceSql,
     );
     if (execute && referenceSql) {
       try {
-        await validateReferenceSql(request.profileId, request.database, referenceSql);
+        await validateReferenceSql(
+          request.profileId,
+          request.database,
+          referenceSql,
+          scopeOverride,
+        );
       } catch (error) {
         dropped.push(`${rawQuestion.title}: ${(error as Error).message}`);
         execute = false;
@@ -334,16 +470,16 @@ export async function generatePracticeSet(
     questions.push({
       id: crypto.randomUUID(),
       type: rawQuestion.type,
-      title: rawQuestion.title.trim().slice(0, 180),
-      scenario: rawQuestion.scenario.trim(),
+      title: bounded.title.trim().slice(0, 180),
+      scenario: bounded.scenario.trim(),
       difficulty: normalizeDifficulty(rawQuestion.difficulty, fallbackDifficulty),
       topics,
       schemaTables: tables.length > 0 ? tables : tableNames.slice(0, 6),
-      brokenSql: rawQuestion.brokenSql?.trim() || null,
-      referenceSql,
-      expectedResult: rawQuestion.expectedResult?.trim() || null,
+      brokenSql: bounded.brokenSql?.trim() || null,
+      referenceSql: bounded.referenceSql?.trim() || null,
+      expectedResult: bounded.expectedResult?.trim() || null,
       orderMatters: rawQuestion.orderMatters === true,
-      hints: (rawQuestion.hints ?? [])
+      hints: bounded.hints
         .map((hint) => hint.trim())
         .filter(Boolean)
         .slice(0, 5),
@@ -385,6 +521,10 @@ export async function evaluatePractice(input: {
   provider?: AiProvider | null;
   apiKey?: string | null;
   includeAi?: boolean;
+  /** Narrows a member session to their sandbox databases. */
+  scopeOverride?: { allowed: string[] };
+  /** Cancels the provider calls, including the repair round trip. */
+  signal?: AbortSignal;
 }): Promise<PracticeEvaluation> {
   const set = await getPracticeSet(input.setId);
   if (set.profileId !== input.profileId) {
@@ -414,7 +554,8 @@ export async function evaluatePractice(input: {
     return { ...duplicate.evaluation, duplicate: true };
   }
 
-  await assertDatabaseAllowed(input.profileId, set.database);
+  const scopeOverride = input.scopeOverride;
+  await assertDatabaseAllowed(input.profileId, set.database, scopeOverride);
   const server = getCachedServerInfo(input.profileId);
   const settings = await getSettings();
   const schema = await schemaTextForTables(
@@ -422,6 +563,7 @@ export async function evaluatePractice(input: {
     set.database,
     question.schemaTables,
     settings.aiContextChars,
+    scopeOverride,
   );
 
   const findings: Finding[] = [];
@@ -441,8 +583,13 @@ export async function evaluatePractice(input: {
       !classification.overall.needsUnlock
     ) {
       try {
-        await assertSqlScope(input.profileId, userSql, set.database);
-        userResult = await executePracticeQuery(input.profileId, set.database, userSql);
+        await assertSqlScope(input.profileId, userSql, set.database, scopeOverride);
+        userResult = await executePracticeQuery(
+          input.profileId,
+          set.database,
+          userSql,
+          scopeOverride,
+        );
       } catch (error) {
         issues.push(`Your query could not be executed: ${(error as Error).message}`);
       }
@@ -452,6 +599,7 @@ export async function evaluatePractice(input: {
             input.profileId,
             set.database,
             question.referenceSql,
+            scopeOverride,
           );
         } catch (error) {
           issues.push(`The reference query could not be executed: ${(error as Error).message}`);
@@ -478,6 +626,7 @@ export async function evaluatePractice(input: {
         sql: userSql,
         includeSchema: true,
         includeExplain: false,
+        scopeOverride,
       });
       findings.push(...review.findings);
     } catch (error) {
@@ -489,6 +638,7 @@ export async function evaluatePractice(input: {
     try {
       explain = await runExplain(input.profileId, userSql, set.database, {
         analyze: false,
+        scopeOverride,
       });
       findings.push(...explain.insights);
     } catch {
@@ -497,6 +647,7 @@ export async function evaluatePractice(input: {
   }
 
   let ai: ParsedEvaluation | null = null;
+  let aiRepairAttempted = false;
   if (input.includeAi && input.provider) {
     try {
       const messages = buildPracticeEvaluationMessages({
@@ -516,22 +667,22 @@ export async function evaluatePractice(input: {
       const result = await complete(input.provider, input.apiKey ?? null, messages, {
         temperature: 0.1,
         maxTokens: Math.min(input.provider.maxTokens, 2_048),
+        signal: input.signal,
       });
       ai = parseEvaluation(result.text);
-      if (!ai) {
+      if (!ai && result.text.trim() && !input.signal?.aborted) {
+        // The repair is a second bill: it is skipped once the request was
+        // cancelled, and it does not resend the schema and the SQL.
+        aiRepairAttempted = true;
         const repair = await complete(
           input.provider,
           input.apiKey ?? null,
-          [
-            ...messages,
-            { role: 'assistant', content: result.text.slice(0, 20_000) },
-            {
-              role: 'user',
-              content:
-                'Return the grading result again as exactly one JSON object. No markdown fences or prose.',
-            },
-          ],
-          { temperature: 0, maxTokens: Math.min(input.provider.maxTokens, 2_048) },
+          buildPracticeRepairMessages(messages, result.text, 'grading result'),
+          {
+            temperature: 0,
+            maxTokens: Math.min(input.provider.maxTokens, 2_048),
+            signal: input.signal,
+          },
         );
         ai = parseEvaluation(repair.text);
       }
@@ -603,6 +754,7 @@ export async function evaluatePractice(input: {
     userAnswer: userAnswer || null,
     userResult,
     referenceResult,
+    aiRepairAttempted: aiRepairAttempted || undefined,
   };
 
   await addPracticeAttempt({
@@ -631,6 +783,7 @@ async function executePracticeQuery(
   profileId: string,
   database: string,
   sql: string,
+  scopeOverride?: { allowed: string[] },
 ): Promise<QueryResult> {
   return executeQuery(profileId, sql, {
     database,
@@ -638,5 +791,6 @@ async function executePracticeQuery(
     timeoutMs: 10_000,
     skipHistory: true,
     revealSensitive: false,
+    scopeOverride,
   });
 }

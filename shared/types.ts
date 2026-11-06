@@ -33,6 +33,14 @@ export interface Finding {
   docs?: string;
   source: FindingSource;
   confidence?: 'high' | 'medium' | 'low';
+  /**
+   * Zero-based index of the statement the finding belongs to.
+   *
+   * Two statements can share a line, so the statement index is part of the
+   * de-duplication key: without it, two findings for the same rule on the
+   * same line collapse into one and a finding is silently dropped.
+   */
+  statementIndex?: number;
 }
 
 export interface ScoreResult {
@@ -68,7 +76,25 @@ export interface ConnectionInput {
   databaseScope?: 'all' | 'selected';
   allowedDatabases?: string[];
   allowServerWideInsights?: boolean;
+  /**
+   * Whether members may write through this connection.
+   *
+   * `locked` means members cannot run write statements on it at all - they
+   * cannot unlock it either. Administrators keep full write access on every
+   * connection.
+   */
+  writeAccess?: WriteAccess;
 }
+
+/**
+ * The write access a connection grants to members.
+ *
+ * - `full` (the default): members can unlock writes on this connection.
+ * - `locked`: the connection is read-only for members. They cannot unlock it
+ *   and they cannot reveal masked values through it. An administrator is not
+ *   affected - an administrator always keeps full write access.
+ */
+export type WriteAccess = 'full' | 'locked';
 
 export interface ConnectionProfile {
   id: string;
@@ -86,6 +112,8 @@ export interface ConnectionProfile {
   databaseScope: 'all' | 'selected';
   allowedDatabases: string[];
   allowServerWideInsights: boolean;
+  /** Whether members may write through this connection. */
+  writeAccess: WriteAccess;
   createdAt: string;
   updatedAt: string;
   lastUsedAt?: string | null;
@@ -564,6 +592,25 @@ export interface AiReview {
   markdown: string;
   usage: AiUsage | null;
   durationMs: number;
+  /**
+   * Set when the provider answer could not be parsed and a second, billable
+   * request was made to repair it.
+   */
+  repairAttempted?: boolean;
+  /**
+   * Set when the streaming call failed before the first token and the answer
+   * was fetched with a second, billable non-streaming call instead.
+   */
+  streamingFallback?: boolean;
+  /** Set when the provider returned more findings than the cap and some were dropped. */
+  findingsTruncated?: boolean;
+  /** How many findings the provider returned before the cap was applied. */
+  findingsTotal?: number;
+  /**
+   * Non-fatal problems the caller should see: a schema that could not be read,
+   * an extra billable provider call, a dropped part of the answer.
+   */
+  warnings?: string[];
 }
 
 export interface AiUsage {
@@ -572,9 +619,30 @@ export interface AiUsage {
   totalTokens: number | null;
 }
 
+/**
+ * One tool invocation inside an assistant turn, as the transcript shows it.
+ * This is display-only state: the wire history stays text-only.
+ */
+export interface AgentToolCallView {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  status: 'running' | 'complete' | 'error';
+  /** The tool output (JSON text), truncated by the server. */
+  output?: string;
+  error?: string;
+  durationMs?: number;
+}
+
 export interface AiChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** Reasoning text a thinking model emitted before the answer. */
+  thinking?: string;
+  /** Tool calls this turn made, kept so the transcript shows the steps. */
+  toolCalls?: AgentToolCallView[];
+  /** Token usage of the turn, when the provider reported it. */
+  usage?: ChatUsageLike | null;
 }
 
 export interface AiChatRequest {
@@ -590,6 +658,71 @@ export interface AiChatRequest {
 }
 
 /* ------------------------------------------------------------------ */
+/* Assistant                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `workspace` is the full-capability assistant; `challenge` is the guided
+ * tutor that must never reveal the answer to a practice challenge.
+ */
+export type AssistantMode = 'workspace' | 'challenge';
+
+/**
+ * A challenge is addressed by its stored identity, never by its text. The
+ * server loads the authoritative question so a client cannot rewrite the
+ * prompt or smuggle the reference solution into the context.
+ */
+export interface AssistantQuestionRef {
+  setId: string;
+  questionId: string;
+}
+
+export interface AiAssistantRequest {
+  mode: AssistantMode;
+  providerId: string;
+  model?: string;
+  messages: AiChatMessage[];
+  context?: {
+    /** The current editor statement (workspace mode). */
+    sql?: string;
+    database?: string | null;
+    profileId?: string | null;
+    includeSchema?: boolean;
+    /** The open practice challenge (challenge mode). */
+    question?: AssistantQuestionRef;
+  };
+}
+
+/** Why a challenge answer was withheld, reported to the client as a notice. */
+export type AssistantGuardReason = 'solution-detected' | 'sql-statement-detected' | 'empty-answer';
+
+export interface AssistantResult {
+  text: string;
+  usage: ChatUsageLike | null;
+  /** Set when the challenge guard replaced an answer that would have leaked. */
+  guarded?: AssistantGuardReason;
+}
+
+/** The `meta` event sent before an assistant turn streams. */
+export interface AiAssistantMeta {
+  providerId: string;
+  providerName: string;
+  model?: string;
+  streaming: boolean;
+  mode: AssistantMode;
+  /** True when the turn runs through the agent loop (tools available). */
+  agent?: boolean;
+  /** Advertised tool names after governance, when `agent` is true. */
+  tools?: string[];
+}
+
+export interface ChatUsageLike {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+/* ------------------------------------------------------------------ */
 /* Audit                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -601,6 +734,23 @@ export interface AuditStep {
   status: AuditStepStatus;
   detail?: string;
   durationMs?: number;
+}
+
+/**
+ * A recurring unattended audit. Scheduled runs are always deterministic —
+ * the rules/security/config/performance pipeline without the AI step — so a
+ * schedule never spends tokens on its own.
+ */
+export interface AuditSchedule {
+  id: string;
+  profileId: string;
+  databases: string[];
+  intervalHours: number;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastStatus: 'ok' | 'error' | 'running' | null;
+  lastError?: string | null;
+  createdAt: string;
 }
 
 export type CoverageStatus = 'ran' | 'skipped' | 'denied' | 'unsupported' | 'error';
@@ -787,11 +937,22 @@ export interface AiProvider {
   apiKeyHint: string | null;
   authHeader: string;
   authPrefix: string;
+  /**
+   * Custom request headers. The values are secrets, so the shape that is
+   * sent to a client holds masked placeholders (the header names are the
+   * keys); the decrypted values are only used to build the outbound request.
+   */
   headers: Record<string, string>;
   extraBody: Record<string, unknown>;
   temperature: number;
   maxTokens: number;
   streaming: boolean;
+  /**
+   * Anthropic extended thinking: the provider is called with a thinking
+   * budget and its reasoning streams into the thinking lane. Ignored by
+   * non-Anthropic providers.
+   */
+  thinkingEnabled?: boolean;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
@@ -813,6 +974,7 @@ export interface AiProviderInput {
   temperature?: number;
   maxTokens?: number;
   streaming?: boolean;
+  thinkingEnabled?: boolean;
   isDefault?: boolean;
 }
 
@@ -906,6 +1068,8 @@ export interface PracticeSet {
   model: string;
   summary: string;
   questions: PracticeQuestion[];
+  /** Absent on sets generated before the admin layer (admin-visible only). */
+  userId?: string;
 }
 
 /** Wire shape of a practice set: questions are stripped of answer material. */
@@ -981,6 +1145,11 @@ export interface PracticeEvaluation {
   referenceResult: QueryResult | null;
   /** Set when the submission matched an earlier attempt and nothing was recorded. */
   duplicate?: boolean;
+  /**
+   * Set when the grading answer could not be parsed and a second, billable
+   * provider request was made to repair it.
+   */
+  aiRepairAttempted?: boolean;
 }
 
 /** Wire shape of an evaluation inside attempt listings: no reference material. */
@@ -1009,6 +1178,8 @@ export interface PracticeAttempt {
   userAnswer: string;
   evaluation: PracticeEvaluation;
   createdAt: string;
+  /** Absent on attempts recorded before the admin layer (admin-visible only). */
+  userId?: string;
 }
 
 /** Wire shape of an attempt: the embedded evaluation drops reference material. */
@@ -1058,6 +1229,35 @@ export interface AppSettings {
   historyLimit: number;
   showHints: boolean;
   maskSensitiveColumns: boolean;
+  /**
+   * Global write-unlock switch. `false` puts the whole app in hard read-only
+   * mode: nobody — administrators included — can unlock writes or reveal masked
+   * values. Optional so a settings file written by an older build still loads;
+   * absent means enabled.
+   */
+  writeUnlockEnabled?: boolean;
+  /**
+   * Built-in agent tools an administrator has switched off. Enforced
+   * server-side when the agent toolset is built. Optional for the same
+   * reason as `writeUnlockEnabled`; absent means every tool is available.
+   */
+  disabledAgentTools?: string[];
+  /**
+   * Local MCP (Model Context Protocol) servers the agent may reach over
+   * stdio. Admin-configured; a server that fails to start is skipped, never
+   * fatal. Optional for the same reason as the other newer fields.
+   */
+  mcpServers?: McpServerConfig[];
+}
+
+export interface McpServerConfig {
+  /** Unique slug; tool names are prefixed with it. */
+  name: string;
+  /** The executable to spawn (resolved via PATH; spawned without a shell). */
+  command: string;
+  args?: string[];
+  /** When set, only these tool names are exposed from this server. */
+  allowedTools?: string[];
 }
 
 export interface HistoryEntry {
@@ -1071,6 +1271,8 @@ export interface HistoryEntry {
   rowCount: number | null;
   error: string | null;
   createdAt: string;
+  /** Absent on entries created before the admin layer (admin-visible only). */
+  userId?: string;
 }
 
 export interface Snippet {
@@ -1080,6 +1282,8 @@ export interface Snippet {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  /** Absent on snippets created before the admin layer (admin-visible only). */
+  userId?: string;
 }
 
 export interface ReportSummary {
@@ -1100,6 +1304,95 @@ export interface DetectedXampp {
   version?: string | null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Accounts, sandboxes, activity                                       */
+/* ------------------------------------------------------------------ */
+
+export type UserRole = 'admin' | 'member';
+
+/**
+ * A database cloned for one member from a source database on an assigned
+ * connection. Members hold full write control inside their sandboxes and no
+ * access outside them; the counter suffix (`northwind_1`) keeps copies apart.
+ */
+export interface SandboxAssignment {
+  id: string;
+  profileId: string;
+  /** The admin-owned database the sandbox was cloned from. */
+  source: string;
+  sandbox: string;
+  includeData: boolean;
+  createdAt: string;
+  lastResetAt?: string | null;
+}
+
+/** User shape safe to send to any signed-in client (no password material). */
+export interface PublicUser {
+  id: string;
+  username: string;
+  displayName: string;
+  role: UserRole;
+  assignments: SandboxAssignment[];
+  createdAt: string;
+  disabledAt?: string | null;
+  /** Personal appearance override; null means use the admin default theme. */
+  theme?: ThemePreference | null;
+  /**
+   * When true this account can never unlock writes, even while the global
+   * write-unlock switch is on. Optional so a users file written by an older
+   * build still loads; absent means "not disabled".
+   */
+  writeUnlockDisabled?: boolean;
+}
+
+export interface AuthInfo {
+  /** True until the first admin account exists; the app then shows setup. */
+  needsSetup: boolean;
+}
+
+export type ActivityAction =
+  | 'login'
+  | 'logout'
+  | 'connect'
+  | 'disconnect'
+  | 'query'
+  | 'unlock'
+  | 'lock'
+  | 'audit'
+  | 'practice-generate'
+  | 'practice-evaluate'
+  | 'report-export'
+  | 'report-delete'
+  | 'admin-user-create'
+  | 'admin-user-update'
+  | 'admin-user-delete'
+  | 'admin-sandbox-provision'
+  | 'admin-sandbox-reset'
+  | 'admin-connection-create'
+  | 'admin-connection-update'
+  | 'admin-connection-delete'
+  | 'admin-write-unlock-switch';
+
+export interface ActivityEntry {
+  id: string;
+  at: string;
+  userId: string;
+  username: string;
+  action: ActivityAction;
+  profileId?: string;
+  database?: string;
+  /** sha256 of the statement, so logs identify queries without storing them. */
+  digest?: string;
+  detail?: string;
+}
+
+/** One page of the admin activity log, newest entry first. */
+export interface ActivityPage {
+  entries: ActivityEntry[];
+  /** Total entries matching the filter, for pagination controls. */
+  total: number;
+}
+
 export interface BootstrapInfo {
   appName: string;
   version: string;
@@ -1113,6 +1406,8 @@ export interface BootstrapInfo {
   providers: AiProvider[];
   settings: AppSettings;
   activeProfileId: string | null;
+  auth: AuthInfo;
+  currentUser: PublicUser | null;
 }
 
 export interface StoredReviewReport {
@@ -1175,6 +1470,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   historyLimit: 500,
   showHints: true,
   maskSensitiveColumns: true,
+  writeUnlockEnabled: true,
+  disabledAgentTools: [],
+  mcpServers: [],
 };
 
 export const PRACTICE_TOPICS: { id: PracticeTopic; label: string }[] = [

@@ -31,6 +31,100 @@ interface MysqlLikeError {
   fatal?: boolean;
 }
 
+/**
+ * Copy for the `ER_*` codes a user can act on.
+ *
+ * The raw MySQL text is deliberately not returned: it names internal
+ * databases and tables and can repeat a stored column value
+ * (`ER_DUP_ENTRY`). These messages say what went wrong and what to do next
+ * without echoing any of that, so a failed statement still tells the user
+ * how to fix it.
+ */
+const SAFE_ERROR_COPY: Record<string, { code: string; message: string; status?: number }> = {
+  ER_BAD_FIELD_ERROR: {
+    code: 'UNKNOWN_COLUMN',
+    message: 'Unknown column. Check the column names against the schema panel on the left.',
+  },
+  ER_BAD_NULL_ERROR: {
+    code: 'MISSING_VALUE',
+    message: 'A column that does not allow NULL was left empty. Give it a value, or allow NULL.',
+  },
+  ER_DUP_ENTRY: {
+    code: 'DUPLICATE_ROW',
+    message: 'That row already exists. Edit the existing row instead of inserting a second one.',
+  },
+  ER_DATA_TOO_LONG: {
+    code: 'VALUE_TOO_LONG',
+    message: 'A value is longer than its column allows. Shorten it, or use a longer column.',
+  },
+  ER_TRUNCATED_WRONG_VALUE: {
+    code: 'VALUE_TYPE_MISMATCH',
+    message: 'A value does not match the type of its column.',
+  },
+  ER_DIVISION_BY_ZERO: {
+    code: 'DIVISION_BY_ZERO',
+    message: 'The statement divides by zero. Guard the divisor with NULLIF or a CASE.',
+  },
+  ER_NO_REFERENCED_ROW: {
+    code: 'FOREIGN_KEY_MISSING',
+    message: 'A foreign key points at a row that does not exist.',
+  },
+  ER_NO_REFERENCED_ROW_2: {
+    code: 'FOREIGN_KEY_MISSING',
+    message: 'A foreign key points at a row that does not exist.',
+  },
+  ER_ROW_IS_REFERENCED: {
+    code: 'ROW_IN_USE',
+    message: 'That row is referenced by another table and cannot be removed.',
+  },
+  ER_ROW_IS_REFERENCED_2: {
+    code: 'ROW_IN_USE',
+    message: 'That row is referenced by another table and cannot be removed.',
+  },
+  ER_LOCK_DEADLOCK: {
+    code: 'DEADLOCK',
+    message: 'The statement deadlocked with another one. Run it again.',
+  },
+  ER_LOCK_WAIT_TIMEOUT: {
+    code: 'LOCK_TIMEOUT',
+    message: 'The statement waited too long for a lock held by another session.',
+  },
+  ER_TOO_MANY_USER_CONNECTIONS: {
+    code: 'TOO_MANY_CONNECTIONS',
+    message: 'The server has no free connections left. Try again in a moment.',
+    status: 503,
+  },
+  ER_CON_COUNT_ERROR: {
+    code: 'TOO_MANY_CONNECTIONS',
+    message: 'The server has no free connections left. Try again in a moment.',
+    status: 503,
+  },
+  ER_OUT_OF_RANGE: {
+    code: 'VALUE_OUT_OF_RANGE',
+    message: 'A value is outside the range its column allows.',
+  },
+  ER_WARN_DATA_OUT_OF_RANGE: {
+    code: 'VALUE_OUT_OF_RANGE',
+    message: 'A value was outside the range its column allows, and the server adjusted it.',
+  },
+  ER_SP_DOES_NOT_EXIST: {
+    code: 'ROUTINE_NOT_FOUND',
+    message: 'That stored routine does not exist on this server.',
+  },
+  ER_SP_WRONG_NO_OF_ARGS: {
+    code: 'ROUTINE_ARGUMENTS',
+    message: 'The routine was called with the wrong number of arguments.',
+  },
+  ER_SIGNAL_EXCEPTION: {
+    code: 'STATEMENT_SIGNALLED',
+    message: 'The routine raised an error while it was running.',
+  },
+  ER_QUERY_TIMEOUT: {
+    code: 'QUERY_TIMEOUT',
+    message: 'The statement ran past the query timeout. Narrow it, or raise the timeout.',
+  },
+};
+
 export function mapDbError(error: unknown): AppError {
   if (error instanceof AppError) return error;
   const err = (error ?? {}) as MysqlLikeError;
@@ -108,7 +202,20 @@ export function mapDbError(error: unknown): AppError {
       return new AppError('UNSUPPORTED', raw, 400, { code }, extra);
     default:
       if (code.startsWith('ER_')) {
-        return new AppError('MYSQL_ERROR', raw, 400, { code }, extra);
+        // The raw MySQL text names internal databases and tables and can
+        // repeat a stored column value (ER_DUP_ENTRY). Only a safe summary
+        // is handed back to the client, but it still says what to fix.
+        const safe = SAFE_ERROR_COPY[code];
+        if (safe) {
+          return new AppError(safe.code, safe.message, safe.status ?? 400, { code }, extra);
+        }
+        return new AppError(
+          'MYSQL_ERROR',
+          'The database rejected the statement.',
+          400,
+          { code },
+          extra,
+        );
       }
       return new AppError('DB_ERROR', raw, 500, { code }, extra);
   }

@@ -263,7 +263,12 @@ async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo
   }
 }
 
-async function getSlowQueries(
+/**
+ * Top slow statements by digest, from Performance Schema when available and
+ * the slow query log otherwise. Exported for the agent's `slow_queries` tool;
+ * `getPerformanceSnapshot` embeds the same result.
+ */
+export async function getSlowQueries(
   profileId: string,
   performanceSchema: boolean,
   variables: Record<string, string>,
@@ -358,13 +363,16 @@ async function getReplication(
   }
 }
 
-export async function getPerformanceSnapshot(profileId: string): Promise<PerformanceSnapshot> {
+export async function getPerformanceSnapshot(
+  profileId: string,
+  override?: { allowed: string[] },
+): Promise<PerformanceSnapshot> {
   const server = getCachedServerInfo(profileId) ?? (await connectProfile(profileId));
   const [status, variables, processlist, topTables] = await Promise.all([
     getGlobalStatus(profileId),
     getGlobalVariables(profileId),
     getProcessList(profileId),
-    getTopTables(profileId, 10),
+    getTopTables(profileId, 10, override),
   ]);
   const slow = await getSlowQueries(profileId, server.capabilities.performanceSchema, variables);
   const replication = await getReplication(profileId, server.capabilities.replicaStatusCommand);
@@ -383,13 +391,17 @@ export async function getPerformanceSnapshot(profileId: string): Promise<Perform
   };
 }
 
-export async function killProcess(profileId: string, processId: number): Promise<void> {
+export async function killProcess(
+  profileId: string,
+  processId: number,
+  scopeOverride?: { allowed: string[] },
+): Promise<void> {
   if (!Number.isInteger(processId) || processId <= 0) {
     throw new AppError('VALIDATION', 'Invalid process id.', 400);
   }
   const [processlist, scope] = await Promise.all([
     getProcessList(profileId),
-    getDatabaseScope(profileId),
+    getDatabaseScope(profileId, scopeOverride),
   ]);
   // Never KILL a pid that is not visible in the current processlist, or that
   // belongs to a database outside this connection's scope.

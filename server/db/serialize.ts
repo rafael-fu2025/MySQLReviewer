@@ -1,5 +1,12 @@
 import type { BinaryCell, CellValue } from '../../shared/types';
 
+/**
+ * MySQL's `BINARY_FLAG` from the column flags. The server sets it on a column
+ * whose charset is binary, which is the only thing that separates a
+ * `VARBINARY` column from a `VARCHAR` one on the wire.
+ */
+const BINARY_FLAG = 128;
+
 const TYPE_NAMES: Record<number, string> = {
   0: 'DECIMAL',
   1: 'TINYINT',
@@ -26,12 +33,23 @@ const TYPE_NAMES: Record<number, string> = {
   250: 'MEDIUMBLOB',
   251: 'LONGBLOB',
   252: 'BLOB',
-  253: 'VARBINARY',
+  253: 'VARCHAR',
   254: 'CHAR',
   255: 'GEOMETRY',
 };
 
-export function mysqlTypeName(code: number): string {
+/**
+ * The name MySQL reports for a column type.
+ *
+ * Code 253 is `MYSQL_TYPE_VAR_STRING`: the protocol uses it for `VARCHAR`
+ * *and* for `VARBINARY`, so the code alone cannot tell them apart. A
+ * `VARBINARY` column is the one whose charset is binary, which the server
+ * marks with `BINARY_FLAG` in the column flags.
+ */
+export function mysqlTypeName(code: number, flags = 0): string {
+  if (code === 253) {
+    return (flags & BINARY_FLAG) !== 0 ? 'VARBINARY' : 'VARCHAR';
+  }
   return TYPE_NAMES[code] ?? `TYPE_${code}`;
 }
 

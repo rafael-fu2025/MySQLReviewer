@@ -111,6 +111,37 @@ export function fromEntries(ast: unknown): AnyRecord[] {
   return ast.from.filter(isRecord);
 }
 
+/**
+ * Every table a statement refers to, in source order.
+ *
+ * `node-sql-parser` keeps the table of a statement in different places:
+ * SELECT/DELETE use `from`, UPDATE/INSERT/ALTER use `table`, and
+ * DROP/TRUNCATE use `name`. Reading only `from` loses the table identity for
+ * every statement that is not a plain SELECT or DELETE.
+ */
+export function tableEntries(ast: unknown): AnyRecord[] {
+  if (!isRecord(ast)) return [];
+  const entries: AnyRecord[] = [];
+  for (const key of ['from', 'table', 'name'] as const) {
+    const value = ast[key];
+    const list = Array.isArray(value) ? value : [value];
+    for (const item of list) {
+      // `name` also carries non-table identifiers (e.g. the index name of
+      // `DROP INDEX`), so only entries that name a table are kept.
+      if (isRecord(item) && typeof item.table === 'string') entries.push(item);
+    }
+  }
+  return entries;
+}
+
+/** The first table a statement refers to, or `null` when it names none. */
+export function primaryTable(ast: unknown): string | null {
+  for (const entry of tableEntries(ast)) {
+    if (entry.table) return String(entry.table);
+  }
+  return null;
+}
+
 /** The selected columns of a statement, in source order. */
 export function selectedColumns(ast: unknown): AnyRecord[] {
   if (!isRecord(ast) || !Array.isArray(ast.columns)) return [];

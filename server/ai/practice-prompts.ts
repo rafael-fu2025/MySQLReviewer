@@ -9,7 +9,7 @@ import type {
   ServerInfo,
 } from '../../shared/types';
 import type { ChatMessage } from './http';
-import { explainToText } from './prompts';
+import { MAX_SCHEMA_CHARS, explainToText, truncateForBudget } from './prompts';
 
 export interface PracticeGenerationPromptInput {
   server: ServerInfo | null;
@@ -43,6 +43,21 @@ const GENERATION_SCHEMA = `{
   ]
 }`;
 
+/**
+ * The practice question fields are stored as they come back from the model.
+ * Keeping them short is what the schema is able to hold, so the generation
+ * prompt asks for it explicitly.
+ */
+export const PRACTICE_FIELD_LIMITS = {
+  title: 120,
+  scenario: 2_000,
+  brokenSql: 20_000,
+  referenceSql: 20_000,
+  expectedResult: 2_000,
+  hint: 500,
+  hints: 10,
+} as const;
+
 function serverLine(server: ServerInfo | null): string {
   if (!server) return 'unknown MySQL/MariaDB server';
   return `${server.version} (${server.flavor}), sql_mode=${server.sqlMode || '(empty)'}`;
@@ -63,6 +78,7 @@ Rules:
 - orderMatters=true only when the scenario explicitly requires a particular row order.
 - expectedResult is a human-readable description or rubric, not a data dump.
 - Hints are progressive and must not reveal the complete solution immediately.
+- Keep every field short: title at most ${PRACTICE_FIELD_LIMITS.title} characters, scenario and expectedResult at most ${PRACTICE_FIELD_LIMITS.scenario} characters, brokenSql and referenceSql at most ${PRACTICE_FIELD_LIMITS.brokenSql} characters, at most ${PRACTICE_FIELD_LIMITS.hints} hints of ${PRACTICE_FIELD_LIMITS.hint} characters each. Do not dump rows, whole table definitions, or long prose.
 - Respect the server version. Do not recommend or require features it does not support.
 - Vary topics and difficulty. Prefer real reviewer-style problems over trivia.
 - Return ONLY one JSON object matching this shape, without markdown fences:
@@ -77,10 +93,10 @@ ${GENERATION_SCHEMA}`;
     `COUNT: ${input.count}`,
     '',
     'SCHEMA:',
-    input.schemaText || 'No schema context.',
+    truncateForBudget(input.schemaText || 'No schema context.', MAX_SCHEMA_CHARS, 'the schema'),
     '',
     input.sampleDataText ? 'SAMPLE DATA (masked, optional):' : '',
-    input.sampleDataText,
+    truncateForBudget(input.sampleDataText, MAX_SCHEMA_CHARS, 'the sample data'),
     '',
     'Create the challenge set now. Return only the JSON object.',
   ]

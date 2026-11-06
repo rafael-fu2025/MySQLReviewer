@@ -69,4 +69,17 @@ describe('index advisor', () => {
     expect(suggest(false).length).toBeGreaterThan(0);
     expect(suggest(true)).toHaveLength(0);
   });
+
+  it('never repeats a column in the suggested index (R-07)', () => {
+    // The same column is both an equality and a range predicate.
+    const context = buildRuleContext({
+      sql: "SELECT id FROM users WHERE status = 'paid' AND status > 5",
+      schema: schema([usersTable(false)]),
+    });
+    const suggestions = suggestIndexes(context);
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].columns).toEqual(['status']);
+    expect(suggestions[0].statement).not.toContain('status`, `status');
+    expect(new Set(suggestions[0].columns).size).toBe(suggestions[0].columns.length);
+  });
 });

@@ -8,8 +8,18 @@ import type {
   Severity,
 } from '../../shared/types';
 import { SEVERITY_ORDER } from '../../shared/types';
+import { severityCounts as countBySeverity } from '../../shared/findings';
 
-export { severityCounts } from '../../shared/findings';
+/**
+ * Counts findings by severity.
+ *
+ * Severities outside the canonical set are ignored instead of poisoning the
+ * counters with `NaN`; every producer normalises the severity before it
+ * reaches this point, so this only guards against malformed input.
+ */
+export function severityCounts(findings: Finding[]): Record<Severity, number> {
+  return countBySeverity(findings.filter((finding) => SEVERITY_ORDER.includes(finding.severity)));
+}
 
 export interface FindingInput {
   ruleId: string;
@@ -25,6 +35,8 @@ export interface FindingInput {
   docs?: string;
   source?: FindingSource;
   confidence?: 'high' | 'medium' | 'low';
+  /** Index of the statement the finding belongs to; part of the dedupe key. */
+  statementIndex?: number;
 }
 
 export function createFinding(input: FindingInput): Finding {
@@ -43,6 +55,7 @@ export function createFinding(input: FindingInput): Finding {
     docs: input.docs,
     source: input.source ?? 'rule',
     confidence: input.confidence ?? 'high',
+    statementIndex: input.statementIndex,
   };
 }
 
@@ -59,7 +72,10 @@ function objectKey(object?: FindingObject): string {
 }
 
 export function findingKey(finding: Finding): string {
-  return `${finding.ruleId}|${finding.line ?? ''}|${objectKey(finding.object)}`;
+  // The statement index keeps two statements that share a line apart. Without
+  // it, e.g. `UPDATE a ...; UPDATE b ...;` on one line produces the same key
+  // twice and one of the findings is discarded.
+  return `${finding.ruleId}|${finding.statementIndex ?? ''}|${finding.line ?? ''}|${objectKey(finding.object)}`;
 }
 
 export function dedupeFindings(findings: Finding[]): Finding[] {

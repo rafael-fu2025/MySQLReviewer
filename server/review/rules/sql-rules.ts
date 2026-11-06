@@ -11,6 +11,7 @@ import {
   isRecord,
   isStarColumn,
   numberValue,
+  primaryTable,
   selectedColumns,
   stringValue,
   walk,
@@ -60,6 +61,40 @@ function hasJoin(ast: unknown): boolean {
   const entries = fromEntries(ast);
   if (entries.length > 1) return true;
   return entries.some((entry) => entry.join != null || entry.on != null);
+}
+
+/** A column reference, reduced to the parts that identify it. */
+interface ColumnKey {
+  /** The table the column belongs to, or `null` when it is unqualified. */
+  table: string | null;
+  column: string;
+}
+
+/**
+ * Reduces a column reference to a comparable key.
+ *
+ * An alias is resolved to the table it stands for, so `u.name` and `name`
+ * (with `u` the only source of `name`) describe the same column.
+ */
+function columnKey(context: RuleContext, table: string | null, column: string): ColumnKey {
+  const lower = column.toLowerCase();
+  if (!table) return { table: null, column: lower };
+  const qualifier = table.toLowerCase();
+  const resolved = context.aliases.get(qualifier);
+  return { table: (resolved ?? qualifier).toLowerCase(), column: lower };
+}
+
+/**
+ * True when two column references describe the same column.
+ *
+ * An unqualified reference matches a qualified one: MySQL resolves the bare
+ * column against the tables in scope, so `GROUP BY name` covers `u.name`.
+ * Two references that name different tables never match.
+ */
+function sameColumn(left: ColumnKey, right: ColumnKey): boolean {
+  if (left.column !== right.column) return false;
+  if (!left.table || !right.table) return true;
+  return left.table === right.table;
 }
 
 export interface SqlStatementRuleInput {
@@ -315,22 +350,27 @@ export const SQL_STATEMENT_RULES: Rule<SqlStatementRuleInput>[] = [
       severity: 'medium',
       category: 'correctness',
     },
-    ({ ast, line }) => {
+    ({ ast, line, context }) => {
       if (!ast || ast.type !== 'select') return null;
-      const groupColumns = new Set<string>();
+      const groupColumns: ColumnKey[] = [];
       if (isRecord(ast.groupby) && Array.isArray(ast.groupby.columns)) {
         for (const groupColumn of ast.groupby.columns) {
           for (const ref of collectColumnRefs(groupColumn)) {
-            groupColumns.add(`${ref.table ?? ''}.${ref.column}`.toLowerCase());
+            groupColumns.push(columnKey(context, ref.table, ref.column));
           }
         }
       }
-      if (groupColumns.size === 0) return null;
+      if (groupColumns.length === 0) return null;
       for (const column of selectedColumns(ast)) {
         if (hasAggregate(column)) continue;
         const refs = collectColumnRefs(column);
         if (
-          refs.some((ref) => !groupColumns.has(`${ref.table ?? ''}.${ref.column}`.toLowerCase()))
+          refs.some(
+            (ref) =>
+              !groupColumns.some((group) =>
+                sameColumn(group, columnKey(context, ref.table, ref.column)),
+              ),
+          )
         ) {
           return {
             message:
@@ -582,13 +622,19 @@ export const SQL_STATEMENT_RULES: Rule<SqlStatementRuleInput>[] = [
       severity: 'medium',
       category: 'maintainability',
     },
-    ({ ast, type, line }) =>
-      (type === 'insert' || type === 'replace') && ast !== null && ast.columns == null
+    ({ ast, type, line, objectTable }) =>
+      // `INSERT ... SET name = 'x'` names its columns in `set`; only a
+      // statement with neither a column list nor a SET clause is unnamed.
+      (type === 'insert' || type === 'replace') &&
+      ast !== null &&
+      ast.columns == null &&
+      ast.set == null
         ? {
             message:
               'Without a column list, the statement breaks if the table gains, loses, or reorders columns.',
             recommendation: 'List the target columns explicitly.',
             line,
+            object: objectTable ? { table: objectTable } : undefined,
           }
         : null,
   ),
@@ -676,7 +722,11 @@ export const SQL_STATEMENT_RULES: Rule<SqlStatementRuleInput>[] = [
       category: 'performance',
     },
     ({ tokens, line }) =>
-      tokens.some((token) => ['REGEXP', 'RLIKE'].includes(tokenUpper(token)))
+      // Only a word token can be the operator; a string literal such as
+      // `WHERE name = 'regexp'` must not trigger the rule.
+      tokens.some(
+        (token) => token.kind === 'word' && ['REGEXP', 'RLIKE'].includes(tokenUpper(token)),
+      )
         ? {
             message:
               'REGEXP/RLIKE usually cannot use an index and evaluates the pattern for every candidate row.',
@@ -712,16 +762,24 @@ export const SQL_STATEMENT_RULES: Rule<SqlStatementRuleInput>[] = [
       severity: 'info',
       category: 'performance',
     },
-    ({ tokens, line }) =>
-      findSequence(tokens, ['UNION']) >= 0 && findSequence(tokens, ['UNION', 'ALL']) < 0
-        ? {
-            message:
-              'UNION removes duplicates and adds a sort/hash step. UNION ALL is cheaper when duplicates are acceptable.',
-            recommendation:
-              'Use UNION ALL if the branches cannot produce duplicates or duplicates are fine.',
-            line,
-          }
-        : null,
+    ({ tokens, line }) => {
+      // Every UNION is inspected: one `UNION ALL` elsewhere in the script
+      // does not make a plain `UNION` acceptable.
+      for (let i = 0; i < tokens.length; i += 1) {
+        const token = tokens[i];
+        if (token.kind !== 'word' || tokenUpper(token) !== 'UNION') continue;
+        const next = tokens[i + 1];
+        if (next && next.kind === 'word' && tokenUpper(next) === 'ALL') continue;
+        return {
+          message:
+            'UNION removes duplicates and adds a sort/hash step. UNION ALL is cheaper when duplicates are acceptable.',
+          recommendation:
+            'Use UNION ALL if the branches cannot produce duplicates or duplicates are fine.',
+          line,
+        };
+      }
+      return null;
+    },
   ),
 ];
 
@@ -792,24 +850,27 @@ export function runSqlRules(context: RuleContext) {
     const ast = isRecord(rawAst) ? rawAst : null;
     const tokens = statement.tokens;
     const type = astType(ast);
-    const objectTable =
-      fromEntries(ast)
-        .map((entry) => (entry.table == null ? null : String(entry.table)))
-        .find(Boolean) ?? null;
+    // The table of a statement lives in `from` (SELECT/DELETE), `table`
+    // (UPDATE/INSERT/ALTER) or `name` (DROP/TRUNCATE).
+    const objectTable = primaryTable(ast);
 
-    findings.push(
-      ...runRules(SQL_STATEMENT_RULES, {
-        context,
-        index,
-        statement,
-        ast,
-        tokens,
-        line: statement.line,
-        type,
-        firstWord: tokenUpper(tokens[0]),
-        objectTable,
-      }),
-    );
+    const produced = runRules(SQL_STATEMENT_RULES, {
+      context,
+      index,
+      statement,
+      ast,
+      tokens,
+      line: statement.line,
+      type,
+      firstWord: tokenUpper(tokens[0]),
+      objectTable,
+    });
+    for (const finding of produced) {
+      // The statement index is part of the de-duplication key, so two
+      // statements on the same line do not collapse into one finding.
+      finding.statementIndex = index;
+    }
+    findings.push(...produced);
   });
 
   // Script-level rules that need the whole script come last.

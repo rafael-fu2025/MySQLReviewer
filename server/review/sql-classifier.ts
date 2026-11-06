@@ -4,6 +4,7 @@ import {
   findTopLevelSequence,
   significantTokens,
   splitStatements,
+  tokenize,
   tokenUpper,
   type Token,
 } from './tokenizer';
@@ -13,6 +14,10 @@ export interface StatementInfo {
   tokens: Token[];
   line: number;
   classification: StatementClassification;
+  /** Offset of the statement in the script it was split from. */
+  start: number;
+  /** Offset just past the statement in the script it was split from. */
+  end: number;
 }
 
 export interface StatementClassification {
@@ -30,6 +35,13 @@ export interface ClassifiedSql {
   overall: StatementClassification;
   multiStatement: boolean;
   empty: boolean;
+  /**
+   * Every significant token of the script, in source order.
+   *
+   * The script is tokenized exactly once; callers that need the token list
+   * (e.g. the rule context) reuse this instead of tokenizing again.
+   */
+  tokens: Token[];
 }
 
 const READ_KEYWORDS = new Set(['SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'TABLE', 'VALUES', 'HELP']);
@@ -278,7 +290,10 @@ function mergeClassification(items: StatementClassification[]): StatementClassif
 }
 
 export function classifySql(sql: string): ClassifiedSql {
-  const parts = splitStatements(sql);
+  // The script is tokenized once here; the token list is reused for the
+  // statement split and handed to callers that need it.
+  const allTokens = tokenize(sql);
+  const parts = splitStatements(sql, allTokens);
   const statements: StatementInfo[] = parts.map((part) => {
     const tokens = significantTokens(part.tokens);
     const main = findMainKeyword(tokens);
@@ -286,6 +301,8 @@ export function classifySql(sql: string): ClassifiedSql {
       sql: part.sql,
       tokens,
       line: part.line,
+      start: part.start,
+      end: part.end,
       classification: main
         ? classifyKeyword(main.value, tokens)
         : {
@@ -305,6 +322,7 @@ export function classifySql(sql: string): ClassifiedSql {
     overall: mergeClassification(statements.map((statement) => statement.classification)),
     multiStatement: statements.length > 1,
     empty: statements.length === 0,
+    tokens: significantTokens(allTokens),
   };
 }
 

@@ -19,7 +19,7 @@ export {
 } from './descriptor';
 export { SQL_STATEMENT_RULES } from './sql-rules';
 export { QUERY_SCHEMA_RULES } from './query-schema-rules';
-export { SCHEMA_RULES } from './schema-rules';
+export { SCHEMA_RULES, UNUSED_INDEX_RULE } from './schema-rules';
 export { SECURITY_USER_RULES, SECURITY_DEFINER_RULES } from './security-rules';
 export { CONFIG_RULES } from './config-rules';
 export { PERFORMANCE_RULES } from './performance-rules';

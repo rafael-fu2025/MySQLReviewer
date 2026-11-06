@@ -1,5 +1,5 @@
 import type { ColumnInfo, FindingObject, SchemaTable } from '../../../shared/types';
-import { defineRule, runRules, type Rule } from './descriptor';
+import { defineRule, runRules, type Rule, type RuleCatalogEntry } from './descriptor';
 
 const MONEY_NAME =
   /(amount|price|cost|balance|total|subtotal|fee|salary|payment|tax|discount|revenue|income|debit|credit|budget)/i;
@@ -741,3 +741,19 @@ export function runSchemaRules(table: SchemaTable, options: SchemaRuleOptions = 
     object: { ...base, ...finding.object },
   }));
 }
+
+/**
+ * The catalog entry for the unused-index finding.
+ *
+ * The finding is produced by the audit from the server's index-usage
+ * statistics (`server/review/audit.ts`), not from a schema snapshot, so it has
+ * no rule module of its own. It is registered here so the catalog stays a
+ * complete list of the rule ids the engine can emit.
+ */
+export const UNUSED_INDEX_RULE: RuleCatalogEntry = {
+  id: 'schema.unused-index',
+  title: 'Index has not been used since statistics reset',
+  severity: 'low',
+  category: 'performance',
+  module: 'schema',
+};

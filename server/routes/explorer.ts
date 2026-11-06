@@ -15,8 +15,10 @@ import {
   listTables,
 } from '../db/introspection';
 import { createDatabase, listCharsets } from '../db/create-database';
+import { exportDatabaseSql, previewImportScript } from '../db/import-export';
 import { assertDatabaseAllowed } from '../db/scope';
-import { isWritesUnlocked } from '../db/manager';
+import { assertProfileAssigned, requireAdmin, sandboxScopeOverride } from '../auth';
+import { resolveWriteUnlock } from '../store/users';
 import { AppError } from '../errors';
 import { asyncHandler, parseBody, parseQuery, param } from './util';
 
@@ -66,10 +68,25 @@ const RefreshBody = z.object({
 
 export const explorerRouter = Router();
 
+// Members may only browse profiles assigned to them; the per-database
+// scope below then narrows them to their sandboxes.
+explorerRouter.use('/:profileId', (req, _res, next) => {
+  try {
+    assertProfileAssigned(req, req.params.profileId);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 explorerRouter.use(
   '/:profileId/databases/:database',
   asyncHandler(async (req, _res, next) => {
-    await assertDatabaseAllowed(req.params.profileId, req.params.database);
+    await assertDatabaseAllowed(
+      req.params.profileId,
+      req.params.database,
+      sandboxScopeOverride(req.user, req.params.profileId),
+    );
     next();
   }),
 );
@@ -78,18 +95,26 @@ explorerRouter.get(
   '/:profileId/databases',
   asyncHandler(async (req, res) => {
     const profileId = param(req, 'profileId');
-    res.json({ data: await listDatabases(profileId) });
+    res.json({
+      data: await listDatabases(profileId, sandboxScopeOverride(req.user, profileId)),
+    });
   }),
 );
 
 explorerRouter.post(
   '/:profileId/databases',
   asyncHandler(async (req, res) => {
+    // Members work inside their sandboxes; new databases on the server are
+    // an admin action.
+    const user = requireAdmin(req);
     const profileId = param(req, 'profileId');
-    if (!isWritesUnlocked(profileId)) {
+    const writeAccess = await resolveWriteUnlock(profileId, user.id);
+    if (!writeAccess.allowed) {
       throw new AppError(
         'WRITE_LOCKED',
-        'Creating a database requires unlocking writes for this connection.',
+        writeAccess.blocker
+          ? writeAccess.message
+          : 'Creating a database requires unlocking writes for this connection.',
         403,
       );
     }
@@ -134,6 +159,67 @@ explorerRouter.get(
   }),
 );
 
+const ExportSchema = z.object({
+  includeData: z.boolean().optional(),
+  includeObjects: z.boolean().optional(),
+  rowLimit: z.coerce.number().int().min(0).max(1_000_000).optional(),
+});
+
+/**
+ * Export one database as a `.sql` script.
+ *
+ * The dump is a script, not a data channel: it is reviewed and then run
+ * statement by statement through the ordinary gates. A dump that carries rows
+ * holds the raw value of every column, so it is a write-level action and the
+ * reveal lock applies, exactly as it does for the table browser.
+ */
+explorerRouter.post(
+  '/:profileId/databases/:database/export',
+  asyncHandler(async (req, res) => {
+    const user = assertProfileAssigned(req, param(req, 'profileId'));
+    const profileId = param(req, 'profileId');
+    const database = param(req, 'database');
+    const body = parseBody(ExportSchema, req);
+    // The dump names one database; the member scope still decides whether
+    // this connection may read it.
+    await assertDatabaseAllowed(profileId, database, sandboxScopeOverride(req.user, profileId));
+    if (body.includeData === true) {
+      const writeAccess = await resolveWriteUnlock(profileId, user.id);
+      if (!writeAccess.allowed) {
+        throw new AppError(
+          'REVEAL_LOCKED',
+          writeAccess.blocker
+            ? writeAccess.message
+            : 'Unlock writes for this connection before exporting the rows of a database.',
+          403,
+        );
+      }
+    }
+    res.json({ data: await exportDatabaseSql(profileId, database, body) });
+  }),
+);
+
+const ImportSchema = z.object({
+  sql: z.string().min(1).max(20_000_000),
+  database: z.string().max(200).nullable().optional(),
+});
+
+/**
+ * Read an imported script and report the statements it holds.
+ *
+ * Nothing is executed here. The caller shows the statements and then runs
+ * them one at a time through the ordinary query path, so every gate still
+ * applies to each one.
+ */
+explorerRouter.post(
+  '/:profileId/import/preview',
+  asyncHandler(async (req, res) => {
+    assertProfileAssigned(req, param(req, 'profileId'));
+    const body = parseBody(ImportSchema, req);
+    res.json({ data: previewImportScript(body.sql) });
+  }),
+);
+
 explorerRouter.post(
   '/:profileId/databases/:database/tables/:table/data',
   asyncHandler(async (req, res) => {
@@ -141,7 +227,23 @@ explorerRouter.post(
     const database = param(req, 'database');
     const table = param(req, 'table');
     const body = parseBody(TableDataSchema, req);
-    res.json({ data: await getTableData(profileId, database, table, body) });
+    // Revealing masked values is a write-level action; the route rejects it
+    // before the data path can serve cleartext secrets.
+    if (body.revealSensitive === true) {
+      const writeAccess = await resolveWriteUnlock(profileId, req.user?.id);
+      if (!writeAccess.allowed) {
+        throw new AppError(
+          'REVEAL_LOCKED',
+          writeAccess.blocker
+            ? writeAccess.message
+            : 'Unlock writes for this connection before revealing masked values.',
+          403,
+        );
+      }
+    }
+    res.json({
+      data: await getTableData(profileId, database, table, { ...body, userId: req.user?.id }),
+    });
   }),
 );
 
@@ -150,7 +252,11 @@ explorerRouter.get(
   asyncHandler(async (req, res) => {
     const profileId = param(req, 'profileId');
     const query = parseQuery(SchemaQuery, req);
-    await assertDatabaseAllowed(profileId, query.database);
+    await assertDatabaseAllowed(
+      profileId,
+      query.database,
+      sandboxScopeOverride(req.user, profileId),
+    );
     res.json({ data: await getSchemaSummary(profileId, query.database) });
   }),
 );
@@ -160,7 +266,11 @@ explorerRouter.get(
   asyncHandler(async (req, res) => {
     const profileId = param(req, 'profileId');
     const query = parseQuery(SchemaQuery, req);
-    await assertDatabaseAllowed(profileId, query.database);
+    await assertDatabaseAllowed(
+      profileId,
+      query.database,
+      sandboxScopeOverride(req.user, profileId),
+    );
     res.json({ data: await getSchemaSnapshot(profileId, query.database) });
   }),
 );
@@ -171,7 +281,11 @@ explorerRouter.post(
     const profileId = param(req, 'profileId');
     const body = parseBody(RefreshBody, req);
     if (body.database) {
-      await assertDatabaseAllowed(profileId, body.database);
+      await assertDatabaseAllowed(
+        profileId,
+        body.database,
+        sandboxScopeOverride(req.user, profileId),
+      );
     }
     invalidateSchemaCache(profileId, body.database);
     res.json({ data: { refreshed: true } });
@@ -185,7 +299,7 @@ explorerRouter.get(
     const database = param(req, 'database');
     const type = param(req, 'type').toLowerCase();
     const name = param(req, 'name');
-    await assertDatabaseAllowed(profileId, database);
+    await assertDatabaseAllowed(profileId, database, sandboxScopeOverride(req.user, profileId));
     if (type === 'view') {
       res.json({ data: await getViewDefinition(profileId, database, name) });
       return;

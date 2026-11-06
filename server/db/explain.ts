@@ -4,9 +4,10 @@ import type { RowDataPacket } from 'mysql2/promise';
 import type { ExplainNode, ExplainResult, Finding } from '../../shared/types';
 import { AppError } from '../errors';
 import { getSettings } from '../store/settings';
+import { resolveWriteUnlock } from '../store/users';
 import { getStoredProfile } from '../store/profiles';
 import { classifySql } from '../review/sql-classifier';
-import { connectProfile, getCachedServerInfo, isWritesUnlocked, withConnection } from './manager';
+import { connectProfile, getCachedServerInfo, withConnection } from './manager';
 import { applyQueryGuards } from './dialect';
 import { assertSqlScope } from './scope';
 
@@ -319,6 +320,14 @@ function parseJsonColumn(value: unknown): unknown {
 
 export interface ExplainOptions {
   analyze?: boolean;
+  /** Narrows a member session to their sandbox databases. */
+  scopeOverride?: { allowed: string[] };
+  /**
+   * The user the request is made for. The write unlock belongs to one user, so
+   * the check has to name them; without it only the profile-wide grant an
+   * administrator holds applies.
+   */
+  userId?: string;
 }
 
 const parserModule = sqlParser as unknown as typeof import('node-sql-parser');
@@ -376,15 +385,22 @@ export async function runExplain(
   // database that a previous request left selected on this pooled connection.
   const profile = await getStoredProfile(profileId);
   const effectiveDatabase = database ?? profile.database ?? null;
-  if (options.analyze && classification.needsUnlock && !isWritesUnlocked(profileId)) {
-    throw new AppError(
-      'WRITE_LOCKED',
-      'EXPLAIN ANALYZE executes the statement, and writes are locked.',
-      403,
-      { classification },
-    );
+  if (options.analyze && classification.needsUnlock) {
+    // The policy decides whether this account may write at all; only then does
+    // the in-memory grant decide.
+    const writeAccess = await resolveWriteUnlock(profileId, options.userId);
+    if (!writeAccess.allowed) {
+      throw new AppError(
+        'WRITE_LOCKED',
+        writeAccess.blocker
+          ? writeAccess.message
+          : 'EXPLAIN ANALYZE executes the statement, and writes are locked.',
+        403,
+        { classification },
+      );
+    }
   }
-  await assertSqlScope(profileId, sql, effectiveDatabase);
+  await assertSqlScope(profileId, sql, effectiveDatabase, options.scopeOverride);
   if (classification.needsUnlock && !effectiveDatabase) {
     throw new AppError(
       'DATABASE_REQUIRED',

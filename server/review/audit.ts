@@ -21,7 +21,13 @@ import { getGlobalStatus, getGlobalVariables, getPerformanceSnapshot } from '../
 import { collectSecurityData } from '../db/security-audit';
 import { withConnection } from '../db/manager';
 import { getDatabaseScope, assertServerWideAllowed, type DatabaseScope } from '../db/scope';
-import { runConfigRules, runPerformanceRules, runSchemaRules, runSecurityRules } from './rules';
+import {
+  runConfigRules,
+  runPerformanceRules,
+  runSchemaRules,
+  runSecurityRules,
+  UNUSED_INDEX_RULE,
+} from './rules';
 import { dedupeFindings, groupFindings } from './findings';
 import { scoreFindings } from './scoring';
 import { runAuditSummary } from '../ai/analyze';
@@ -67,10 +73,10 @@ async function loadUnusedIndexes(
       const visible = rows.filter((row) => schemaInScope(row.object_schema));
       const findings: Finding[] = visible.map((row) => ({
         id: crypto.randomUUID(),
-        ruleId: 'schema.unused-index',
-        title: 'Index has not been used since statistics reset',
-        severity: 'low',
-        category: 'performance',
+        ruleId: UNUSED_INDEX_RULE.id,
+        title: UNUSED_INDEX_RULE.title,
+        severity: UNUSED_INDEX_RULE.severity,
+        category: UNUSED_INDEX_RULE.category,
         message: `Index \`${String(row.index_name)}\` on \`${String(row.object_schema)}.${String(row.object_name)}\` has zero recorded reads.`,
         recommendation:
           'Confirm the statistics window, then consider dropping the index. Verify no reporting query or constraint depends on it.',
@@ -109,10 +115,10 @@ async function loadUnusedIndexes(
       const visible = rows.filter((row) => schemaInScope(row.OBJECT_SCHEMA));
       const findings: Finding[] = visible.map((row) => ({
         id: crypto.randomUUID(),
-        ruleId: 'schema.unused-index',
-        title: 'Index has not been used since statistics reset',
-        severity: 'low',
-        category: 'performance',
+        ruleId: UNUSED_INDEX_RULE.id,
+        title: UNUSED_INDEX_RULE.title,
+        severity: UNUSED_INDEX_RULE.severity,
+        category: UNUSED_INDEX_RULE.category,
         message: `Index \`${String(row.INDEX_NAME)}\` on \`${String(row.OBJECT_SCHEMA)}.${String(row.OBJECT_NAME)}\` has zero recorded reads.`,
         recommendation:
           'Confirm the statistics window, then consider dropping the index. Verify no constraint or reporting query depends on it.',

@@ -85,6 +85,54 @@ function isTemporal(column: ColumnInfo): boolean {
 
 type Resolution = { table: SchemaTable; column: ColumnInfo } | 'unknown' | 'ambiguous' | null;
 
+/**
+ * The `column_ref` nodes a DDL statement *defines*.
+ *
+ * In `node-sql-parser` v5 a column definition is a `column_ref` node:
+ * `alter.expr[].column` (ADD/CHANGE/MODIFY COLUMN), `alter.expr[].definition[]`
+ * (ADD INDEX) and `create.create_definitions[].column`. Validating them
+ * against the live schema reports the column that is being created as
+ * missing, so they are excluded from the schema checks.
+ */
+function ddlColumnDefinitions(ast: AnyRecord): Set<unknown> {
+  const definitions = new Set<unknown>();
+  if (!isRecord(ast)) return definitions;
+
+  const alterExprs = Array.isArray(ast.expr) ? ast.expr : [];
+  for (const expr of alterExprs) {
+    if (!isRecord(expr)) continue;
+    if (isRecord(expr.column)) definitions.add(expr.column);
+    if (Array.isArray(expr.definition)) {
+      for (const item of expr.definition) definitions.add(item);
+    }
+  }
+
+  const createDefinitions = Array.isArray(ast.create_definitions) ? ast.create_definitions : [];
+  for (const definition of createDefinitions) {
+    if (!isRecord(definition)) continue;
+    if (isRecord(definition.column)) definitions.add(definition.column);
+  }
+
+  return definitions;
+}
+
+/**
+ * True when an unqualified column may come from a CTE or a derived table.
+ *
+ * Those columns are produced by the query itself and are not part of the
+ * schema, so the schema checks must not report them as unknown. A qualified
+ * reference does not need this: a qualifier that is not a table of the schema
+ * is a CTE or a derived table, and `resolveRef` already returns "no
+ * information" for it.
+ */
+function comesFromVirtualTable(context: RuleContext, column: string): boolean {
+  const name = column.toLowerCase();
+  for (const table of context.virtualTables.values()) {
+    if (table.columns?.has(name)) return true;
+  }
+  return false;
+}
+
 function resolveRef(
   context: RuleContext,
   ref: { table: string | null; column: string },
@@ -97,7 +145,11 @@ function resolveRef(
 
   if (ref.table) {
     const table = context.tableLookup.get(ref.table.toLowerCase());
-    if (!table) return null;
+    if (!table) {
+      // The qualifier is not a table of the schema: it is a CTE or a derived
+      // table, whose columns are produced by the query itself.
+      return null;
+    }
     const column = findColumn(table);
     if (!column) return 'unknown';
     return { table, column };
@@ -105,14 +157,21 @@ function resolveRef(
 
   if (context.tables.length === 1) {
     const column = findColumn(context.tables[0]);
-    return column ? { table: context.tables[0], column } : 'unknown';
+    if (column) return { table: context.tables[0], column };
+    // The column may be an output column of a CTE or a derived table.
+    if (comesFromVirtualTable(context, ref.column)) return null;
+    return 'unknown';
   }
 
   const matches = context.tables
     .map((table) => ({ table, column: findColumn(table) }))
     .filter((item): item is { table: SchemaTable; column: ColumnInfo } => Boolean(item.column));
   if (matches.length === 1) return matches[0];
-  if (matches.length > 1) return 'ambiguous';
+  if (matches.length > 1) {
+    if (comesFromVirtualTable(context, ref.column)) return null;
+    return 'ambiguous';
+  }
+  if (comesFromVirtualTable(context, ref.column)) return null;
   return 'unknown';
 }
 
@@ -159,7 +218,7 @@ function comparisonSides(node: AnyRecord): ComparisonSide[] {
 export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.unknown-column',
+      id: 'query-schema.unknown-column',
       title: 'Column not found in the referenced table',
       severity: 'medium',
       category: 'correctness',
@@ -172,9 +231,12 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
         object: { table?: string; column: string };
         confidence: 'medium';
       }> = [];
+      const definitions = ddlColumnDefinitions(ast);
       walk(ast, (node) => {
         if (node.type !== 'column_ref' || typeof node.column !== 'string') return;
         if (node.column === '*') return;
+        // A column a DDL statement defines does not exist in the schema yet.
+        if (definitions.has(node)) return;
         const resolved = resolveRef(context, {
           table: node.table == null ? null : String(node.table),
           column: node.column,
@@ -196,7 +258,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.ambiguous-column',
+      id: 'query-schema.ambiguous-column',
       title: 'Ambiguous unqualified column',
       severity: 'high',
       category: 'correctness',
@@ -209,9 +271,11 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
         object: { column: string };
         confidence: 'high';
       }> = [];
+      const definitions = ddlColumnDefinitions(ast);
       walk(ast, (node) => {
         if (node.type !== 'column_ref' || typeof node.column !== 'string') return;
         if (node.column === '*') return;
+        if (definitions.has(node)) return;
         const resolved = resolveRef(context, {
           table: node.table == null ? null : String(node.table),
           column: node.column,
@@ -231,7 +295,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.implicit-cast',
+      id: 'query-schema.implicit-cast',
       title: 'Numeric literal compared to a text column',
       severity: 'medium',
       category: 'performance',
@@ -275,7 +339,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.implicit-cast-literal',
+      id: 'query-schema.implicit-cast-literal',
       title: 'String literal compared to a non-text column',
       severity: 'low',
       category: 'correctness',
@@ -318,7 +382,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.like-numeric-column',
+      id: 'query-schema.like-numeric-column',
       title: 'LIKE on a numeric column',
       severity: 'medium',
       category: 'performance',
@@ -358,7 +422,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.leading-wildcard-indexed',
+      id: 'query-schema.leading-wildcard-indexed',
       title: 'Leading wildcard defeats the index',
       severity: 'medium',
       category: 'performance',
@@ -373,7 +437,9 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
       walk(ast, (node) => {
         if (node.type !== 'binary_expr') return;
         const operator = String(node.operator ?? '').toUpperCase();
-        if (operator !== 'LIKE') return;
+        // `node-sql-parser` emits `NOT LIKE` as its own operator; a leading
+        // wildcard defeats the index there just as it does for `LIKE`.
+        if (operator !== 'LIKE' && operator !== 'NOT LIKE') return;
         for (const side of comparisonSides(node)) {
           if (!isRecord(side.expr) || side.expr.type !== 'column_ref') continue;
           const resolved = resolveRef(context, {
@@ -404,7 +470,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.not-in-nullable',
+      id: 'query-schema.not-in-nullable',
       title: 'NOT IN over a nullable column',
       severity: 'medium',
       category: 'correctness',
@@ -440,7 +506,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.function-on-indexed-column',
+      id: 'query-schema.function-on-indexed-column',
       title: 'Function wrapped around an indexed column',
       severity: 'medium',
       category: 'performance',
@@ -490,7 +556,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.no-primary-key-target',
+      id: 'query-schema.no-primary-key-target',
       title: 'Writing to a table without a primary key',
       severity: 'high',
       category: 'schema',
@@ -524,7 +590,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.join-type-mismatch',
+      id: 'query-schema.join-type-mismatch',
       title: 'Join columns have different types',
       severity: 'high',
       category: 'performance',
@@ -581,7 +647,7 @@ export const QUERY_SCHEMA_RULES: Rule<QuerySchemaRuleInput>[] = [
 
   defineRule<QuerySchemaRuleInput>(
     {
-      id: 'sql.join-without-index',
+      id: 'query-schema.join-without-index',
       title: 'Join column is not indexed',
       severity: 'medium',
       category: 'performance',
@@ -687,6 +753,9 @@ export function runQuerySchemaRules(context: RuleContext) {
       fallbackLine: statement?.line ?? 1,
     });
     for (const finding of produced) {
+      // The statement index is part of the de-duplication key, so two
+      // statements on the same line do not collapse into one finding.
+      finding.statementIndex = statementIndex;
       const key = `${finding.ruleId}|${finding.object?.table ?? ''}|${finding.object?.column ?? ''}`;
       if (seen.has(key)) continue;
       seen.add(key);

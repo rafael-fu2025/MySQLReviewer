@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
-import { KEY_FILE, ensureDataDirs } from '../config';
+import { DATA_DIR, KEY_FILE, ensureDataDirs } from '../config';
+import { ensureRestrictedDirectory, restrictFileAccess } from './json-store';
 
 const VERSION = 'v1';
 let cachedKey: Buffer | null = null;
@@ -13,12 +14,18 @@ async function getKey(): Promise<Buffer> {
     const key = Buffer.from(raw, 'base64');
     if (key.length !== 32) throw new Error('Invalid local encryption key length.');
     cachedKey = key;
+    // Tighten a key file that was created before the restriction was applied.
+    await restrictFileAccess(KEY_FILE);
     return key;
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code !== 'ENOENT') throw error;
     const key = crypto.randomBytes(32);
+    // The master key decrypts every stored database password and AI key:
+    // restrict the data directory first so the file inherits a private ACL.
+    await ensureRestrictedDirectory(DATA_DIR);
     await fs.writeFile(KEY_FILE, key.toString('base64'), { mode: 0o600 });
+    await restrictFileAccess(KEY_FILE);
     cachedKey = key;
     return key;
   }

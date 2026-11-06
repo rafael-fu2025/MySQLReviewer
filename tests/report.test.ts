@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AuditReport, Finding } from '../shared/types';
+import type { AuditReport, Finding, StaticReviewResult, StoredReviewReport } from '../shared/types';
 import { groupFindings } from '../server/review/findings';
 import { scoreFindings } from '../server/review/scoring';
 import { reportFileName, reportToHtml, reportToMarkdown } from '../server/review/report';
@@ -94,5 +94,73 @@ describe('report export', () => {
   it('creates safe file names', () => {
     expect(reportFileName(report, 'md')).toBe('mylens-audit-audit_test_123.md');
     expect(reportFileName(report, 'html')).toBe('mylens-audit-audit_test_123.html');
+  });
+});
+
+describe('review report export (R-06)', () => {
+  const aiFinding: Finding = {
+    ...finding,
+    id: 'finding-2',
+    ruleId: 'ai.slow-plan',
+    title: 'The AI review found a slow plan',
+    severity: 'high',
+    category: 'performance',
+    source: 'ai',
+  };
+
+  const reviewResult: StaticReviewResult = {
+    sql: 'SELECT * FROM users',
+    statements: [{ sql: 'SELECT * FROM users', kind: 'read', line: 1 }],
+    findings: [finding],
+    score: scoreFindings([finding]),
+    context: {
+      database: 'shop',
+      tables: [],
+      truncated: false,
+      charCount: 0,
+      estimatedTokens: 0,
+    },
+    explain: null,
+    suggestions: [],
+    warnings: [],
+  };
+
+  const reviewReport: StoredReviewReport = {
+    id: 'review_test_123',
+    kind: 'review',
+    title: 'Review · shop',
+    createdAt: '2026-10-20T00:00:00.000Z',
+    profile: null,
+    databaseScope: ['shop'],
+    sql: 'SELECT * FROM users',
+    review: reviewResult,
+    ai: {
+      providerId: 'provider-1',
+      providerName: 'Test',
+      model: 'test-model',
+      verdict: 'warn',
+      score: null,
+      summary: 'The AI found one more issue.',
+      findings: [aiFinding],
+      rewrite: null,
+      markdown: '## AI review\n\nOne more issue.',
+      usage: null,
+      durationMs: 42,
+    },
+  };
+
+  it('counts the AI findings in the severity counts and the total', () => {
+    const markdown = reportToMarkdown(reviewReport);
+    // 1 critical + 1 high, and the counts add up to the stated total.
+    expect(markdown).toContain('1 critical · 1 high · 0 medium · 0 low · 0 info · 2 total');
+  });
+
+  it('scores the AI findings as well', () => {
+    const markdown = reportToMarkdown(reviewReport);
+    // 100 - 30 (critical) - 12 (high)
+    expect(markdown).toContain('**58/100** (grade F)');
+    const html = reportToHtml(reviewReport);
+    expect(html).toContain('2 findings · 1 critical · 1 high');
+    expect(html).toContain('<div class="score-value">58</div>');
   });
 });

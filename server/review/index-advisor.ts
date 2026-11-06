@@ -187,29 +187,33 @@ export function suggestIndexes(context: RuleContext): IndexSuggestion[] {
 
   const suggestions: IndexSuggestion[] = [];
   for (const { table, candidate } of map.values()) {
-    const columns = [
-      ...candidate.equality.slice(0, 3),
-      ...candidate.range.slice(0, 1),
-      ...candidate.order
-        .filter(
-          (column) =>
-            !candidate.equality.some((item) => item.toLowerCase() === column.toLowerCase()) &&
-            !candidate.range.some((item) => item.toLowerCase() === column.toLowerCase()),
-        )
-        .slice(0, 2),
-    ];
+    // A column is only used once in an index: the equality columns come
+    // first, then a range column, then the ordering columns. A column that
+    // is already in the list is not repeated.
+    const equality = candidate.equality.slice(0, 3);
+    const range = candidate.range
+      .filter((column) => !equality.some((item) => item.toLowerCase() === column.toLowerCase()))
+      .slice(0, 1);
+    const order = candidate.order
+      .filter(
+        (column) =>
+          !equality.some((item) => item.toLowerCase() === column.toLowerCase()) &&
+          !range.some((item) => item.toLowerCase() === column.toLowerCase()),
+      )
+      .slice(0, 2);
+    const columns = [...equality, ...range, ...order];
     if (columns.length === 0) continue;
     if (existingIndexCovers(table, columns)) continue;
 
     const reasonParts: string[] = [];
-    if (candidate.equality.length > 0) {
-      reasonParts.push(`equality on ${candidate.equality.slice(0, 3).join(', ')}`);
+    if (equality.length > 0) {
+      reasonParts.push(`equality on ${equality.join(', ')}`);
     }
-    if (candidate.range.length > 0) {
-      reasonParts.push(`range on ${candidate.range[0]}`);
+    if (range.length > 0) {
+      reasonParts.push(`range on ${range[0]}`);
     }
-    if (candidate.order.length > 0) {
-      reasonParts.push(`ordering/grouping on ${candidate.order.slice(0, 2).join(', ')}`);
+    if (order.length > 0) {
+      reasonParts.push(`ordering/grouping on ${order.join(', ')}`);
     }
 
     const confidence: IndexSuggestion['confidence'] =

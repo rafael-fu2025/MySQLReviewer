@@ -36,8 +36,11 @@ export function scoreFindings(findings: Finding[]): ScoreResult {
   >;
 
   for (const finding of findings) {
-    deductions[finding.category] =
-      (deductions[finding.category] ?? 0) + SEVERITY_WEIGHT[finding.severity];
+    // A severity outside the canonical set has no weight. Every producer
+    // normalises the severity before it gets here, so this only keeps a
+    // malformed finding from turning the whole score into `NaN`.
+    const weight = SEVERITY_WEIGHT[finding.severity] ?? 0;
+    deductions[finding.category] = (deductions[finding.category] ?? 0) + weight;
   }
   for (const category of CATEGORIES) {
     deductions[category] = Math.min(CATEGORY_CAP, deductions[category]);

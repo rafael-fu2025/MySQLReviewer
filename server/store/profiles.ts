@@ -21,6 +21,8 @@ interface StoredProfile {
   databaseScope?: 'all' | 'selected';
   allowedDatabases?: string[];
   allowServerWideInsights?: boolean;
+  /** Whether members may write through this connection. Absent means `full`. */
+  writeAccess?: 'full' | 'locked';
   createdAt: string;
   updatedAt: string;
   lastUsedAt?: string | null;
@@ -108,9 +110,20 @@ function validate(input: ConnectionInput): ConnectionInput {
     databaseScope,
     allowedDatabases,
     allowServerWideInsights: input.allowServerWideInsights !== false,
+    // Left undefined when the caller did not say: an update that omits it must
+    // not silently reset a connection the administrator locked.
+    writeAccess:
+      input.writeAccess === 'locked' || input.writeAccess === 'full'
+        ? input.writeAccess
+        : undefined,
   };
 }
 
+/**
+ * The public shape of a profile. The TLS material (`ca`, `cert` and above all
+ * the client private `key`) stays on the server: the client never opens the
+ * connection, so it has no use for the key and must never receive it.
+ */
 function toPublic(profile: StoredProfile): ConnectionProfile {
   const saved = Boolean(profile.passwordEnc);
   const session = sessionPasswords.has(profile.id);
@@ -122,7 +135,9 @@ function toPublic(profile: StoredProfile): ConnectionProfile {
     user: profile.user,
     database: profile.database ?? null,
     socketPath: profile.socketPath ?? null,
-    ssl: profile.ssl ?? null,
+    ssl: profile.ssl
+      ? { enabled: true, rejectUnauthorized: profile.ssl.rejectUnauthorized !== false }
+      : null,
     rememberPassword: profile.rememberPassword,
     hasPassword: saved || session,
     passwordSource: saved ? 'saved' : session ? 'session' : 'none',
@@ -130,6 +145,7 @@ function toPublic(profile: StoredProfile): ConnectionProfile {
     databaseScope: profile.databaseScope === 'selected' ? 'selected' : 'all',
     allowedDatabases: profile.allowedDatabases ?? [],
     allowServerWideInsights: profile.allowServerWideInsights !== false,
+    writeAccess: profile.writeAccess === 'locked' ? 'locked' : 'full',
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt,
     lastUsedAt: profile.lastUsedAt ?? null,
@@ -178,6 +194,7 @@ export async function createProfile(input: ConnectionInput): Promise<ConnectionP
     databaseScope: clean.databaseScope === 'selected' ? 'selected' : 'all',
     allowedDatabases: clean.allowedDatabases ?? [],
     allowServerWideInsights: clean.allowServerWideInsights !== false,
+    writeAccess: clean.writeAccess ?? 'full',
     createdAt: timestamp,
     updatedAt: timestamp,
     lastUsedAt: null,
@@ -236,6 +253,10 @@ export async function updateProfile(
       databaseScope: clean.databaseScope === 'selected' ? 'selected' : 'all',
       allowedDatabases: clean.allowedDatabases ?? [],
       allowServerWideInsights: clean.allowServerWideInsights !== false,
+      // The administrator can change this at any time, including on a profile
+      // that was created long ago; an update that does not mention it keeps
+      // whatever was set before.
+      writeAccess: clean.writeAccess ?? previous.writeAccess ?? 'full',
       updatedAt: now(),
     };
     const profiles = [...current.profiles];
@@ -296,8 +317,15 @@ export async function resolveProfilePassword(id: string): Promise<string> {
   return password ?? '';
 }
 
-/** Used by the connection manager so it can recreate pools after edits. */
+/**
+ * Used by the connection manager so it can recreate pools after edits.
+ *
+ * The hash must cover every setting that changes how a pool authenticates,
+ * including the in-memory session password: without it a new session password
+ * is ignored while the old pool is still alive.
+ */
 export function profileConfigHash(profile: StoredProfile): string {
+  const sessionPassword = sessionPasswords.get(profile.id);
   return crypto
     .createHash('sha1')
     .update(
@@ -308,6 +336,10 @@ export function profileConfigHash(profile: StoredProfile): string {
         socketPath: profile.socketPath,
         ssl: profile.ssl,
         passwordEnc: profile.passwordEnc,
+        sessionPassword:
+          sessionPassword === undefined
+            ? null
+            : crypto.createHash('sha1').update(sessionPassword).digest('hex'),
       }),
     )
     .digest('hex');
