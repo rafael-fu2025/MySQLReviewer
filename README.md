@@ -11,11 +11,11 @@ A local-first MySQL/MariaDB review app for your XAMPP server. It connects to you
 <table>
   <tr>
     <td width="50%"><img src="docs/images/workspace.png" alt="The MyLens workspace: the Northwind schema tree on the left, a SQL editor in the middle with the query and its results below it, and the AI assistant panel on the right."></td>
-    <td width="50%"><img src="docs/images/workspace-composer.png" alt="The same MyLens workspace with the assistant's composer focused, ready to ask a follow-up question about the statement in the editor."></td>
+    <td width="50%"><img src="docs/images/sql_lab.png" alt="The MyLens SQL Lab: a schema-grounded challenge called Customers Without Orders on the left, an editor to write the answer in, the question navigator on the right, and a Coach panel explaining the approach."></td>
   </tr>
   <tr>
     <td align="center"><sub>Schema tree, SQL editor, results grid, and the AI assistant.</sub></td>
-    <td align="center"><sub>The assistant, mid-conversation.</sub></td>
+    <td align="center"><sub>SQL Lab, with the Coach walking through the query.</sub></td>
   </tr>
 </table>
 
