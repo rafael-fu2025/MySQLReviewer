@@ -94,3 +94,31 @@ describe('Markdown model-output sanitizer', () => {
     expect(html).not.toContain('sanitize');
   });
 });
+
+describe('Markdown code-block copy button', () => {
+  const fenced = 'Answer\n\n```sql\nSELECT 1;\n```';
+
+  it('renders the corner copy button when the surface opts in', () => {
+    const html = renderToStaticMarkup(<Markdown codeCopy>{fenced}</Markdown>);
+    expect(html).toContain('markdown-code');
+    expect(html).toContain('Copy code');
+    expect(html).toContain('icon-stack');
+    expect(html).toContain('<pre');
+  });
+
+  it('stays a plain code block without the opt-in', () => {
+    const html = renderToStaticMarkup(<Markdown>{fenced}</Markdown>);
+    expect(html).not.toContain('code-copy');
+    expect(html).toContain('<pre');
+  });
+
+  it('assistant messages opt their code blocks in', () => {
+    const html = renderToStaticMarkup(
+      <Message
+        message={{ role: 'assistant', content: fenced, toolCalls: [] }}
+        assistantLabel="mylens"
+      />,
+    );
+    expect(html).toContain('Copy code');
+  });
+});

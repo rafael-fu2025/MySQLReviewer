@@ -137,6 +137,28 @@ function findTotalCost(value: unknown): number | null {
   return null;
 }
 
+/** Actual-vs-estimated row ratio beyond which the estimate counts as drifted. */
+const DRIFT_RATIO = 5;
+
+/** Actual rows below which a drift signal is too noisy to report. */
+const DRIFT_MIN_ACTUAL_ROWS = 500;
+
+/**
+ * Rows the node actually produced per iteration.
+ *
+ * MySQL's EXPLAIN ANALYZE `rows` is a per-loop average and `runtimeRows`
+ * stores the total across the loops (`rows * loops`), so the loops are
+ * divided out again. MariaDB's `r_rows` is already the per-loop average and
+ * carries no loop count, so it is used as-is.
+ */
+function actualRowsPerLoop(node: ExplainNode): number | null {
+  const runtimeRows = node.runtimeRows;
+  if (runtimeRows == null) return null;
+  const loops = node.runtimeLoops;
+  if (loops != null && loops > 1) return runtimeRows / loops;
+  return runtimeRows;
+}
+
 function addFinding(
   findings: Finding[],
   ruleId: string,
@@ -167,6 +189,210 @@ function addFinding(
     source: 'explain',
     confidence: 'high',
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* MySQL `EXPLAIN ANALYZE` tree parsing                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * MySQL prints `EXPLAIN ANALYZE` as an indented tree, one operator per line:
+ *
+ * ```
+ * -> Nested loop inner join  (cost=1.10 rows=20) (actual time=0.15..0.55 rows=20 loops=1)
+ *     -> Table scan on t1  (cost=0.75 rows=10) (actual time=0.05..0.10 rows=10 loops=1)
+ *     -> Filter: (t2.b = t1.a)  (actual time=0.05..0.30 rows=2 loops=20)
+ *         -> Index lookup on t2 using idx_b  (cost=0.35 rows=2) (actual time=0.01..0.05 rows=2 loops=20)
+ * ```
+ *
+ * The indentation is a plain leading-space count that grows with the depth
+ * (the exact width has varied across MySQL versions), so the tree is rebuilt
+ * with a stack: a line less indented than the current top closes it, and a
+ * more indented line becomes its child. Operators print no table name (joins,
+ * sorts, `Rows fetched before initialization`); for the ones that do, the
+ * table comes from the label (`Table scan on t1`, `Index lookup on t2 using
+ * idx`) and the access type is inferred from the same label as a best effort.
+ *
+ * Parsed values:
+ * - The first parenthesized group that is not the actual group holds the
+ *   estimates: `rows=N` and optionally `cost=N` (a `cost=a..b` range takes the
+ *   second number, which is the total). Labels may hold their own parentheses
+ *   (`Filter: (t1.a = t1.b)`), so groups are recognized by content, not by
+ *   position.
+ * - The `(actual time=a..b rows=N loops=N)` group holds the runtimes. `a..b`
+ *   are milliseconds since the statement started, and `b` - the node's total
+ *   time - becomes `runtimeMs`. `rows` is the per-iteration average, so the
+ *   total across the `loops` executions (`rows * loops`) becomes
+ *   `runtimeRows`, with `runtimeLoops` keeping the loop count. MySQL 8.0.18+
+ *   may print the time list bracketed (`actual time=[a..b]`) and a single
+ *   value without the second bound; both are accepted. Nodes without an
+ *   actual group (no runtimes collected) parse with null runtimes.
+ */
+
+const ANALYZE_LINE_RE = /^(\s*)->\s?(.*)$/;
+const ANALYZE_ESTIMATE_ROWS_RE = /(?:^|[\s(])rows=(\d+)/;
+const ANALYZE_COST_RE = /\bcost=(\d+(?:\.\d+)?)(?:\.\.(\d+(?:\.\d+)?))?/;
+const ANALYZE_ACTUAL_TIME_RE =
+  /\bactual time=(?:\[)?(\d+(?:\.\d+)?)(?:\.\.(\d+(?:\.\d+)?))?(?:\])?/;
+const ANALYZE_ACTUAL_ROWS_RE = /(?:^|[\s,])rows=(\d+)/;
+const ANALYZE_LOOPS_RE = /\bloops=(\d+)/;
+const ANALYZE_TABLE_RE = /\bon\s+`?([A-Za-z0-9_$]+)`?/;
+const ANALYZE_KEY_RE = /\busing\s+`?([A-Za-z0-9_$]+)`?/;
+
+/** Best-effort access type for the labels that unambiguously name one. */
+function accessTypeFromLabel(label: string): string | null {
+  if (/^table scan/i.test(label)) return 'ALL';
+  if (/^single-row index lookup/i.test(label)) return 'eq_ref';
+  if (/^index range scan/i.test(label)) return 'range';
+  if (/^index scan/i.test(label)) return 'index';
+  if (/^index lookup/i.test(label)) return 'ref';
+  return null;
+}
+
+interface TreeGroup {
+  content: string;
+  start: number;
+}
+
+/** The top-level parenthesized spans of a node line, with their offsets. */
+function topLevelGroups(text: string): TreeGroup[] {
+  const groups: TreeGroup[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '(') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        groups.push({ content: text.slice(start + 1, i), start });
+        start = -1;
+      }
+      if (depth < 0) depth = 0; // a stray closer: ignore it
+    }
+  }
+  return groups;
+}
+
+function parseAnalyzeNodeLine(line: string): ExplainNode {
+  const groups = topLevelGroups(line);
+  let estimate: TreeGroup | null = null;
+  let actual: TreeGroup | null = null;
+  for (const group of groups) {
+    if (actual === null && /\bactual\b/.test(group.content)) actual = group;
+    else if (estimate === null && /\b(?:rows|cost)=/.test(group.content)) estimate = group;
+  }
+
+  // The label is everything before the first estimate/actual group, so a
+  // condition inside the label keeps its own parentheses.
+  const labelEnd = estimate?.start ?? actual?.start ?? line.length;
+  const label = line.slice(0, labelEnd).trim() || line.trim();
+
+  const estimateRows = estimate ? ANALYZE_ESTIMATE_ROWS_RE.exec(estimate.content)?.[1] : undefined;
+  const costMatch = estimate ? ANALYZE_COST_RE.exec(estimate.content) : null;
+  const timeMatch = actual ? ANALYZE_ACTUAL_TIME_RE.exec(actual.content) : null;
+  const actualRows = actual
+    ? asNumber(ANALYZE_ACTUAL_ROWS_RE.exec(actual.content)?.[1] ?? null)
+    : null;
+  const loops = actual ? asNumber(ANALYZE_LOOPS_RE.exec(actual.content)?.[1] ?? null) : null;
+
+  const tableMatch = ANALYZE_TABLE_RE.exec(label);
+  const keyMatch = ANALYZE_KEY_RE.exec(label);
+
+  return {
+    id: crypto.randomUUID(),
+    label,
+    table: tableMatch ? tableMatch[1] : null,
+    accessType: accessTypeFromLabel(label),
+    key: keyMatch ? keyMatch[1] : null,
+    possibleKeys: [],
+    rows: estimateRows == null ? null : asNumber(estimateRows),
+    filtered: null,
+    cost: costMatch ? asNumber(costMatch[2] ?? costMatch[1]) : null,
+    extra: [],
+    children: [],
+    runtimeRows: actualRows != null && loops != null && loops > 1 ? actualRows * loops : actualRows,
+    runtimeFiltered: null,
+    runtimeMs: timeMatch ? asNumber(timeMatch[2] ?? timeMatch[1]) : null,
+    runtimeLoops: loops,
+  };
+}
+
+/**
+ * Parse a MySQL `EXPLAIN ANALYZE` tree into plan nodes.
+ *
+ * Lines that do not start with an indented `->` marker (blank lines, client
+ * notices) are skipped, so a partially unreadable tree yields the nodes that
+ * did parse instead of failing the explain.
+ */
+export function parseExplainAnalyzeTree(text: string): ExplainNode[] {
+  const roots: ExplainNode[] = [];
+  const stack: { indent: number; node: ExplainNode }[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = ANALYZE_LINE_RE.exec(line);
+    if (!match) continue;
+    const node = parseAnalyzeNodeLine(match[2]);
+    const indent = match[1].length;
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) stack.pop();
+    if (stack.length > 0) {
+      stack[stack.length - 1].node.children.push(node);
+    } else {
+      roots.push(node);
+    }
+    stack.push({ indent, node });
+  }
+  return roots;
+}
+
+/**
+ * Copy the runtime values of a parsed `EXPLAIN ANALYZE` tree onto the nodes
+ * parsed from `EXPLAIN FORMAT=JSON`.
+ *
+ * On MySQL the JSON plan holds the estimates (and `access_type`, `filtered`)
+ * while the tree holds the runtimes, so the two are merged: nodes are matched
+ * by table name in plan order, which keeps a self-join's two nodes apart.
+ */
+export function mergeAnalyzeRuntime(nodes: ExplainNode[], tree: ExplainNode[]): void {
+  const flat: ExplainNode[] = [];
+  const collect = (list: ExplainNode[]): void => {
+    for (const node of list) {
+      flat.push(node);
+      collect(node.children);
+    }
+  };
+  collect(tree);
+
+  const byTable = new Map<string, ExplainNode[]>();
+  for (const node of flat) {
+    if (!node.table) continue;
+    const list = byTable.get(node.table);
+    if (list) list.push(node);
+    else byTable.set(node.table, [node]);
+  }
+
+  const used = new Set<ExplainNode>();
+  const apply = (target: ExplainNode, source: ExplainNode): void => {
+    if (target.runtimeMs == null) target.runtimeMs = source.runtimeMs;
+    if (target.runtimeRows == null) target.runtimeRows = source.runtimeRows;
+    if (target.runtimeLoops == null) target.runtimeLoops = source.runtimeLoops;
+    if (target.rows == null) target.rows = source.rows;
+    if (target.cost == null) target.cost = source.cost;
+  };
+  const walk = (list: ExplainNode[]): void => {
+    for (const node of list) {
+      if (node.table) {
+        const source = byTable.get(node.table)?.find((candidate) => !used.has(candidate));
+        if (source) {
+          used.add(source);
+          apply(node, source);
+        }
+      }
+      walk(node.children);
+    }
+  };
+  walk(nodes);
 }
 
 export function explainFindings(nodes: ExplainNode[]): Finding[] {
@@ -268,6 +494,37 @@ export function explainFindings(nodes: ExplainNode[]): Finding[] {
         'Revisit the predicate and index design, and check that statistics are current.',
         node,
       );
+    }
+
+    // The plan ran (EXPLAIN ANALYZE): compare the estimate against the rows
+    // that actually moved. An under-estimate is the classic stale-statistics
+    // signal - the optimizer picks join orders and access paths from it - so
+    // it reports a notch higher than the over-estimate direction.
+    const actualPerLoop = actualRowsPerLoop(node);
+    if (rows > 0 && actualPerLoop != null && actualPerLoop > DRIFT_MIN_ACTUAL_ROWS) {
+      const driftAdvice =
+        'Run ANALYZE TABLE on the table to refresh the optimizer statistics. On MySQL 8, histogram statistics (ANALYZE TABLE ... UPDATE HISTOGRAM ON <column> WITH 32 BUCKETS) help further for skewed column distributions.';
+      if (actualPerLoop > rows * DRIFT_RATIO) {
+        addFinding(
+          findings,
+          'explain.rows-estimate-drift',
+          'Row estimate far below reality',
+          'medium',
+          `The optimizer estimated ${Math.round(rows).toLocaleString()} rows for \`${node.table}\`, but the plan actually processed about ${Math.round(actualPerLoop).toLocaleString()} per iteration.`,
+          driftAdvice,
+          node,
+        );
+      } else if (rows > actualPerLoop * DRIFT_RATIO) {
+        addFinding(
+          findings,
+          'explain.rows-estimate-drift',
+          'Row estimate far above reality',
+          'low',
+          `The optimizer estimated ${Math.round(rows).toLocaleString()} rows for \`${node.table}\`, but the plan actually processed about ${Math.round(actualPerLoop).toLocaleString()} per iteration.`,
+          driftAdvice,
+          node,
+        );
+      }
     }
 
     if (runtimeRows > 10_000) {
@@ -444,7 +701,15 @@ export async function runExplain(
           raw = rows.length > 0 ? parseJsonColumn(Object.values(rows[0])[0]) : null;
         }
 
+        // MySQL's EXPLAIN FORMAT=JSON holds the estimates; the EXPLAIN ANALYZE
+        // tree holds the runtimes, which MariaDB already embeds as r_* fields.
+        // When the JSON plan is unreadable, the tree alone still yields nodes.
         const nodes = raw ? visit(raw) : [];
+        if (text) {
+          const tree = parseExplainAnalyzeTree(text);
+          if (nodes.length > 0) mergeAnalyzeRuntime(nodes, tree);
+          else nodes.push(...tree);
+        }
         const findings = explainFindings(nodes);
         return {
           sql,

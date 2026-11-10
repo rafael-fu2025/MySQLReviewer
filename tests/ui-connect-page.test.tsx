@@ -135,7 +135,7 @@ describe('D-12 — one primary action on the page', () => {
       renderStatus(),
       renderSection({ activeProfileId: profile.id, connected: true }),
     ].join('');
-    expect(countOf(html, 'btn-primary')).toBe(1);
+    expect(countOf(html, 'button-primary')).toBe(1);
   });
 
   it('puts the primary emphasis on the open-workspace action', () => {
@@ -144,7 +144,7 @@ describe('D-12 — one primary action on the page', () => {
       renderStatus(),
       renderSection({ activeProfileId: profile.id, connected: true }),
     ].join('');
-    expect(buttonMarkup(html, 'Open workspace')).toContain('btn-primary');
+    expect(buttonMarkup(html, 'Open workspace')).toContain('button-primary');
   });
 
   it('never styles "New connection" as a primary action', () => {
@@ -153,7 +153,7 @@ describe('D-12 — one primary action on the page', () => {
       renderStatus(),
       renderSection({ activeProfileId: profile.id, connected: true }),
     ].join('');
-    expect(buttonMarkup(html, 'New connection')).not.toContain('btn-primary');
+    expect(buttonMarkup(html, 'New connection')).not.toContain('button-primary');
   });
 
   it('never styles the card reconnect action as a primary action', () => {
@@ -162,23 +162,23 @@ describe('D-12 — one primary action on the page', () => {
       renderStatus(),
       renderSection({ activeProfileId: profile.id, connected: true }),
     ].join('');
-    expect(buttonMarkup(html, 'Reconnect')).not.toContain('btn-primary');
+    expect(buttonMarkup(html, 'Reconnect')).not.toContain('button-primary');
   });
 
   it('gives the connect action the primary slot while nothing is connected', () => {
     const html = [renderHero(false), renderSection({ connected: false })].join('');
-    expect(countOf(html, 'btn-primary')).toBe(1);
-    expect(buttonMarkup(html, 'Connect')).toContain('btn-primary');
+    expect(countOf(html, 'button-primary')).toBe(1);
+    expect(buttonMarkup(html, 'Connect')).toContain('button-primary');
   });
 
   it('reserves the primary slot for a single connection before one is live', () => {
     const profiles = [profile, { ...profile, id: 'profile-2', name: 'Second' }];
     // Before a connection is live the connect action of the default
     // connection holds the page's only primary slot.
-    expect(countOf(renderSection({ profiles, connected: false }), 'btn-primary')).toBe(1);
+    expect(countOf(renderSection({ profiles, connected: false }), 'button-primary')).toBe(1);
     // Once one is live the slot belongs to "Open workspace" and no card
     // competes for it.
-    expect(countOf(renderSection({ profiles, connected: true }), 'btn-primary')).toBe(0);
+    expect(countOf(renderSection({ profiles, connected: true }), 'button-primary')).toBe(0);
   });
 });
 

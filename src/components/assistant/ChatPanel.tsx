@@ -183,7 +183,7 @@ export function ChatPanel({
         {onClear && messages.length > 0 ? (
           <button
             type="button"
-            className="ai-panel-icon-btn ai-composer-clear"
+            className="ai-panel-icon-button ai-composer-clear"
             onClick={onClear}
             aria-label="Clear the conversation"
             title="Clear"

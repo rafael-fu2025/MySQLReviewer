@@ -162,7 +162,7 @@ export function AdminUserCard({
             </Button>
           ) : null}
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             icon={<KeyRound size={12} />}
             tooltip="Reset password"
@@ -170,7 +170,7 @@ export function AdminUserCard({
             onClick={() => onResetPassword(user)}
           />
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             icon={busy === `disable-${user.id}` ? <Spinner size={11} /> : <Ban size={12} />}
             tooltip={user.disabledAt ? 'Re-enable' : 'Disable'}
@@ -181,7 +181,7 @@ export function AdminUserCard({
             onClick={() => onToggleDisabled(user)}
           />
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             className="text-danger"
             icon={<Trash2 size={12} />}
@@ -230,7 +230,7 @@ export function AdminUserCard({
                     {formatRelative(assignment.createdAt)}
                   </span>
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
                     icon={
                       busy === `reset-${assignment.id}` ? (
@@ -245,7 +245,7 @@ export function AdminUserCard({
                     onClick={() => onResetSandbox(user, assignment.id)}
                   />
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
                     className="text-danger"
                     icon={<Trash2 size={11} />}
@@ -621,7 +621,7 @@ export function AdminPage() {
                       Browse
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       onClick={() => {
                         setEditingProfile(profile);
@@ -631,7 +631,7 @@ export function AdminPage() {
                       Edit
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       className="text-danger"
                       icon={<Trash2 size={12} />}
@@ -673,7 +673,7 @@ export function AdminPage() {
                 maxHeight={280}
               />
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 icon={<RefreshCw size={12} />}
                 onClick={() => void loadActivity(activityUser, activityPage)}
@@ -724,7 +724,7 @@ export function AdminPage() {
             </span>
             <div className="flex items-center gap-1.5">
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 icon={<ChevronLeft size={12} />}
                 aria-label="Previous page"
@@ -736,7 +736,7 @@ export function AdminPage() {
                 Page {activityPage} of {activityMaxPage}
               </span>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 icon={<ChevronRight size={12} />}
                 aria-label="Next page"

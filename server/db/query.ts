@@ -30,6 +30,13 @@ export interface ExecuteOptions {
   skipHistory?: boolean;
   /** Explicitly reveal credential-like columns for this statement. */
   revealSensitive?: boolean;
+  /**
+   * Internal: return the rows unmasked so a server-side grader can compare the
+   * real values (an aliased credential column must not flip the verdict). The
+   * column sensitivity marking still travels on `columns`, and the caller owns
+   * masking every payload it persists or sends to a client.
+   */
+  skipMasking?: boolean;
   /** Override the configured result cap for this statement (max 10,000). */
   rowLimit?: number;
   /** Override the configured statement timeout in milliseconds. */
@@ -388,6 +395,10 @@ export async function executeQuery(
             reveal: options.revealSensitive === true,
             sql: statement,
           });
+          // The grading path compares raw values and re-masks everything it
+          // sends on; the masked row copy is dropped, but the column marking
+          // stays so the grader knows which columns would have been masked.
+          const finalRows = options.skipMasking ? serializedRows : masked.rows;
 
           return {
             result: {
@@ -395,17 +406,17 @@ export async function executeQuery(
               database,
               kind: classification.kind,
               columns: masked.columns,
-              rows: masked.rows,
-              rowCount: masked.rows.length,
+              rows: finalRows,
+              rowCount: finalRows.length,
               truncated,
               affectedRows: Number(header?.affectedRows ?? 0),
               insertId: header?.insertId != null ? String(header.insertId) : null,
               info: String(header?.info ?? ''),
               warnings,
               executionMs: Math.round(elapsed),
-              bytesApprox: estimateBytes(masked.rows),
+              bytesApprox: estimateBytes(finalRows),
               unlocked: writeAccess.allowed,
-              masked: masked.masked,
+              masked: options.skipMasking ? false : masked.masked,
             } satisfies QueryResult,
             elapsed,
           };

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { EditorView } from '@codemirror/view';
 import { format as formatSql } from 'sql-formatter';
 import {
   Bookmark,
+  ChevronDown,
   Database,
   FileSearch,
   History,
@@ -31,6 +32,12 @@ import { postSse } from '@/lib/sse';
 import { onWorkspace, type WorkspaceAction } from '@/lib/events';
 import { formatDuration, sqlPreview } from '@/lib/format';
 import { selectDatabaseHint } from '@/lib/copy';
+import {
+  FORMAT_INDENT_CHOICES,
+  FORMAT_KEYWORD_CASE_CHOICES,
+  FORMAT_LINES_CHOICES,
+  sqlFormatterOptions,
+} from '@/lib/sql-snippets';
 import { SqlEditor } from '@/components/SqlEditor';
 import { SchemaSidebar } from '@/components/SchemaSidebar';
 import { ResultsGrid } from '@/components/ResultsGrid';
@@ -47,6 +54,35 @@ const SPLITTER_MIN = 20;
 const SPLITTER_MAX = 78;
 
 /**
+ * Rubber-band resistance: past a bound the split follows the pointer at 15%
+ * of the overshoot, so the edge stretches like a band and snaps back on
+ * release (`resistSplit` below).
+ */
+const SPLIT_RESIST = 0.15;
+
+/** How long the snap-back transition runs (`.editor-wrap.settling` in editor.css). */
+const SPLIT_SETTLE_MS = 200;
+
+/** How long the format menu stays mounted while its pop-out exit plays
+    (`.pop-out` runs 120ms — `--duration-exit` — plus a small buffer). */
+const FORMAT_MENU_EXIT_MS = 130;
+
+/**
+ * The displayed split for a raw drag percentage: inside the bounds it is the
+ * raw value itself; past a bound only `SPLIT_RESIST` of the overshoot is
+ * shown, so the edge resists like a rubber band. The raw value is fenced to
+ * 0–100 first — the pointer cannot leave the window, and a wild value must
+ * not stretch the band absurdly far.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- imported by the workspace UI tests; a shared lib file is outside this change
+export function resistSplit(raw: number): number {
+  const fenced = Math.max(0, Math.min(100, raw));
+  if (fenced < SPLITTER_MIN) return SPLITTER_MIN + (fenced - SPLITTER_MIN) * SPLIT_RESIST;
+  if (fenced > SPLITTER_MAX) return SPLITTER_MAX + (fenced - SPLITTER_MAX) * SPLIT_RESIST;
+  return fenced;
+}
+
+/**
  * The height of the status bar along the bottom of the workspace, in pixels
  * (`.statusbar` in styles/features/editor.css). The floating assistant button
  * is lifted by this much, so it never sits on top of the bar.
@@ -54,26 +90,18 @@ const SPLITTER_MAX = 78;
 const STATUS_BAR_HEIGHT = 26;
 
 /**
- * The height of the floating assistant button, in pixels (`.ai-fab` in
- * styles/features/assistant.css), and the gap it keeps from the content it
- * floats over.
- */
-const ASSISTANT_BUTTON_HEIGHT = 50;
-const ASSISTANT_CLEARANCE = 12;
-
-/**
- * The space the output pane leaves for the floating assistant button.
+ * The height of the results-grid pagination footer, in pixels (the
+ * `border-t px-3 py-2` band at the bottom of the grid), plus the gap the
+ * floating assistant button keeps above it.
  *
- * The button rests `--ai-fab-bottom` above the window edge and is lifted by
- * the height of the status bar — which is exactly how far the bottom of the
- * pane sits above the window edge — so it ends up `--ai-fab-bottom` plus its
- * own height above the last row. The band follows the same variable, so the
- * phone layout, which raises the button above the bottom navigation,
- * reserves the room it needs as well.
+ * The button is lifted by the status bar (how far the pane bottom sits above
+ * the window edge) plus this clearance, so it comes to rest on the grid's
+ * bottom-right corner instead of covering the Prev/Next controls — and the
+ * pane itself no longer needs a reserved dead band for it.
  */
-const ASSISTANT_RESERVED = `calc(var(--ai-fab-bottom) + ${
-  ASSISTANT_BUTTON_HEIGHT + ASSISTANT_CLEARANCE
-}px)`;
+const RESULTS_FOOTER_HEIGHT = 40;
+const ASSISTANT_CLEARANCE = 8;
+const ASSISTANT_FAB_INSET = STATUS_BAR_HEIGHT + RESULTS_FOOTER_HEIGHT + ASSISTANT_CLEARANCE;
 
 function MessagesPanel({ tab }: { tab: QueryTab }) {
   const result = tab.result;
@@ -147,7 +175,7 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
         </div>
       ) : null}
 
-      {!tab.error && !result ? <EmptyState icon={<Info size={22} />} title="No messages" /> : null}
+      {!tab.error && !result ? <EmptyState icon={<Info size={20} />} title="No messages" /> : null}
     </div>
   );
 }
@@ -157,25 +185,23 @@ function MessagesPanel({ tab }: { tab: QueryTab }) {
  * that swaps between the editor and the results.
  *
  * The row count and the duration are not repeated here — the grid below
- * carries them, and the status bar carries the runtime.
+ * carries them, and the status bar carries the runtime. The review score is
+ * not shown here either — the ReviewPanel's ScoreRing is its single surface.
  */
 export function OutputMeta({
-  score,
   hasAi,
   resultsMaximized,
   onToggleMaximized,
 }: {
-  score: number | null;
   hasAi: boolean;
   resultsMaximized: boolean;
   onToggleMaximized: () => void;
 }) {
   return (
     <div className="ml-auto flex items-center gap-2 px-3 text-2xs text-muted">
-      {score != null ? <Badge tone="neutral">score {score}</Badge> : null}
       {hasAi ? <Badge tone="info">AI</Badge> : null}
       <Button
-        variant="ghost"
+        variant="tertiary"
         size="sm"
         icon={resultsMaximized ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
         onClick={onToggleMaximized}
@@ -191,14 +217,49 @@ export function OutputMeta({
 /**
  * The pane that holds the output tab that is open.
  *
- * The band at the bottom is reserved for the floating assistant button, so
- * the button never covers the last row.
+ * No bottom band is reserved for the floating assistant button: the button is
+ * lifted above the pagination footer instead (`ASSISTANT_FAB_INSET`), so rows
+ * run the full pane height and the footer sits flush against the status bar.
  */
 export function OutputPane({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 flex-1 overflow-auto">{children}</div>;
+}
+
+/** One labeled row of choices inside the format-options menu. */
+function FormatOptionGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-auto" style={{ paddingBottom: ASSISTANT_RESERVED }}>
-      {children}
+    <div className="px-3 py-1.5">
+      <div className="text-micro uppercase tracking-wide text-muted">{label}</div>
+      <div className="mt-1 flex gap-1">{children}</div>
     </div>
+  );
+}
+
+/** A single radio-style choice inside the format-options menu. */
+function FormatOptionButton({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={selected}
+      className={cn(
+        'rounded px-2 py-1 text-2xs transition',
+        selected
+          ? 'bg-ember/15 font-semibold text-ink'
+          : 'text-ink-soft hover:bg-panel-3 hover:text-ink',
+      )}
+      onClick={onSelect}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -222,6 +283,10 @@ export function WorkspacePage() {
   const resultsMaximized = useUiStore((state) => state.resultsMaximized);
   const toggleResultsMaximized = useUiStore((state) => state.toggleResultsMaximized);
   const setResultsMaximized = useUiStore((state) => state.setResultsMaximized);
+  const formatKeywordCase = useUiStore((state) => state.formatKeywordCase);
+  const formatIndent = useUiStore((state) => state.formatIndent);
+  const formatLinesBetweenQueries = useUiStore((state) => state.formatLinesBetweenQueries);
+  const setFormatOptions = useUiStore((state) => state.setFormatOptions);
 
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeId = useWorkspaceStore((state) => state.activeId);
@@ -244,6 +309,8 @@ export function WorkspacePage() {
     startY: number;
     startPct: number;
     areaHeight: number;
+    /** The raw, unresisted pointer percentage of the latest move. */
+    raw: number;
   } | null>(null);
   const revealNextRef = useRef(false);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -259,9 +326,45 @@ export function WorkspacePage() {
   const [historySearch, setHistorySearch] = useState('');
   const [snippetsOpen, setSnippetsOpen] = useState(false);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
+  // True while the modal-open fetch runs, so a first open shows shimmer
+  // lines instead of silently sitting on the empty state.
+  const [snippetsLoading, setSnippetsLoading] = useState(false);
   const [snippetTitle, setSnippetTitle] = useState('');
   const [snippetTags, setSnippetTags] = useState('');
   const [snippetBusy, setSnippetBusy] = useState(false);
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
+  const [formatMenuWasOpen, setFormatMenuWasOpen] = useState(false);
+  const [formatMenuClosing, setFormatMenuClosing] = useState(false);
+  const formatMenuRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The displayed split while a drag is live: the rubber-banded value. The
+   * store clamps and rounds, so it cannot hold the overshoot — the clamped
+   * value is committed on release.
+   */
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  /** True right after a drag released past a bound, so the snap back animates. */
+  const [splitSettling, setSplitSettling] = useState(false);
+
+  // Adjusting state as the menu toggles keeps it mounted through its exit
+  // animation, so it can pop back into its trigger instead of vanishing —
+  // the same render-time adjustment the modal uses.
+  if (formatMenuOpen !== formatMenuWasOpen) {
+    setFormatMenuWasOpen(formatMenuOpen);
+    if (formatMenuOpen) setFormatMenuClosing(false);
+    else setFormatMenuClosing(true);
+  }
+
+  useEffect(() => {
+    if (!formatMenuClosing) return;
+    const timer = window.setTimeout(() => setFormatMenuClosing(false), FORMAT_MENU_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [formatMenuClosing]);
+
+  useEffect(() => {
+    if (!splitSettling) return;
+    const timer = window.setTimeout(() => setSplitSettling(false), SPLIT_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [splitSettling]);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -277,6 +380,41 @@ export function WorkspacePage() {
   }, [unlockedUntil]);
 
   const unlocked = isAdmin || Boolean(unlockedUntil && unlockedUntil > now);
+
+  // Saved snippets are also editor completions, so they are loaded once on
+  // mount (silently — the modal reports its own errors) and refreshed by
+  // `saveSnippet`.
+  useEffect(() => {
+    let cancelled = false;
+    dbApi
+      .snippets()
+      .then((loaded) => {
+        if (!cancelled) setSnippets(loaded);
+      })
+      .catch(() => {
+        // The completion list simply stays empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The format-options menu closes on any click outside of it, and on Escape.
+  useEffect(() => {
+    if (!formatMenuOpen) return;
+    const onDown = (event: MouseEvent): void => {
+      if (!formatMenuRef.current?.contains(event.target as Node)) setFormatMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFormatMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [formatMenuOpen]);
 
   const patch = (patchValue: Partial<QueryTab>): void => {
     if (activeTab) patchTab(activeTab.id, patchValue);
@@ -592,14 +730,31 @@ export function WorkspacePage() {
 
   const formatCurrent = (): void => {
     if (!activeTab) return;
+    const formatterOptions = sqlFormatterOptions({
+      keywordCase: formatKeywordCase,
+      indent: formatIndent,
+      linesBetweenQueries: formatLinesBetweenQueries,
+    });
+    const format = (sql: string): string => formatSql(sql, formatterOptions);
+    // With a selection, only the selected range is rewritten; the rest of the
+    // buffer stays exactly as the user left it.
+    const view = viewRef.current;
+    const selection = view?.state.selection.main;
+    if (view && selection && selection.from !== selection.to) {
+      try {
+        const formatted = format(view.state.sliceDoc(selection.from, selection.to));
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: formatted },
+        });
+        view.focus();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not format the SQL.', 'warn');
+      }
+      return;
+    }
     const current = activeTab.sql;
     try {
-      const formatted = formatSql(current, {
-        language: 'mysql',
-        keywordCase: 'upper',
-        tabWidth: 2,
-        linesBetweenQueries: 2,
-      });
+      const formatted = format(current);
       updateSql(activeTab.id, formatted);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not format the SQL.', 'warn');
@@ -636,10 +791,13 @@ export function WorkspacePage() {
 
   const openSnippets = async (): Promise<void> => {
     setSnippetsOpen(true);
+    setSnippetsLoading(true);
     try {
       setSnippets(await dbApi.snippets());
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      setSnippetsLoading(false);
     }
   };
 
@@ -698,12 +856,17 @@ export function WorkspacePage() {
     const area = editorAreaRef.current;
     if (!area) return;
     event.preventDefault();
+    // A fresh drag must follow the pointer directly: drop any snap-back
+    // transition still running from the previous release.
+    setDragPct(null);
+    setSplitSettling(false);
     const rect = area.getBoundingClientRect();
     splitterDragRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
       startPct: editorPct,
       areaHeight: rect.height,
+      raw: editorPct,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.focus({ preventScroll: true });
@@ -713,13 +876,23 @@ export function WorkspacePage() {
     const drag = splitterDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const deltaPct = ((event.clientY - drag.startY) / drag.areaHeight) * 100;
-    setEditorPct(Math.max(SPLITTER_MIN, Math.min(SPLITTER_MAX, drag.startPct + deltaPct)));
+    const raw = drag.startPct + deltaPct;
+    drag.raw = raw;
+    // The store clamps and rounds, so the overshoot lives in local display
+    // state; the clamped value is committed when the drag ends.
+    setDragPct(resistSplit(raw));
   };
 
   const splitterPointerEnd = (event: React.PointerEvent<HTMLDivElement>): void => {
     const drag = splitterDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     splitterDragRef.current = null;
+    setDragPct(null);
+    // `setEditorPct` clamps to the bound. Released past it, `.settling`
+    // animates the snap back; released inside, the display already matches
+    // the committed value (at most the store's rounding step).
+    setEditorPct(drag.raw);
+    if (drag.raw < SPLITTER_MIN || drag.raw > SPLITTER_MAX) setSplitSettling(true);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -802,7 +975,11 @@ export function WorkspacePage() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 't') {
+      // Browsers reserve Ctrl/Cmd+T for a new browser tab and cannot be
+      // stopped with `preventDefault`, so the new tab lives on Alt+T. The
+      // match is on the physical key (`code`): macOS turns Option+T into the
+      // `™` character, so `event.key` never spells a plain `t` there.
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyT') {
         event.preventDefault();
         createTab();
       }
@@ -836,6 +1013,8 @@ export function WorkspacePage() {
   ];
 
   const editorValue = activeTab.sql;
+  /** Rubber-banded while a drag is live, the clamped store value otherwise. */
+  const displayPct = dragPct ?? editorPct;
 
   return (
     <>
@@ -883,11 +1062,11 @@ export function WorkspacePage() {
                   onClick={() => closeTab(tab.id)}
                   aria-label="Close tab"
                 >
-                  <X size={10} />
+                  <X size={12} />
                 </button>
               </div>
             ))}
-            <IconButton label="New statement tab" onClick={() => createTab()}>
+            <IconButton label="New statement tab (Alt+T)" onClick={() => createTab()}>
               <Plus size={14} />
             </IconButton>
           </div>
@@ -942,11 +1121,82 @@ export function WorkspacePage() {
               Review
             </Button>
             <div className="toolbar-sep" aria-hidden="true" />
-            <Button variant="ghost" size="sm" icon={<Wand2 size={12} />} onClick={formatCurrent}>
-              Format
-            </Button>
+            <div className="relative flex items-center" ref={formatMenuRef}>
+              <Button
+                variant="tertiary"
+                size="sm"
+                icon={<Wand2 size={12} />}
+                onClick={formatCurrent}
+                tooltip="Format the selection, or the whole editor"
+                tooltipSide="bottom"
+              >
+                Format
+              </Button>
+              <IconButton
+                label="Format options"
+                tooltip={false}
+                className="-ml-1 px-1"
+                aria-haspopup="menu"
+                aria-expanded={formatMenuOpen}
+                onClick={() => setFormatMenuOpen((open) => !open)}
+              >
+                <ChevronDown
+                  size={11}
+                  className={cn('transition', formatMenuOpen && 'rotate-180')}
+                />
+              </IconButton>
+              {/* The items stay in the DOM while closed (`hidden`), so the menu
+                  is plain markup that tests can see — same pattern as the
+                  results grid's copy menu. While closing it stays mounted a
+                  moment longer to pop back into the caret. */}
+              <div
+                role="menu"
+                aria-label="Format options"
+                hidden={!formatMenuOpen && !formatMenuClosing}
+                className={cn(
+                  'absolute left-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-xl border border-line bg-panel-2 py-1 shadow-lg',
+                  formatMenuOpen && 'pop-in',
+                  // `opacity-0` holds the menu invisible between the end of
+                  // the pop-out animation and the unmount timer, whatever fill
+                  // mode the utility uses.
+                  formatMenuClosing && 'pop-out opacity-0',
+                )}
+                style={{ '--pop-origin': 'top right' } as CSSProperties}
+              >
+                <FormatOptionGroup label="Keyword case">
+                  {FORMAT_KEYWORD_CASE_CHOICES.map((choice) => (
+                    <FormatOptionButton
+                      key={choice.value}
+                      label={choice.label}
+                      selected={formatKeywordCase === choice.value}
+                      onSelect={() => setFormatOptions({ keywordCase: choice.value })}
+                    />
+                  ))}
+                </FormatOptionGroup>
+                <FormatOptionGroup label="Indent">
+                  {FORMAT_INDENT_CHOICES.map((choice) => (
+                    <FormatOptionButton
+                      key={choice.value}
+                      label={choice.label}
+                      selected={formatIndent === choice.value}
+                      onSelect={() => setFormatOptions({ indent: choice.value })}
+                    />
+                  ))}
+                </FormatOptionGroup>
+                <FormatOptionGroup label="Blank lines between queries">
+                  {FORMAT_LINES_CHOICES.map((choice) => (
+                    <FormatOptionButton
+                      key={choice.value}
+                      label={choice.label}
+                      selected={formatLinesBetweenQueries === choice.value}
+                      onSelect={() => setFormatOptions({ linesBetweenQueries: choice.value })}
+                    />
+                  ))}
+                </FormatOptionGroup>
+              </div>
+            </div>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={<Bookmark size={12} />}
               onClick={() => void openSnippets()}
@@ -954,7 +1204,7 @@ export function WorkspacePage() {
               Snippets
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={<History size={12} />}
               onClick={() => void openHistory()}
@@ -966,7 +1216,7 @@ export function WorkspacePage() {
               <div className="ml-auto flex items-center gap-2">
                 {unlocked ? (
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     size="sm"
                     icon={<Lock size={11} />}
                     onClick={() => void lockWrites()}
@@ -975,7 +1225,7 @@ export function WorkspacePage() {
                   </Button>
                 ) : (
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
                     icon={<Unlock size={11} />}
                     onClick={() => {
@@ -997,11 +1247,15 @@ export function WorkspacePage() {
             </div>
           ) : null}
 
-          <div className="editor-wrap" style={{ height: `${editorPct}%` }}>
+          <div
+            className={cn('editor-wrap', splitSettling && 'settling')}
+            style={{ height: `${displayPct}%` }}
+          >
             <SqlEditor
               value={editorValue}
               onChange={(value) => updateSql(activeTab.id, value)}
               schema={schema}
+              snippets={snippets}
               profileId={activeProfileId}
               database={selectedDatabase}
               liveLint={settings.liveLint}
@@ -1019,10 +1273,10 @@ export function WorkspacePage() {
             role="separator"
             aria-orientation="horizontal"
             aria-label="Resize editor and results panels"
-            aria-valuenow={Math.round(editorPct)}
+            aria-valuenow={Math.round(displayPct)}
             aria-valuemin={SPLITTER_MIN}
             aria-valuemax={SPLITTER_MAX}
-            aria-valuetext={`${Math.round(editorPct)}% editor height`}
+            aria-valuetext={`${Math.round(displayPct)}% editor height`}
             aria-keyshortcuts="ArrowUp ArrowDown PageUp PageDown Home End"
             tabIndex={0}
             onPointerDown={splitterPointerDown}
@@ -1040,7 +1294,6 @@ export function WorkspacePage() {
                 onChange={(value) => setOutputTab(activeTab.id, value)}
               />
               <OutputMeta
-                score={activeTab.review ? activeTab.review.score.score : null}
                 hasAi={Boolean(activeTab.ai)}
                 resultsMaximized={resultsMaximized}
                 onToggleMaximized={toggleResultsMaximized}
@@ -1049,15 +1302,23 @@ export function WorkspacePage() {
 
             <OutputPane>
               {activeTab.outputTab === 'results' ? (
-                activeTab.running ? (
+                activeTab.running && !activeTab.result ? (
+                  // First run for the tab: nothing to keep on screen, so the
+                  // pane swaps for the running indicator. A re-run over an
+                  // existing result keeps the grid mounted below and lets it
+                  // show skeleton rows instead of flashing empty.
                   <div className="flex h-full items-center justify-center gap-2 text-xs text-muted">
                     <Spinner size={16} />
                     Running…
                   </div>
                 ) : activeTab.result ? (
-                  <ResultsGrid result={activeTab.result} onReveal={revealSensitiveValues} />
+                  <ResultsGrid
+                    result={activeTab.result}
+                    pending={activeTab.running}
+                    onReveal={revealSensitiveValues}
+                  />
                 ) : (
-                  <EmptyState icon={<Play size={22} />} title="No results yet" />
+                  <EmptyState icon={<Play size={20} />} title="No results yet" />
                 )
               ) : null}
               {activeTab.outputTab === 'messages' ? <MessagesPanel tab={activeTab} /> : null}
@@ -1104,7 +1365,7 @@ export function WorkspacePage() {
 
           <div className="statusbar">
             <span className="flex items-center gap-1">
-              <Database size={10} />
+              <Database size={12} />
               {selectedDatabase ?? 'no database'}
             </span>
             <span>{server?.version ?? 'disconnected'}</span>
@@ -1144,7 +1405,7 @@ export function WorkspacePage() {
         notice="Full help on the statement in the editor and the schema behind it."
         emptyHint="Ask about the statement in the editor, the schema, or why a query is slow."
         placeholder="Ask about this statement…"
-        bottomInset={STATUS_BAR_HEIGHT}
+        bottomInset={ASSISTANT_FAB_INSET}
         context={{
           profileId: activeProfileId,
           database: selectedDatabase,
@@ -1155,7 +1416,9 @@ export function WorkspacePage() {
           onChange: (turns) => patchTab(activeTab.id, { assistantTurns: turns }),
         }}
         resetKey={activeTab.id}
-        onInsertSql={(sql) => updateSql(activeTab.id, sql)}
+        // The proposal is dropped in at the caret (replacing the selection,
+        // like the schema and snippet inserts) — it must never wipe the tab.
+        onInsertSql={(sql) => insertText(sql)}
       />
 
       <WorkspaceModals
@@ -1170,6 +1433,7 @@ export function WorkspacePage() {
         snippetsOpen={snippetsOpen}
         onCloseSnippets={() => setSnippetsOpen(false)}
         snippets={snippets}
+        snippetsLoading={snippetsLoading}
         snippetTitle={snippetTitle}
         onSnippetTitle={setSnippetTitle}
         snippetTags={snippetTags}

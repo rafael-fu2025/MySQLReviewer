@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Database,
   Gauge,
+  Lock,
   Pause,
   Play,
   RefreshCw,
@@ -13,7 +14,14 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import type { PerformanceMetrics, PerformanceSnapshot, ProcessInfo } from '@shared/types';
+import type {
+  LockWaitsSnapshot,
+  PerformanceMetrics,
+  PerformanceSnapshot,
+  ProcessInfo,
+  SlowQueryInfo,
+  TableIoInfo,
+} from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import {
@@ -81,6 +89,199 @@ function varsOf(snapshot: PerformanceSnapshot | null): [string, string][] {
   return Object.entries(snapshot.variables).sort(([a], [b]) => a.localeCompare(b));
 }
 
+/**
+ * The digest-only signals of one slow statement, as a compact badge line.
+ * Counters only render when the server reported them and the value is above
+ * zero, so a healthy row shows a bare dash instead of six zero badges.
+ */
+export function SlowSignalBadges({ query }: { query: SlowQueryInfo }) {
+  const badges: { label: string; tone: 'warn' | 'info' }[] = [];
+  if (query.noIndexUsed != null && query.noIndexUsed > 0) {
+    badges.push({ label: `no idx: ${formatNumber(query.noIndexUsed)}`, tone: 'warn' });
+  }
+  if (query.noGoodIndexUsed != null && query.noGoodIndexUsed > 0) {
+    badges.push({ label: `no good idx: ${formatNumber(query.noGoodIndexUsed)}`, tone: 'warn' });
+  }
+  if (query.tmpTables != null && query.tmpTables > 0) {
+    badges.push({ label: `tmp: ${formatNumber(query.tmpTables)}`, tone: 'info' });
+  }
+  if (query.tmpDiskTables != null && query.tmpDiskTables > 0) {
+    badges.push({ label: `tmp disk: ${formatNumber(query.tmpDiskTables)}`, tone: 'warn' });
+  }
+  if (query.quantile95Ms != null) {
+    badges.push({ label: `p95: ${formatDuration(query.quantile95Ms)}`, tone: 'info' });
+  }
+  if (query.quantile99Ms != null) {
+    badges.push({ label: `p99: ${formatDuration(query.quantile99Ms)}`, tone: 'warn' });
+  }
+  if (badges.length === 0) {
+    return <span className="text-2xs text-muted">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {badges.map((badge) => (
+        <Badge key={badge.label} tone={badge.tone}>
+          {badge.label}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Read/write counts and total wait per table, straight out of the table I/O
+ * summary. The largest-tables list beside it ranks by size; this one ranks by
+ * activity, so the two lists can disagree.
+ */
+export function TableIoSection({
+  tables,
+  reason,
+}: {
+  tables: TableIoInfo[];
+  reason: string | null;
+}) {
+  return (
+    <div className="mt-4 border-t border-line-soft pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="section-title">I/O hotspots</div>
+        <span className="text-2xs text-muted">activity since server start</span>
+      </div>
+      {tables.length === 0 ? (
+        <div className="text-2xs text-muted">{reason ?? 'No table I/O recorded yet.'}</div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Reads</th>
+              <th>Writes</th>
+              <th>Wait</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tables.map((row) => (
+              <tr key={`${row.database}.${row.table}`}>
+                <td
+                  className="max-w-[220px] truncate font-mono text-2xs"
+                  title={`${row.database}.${row.table}`}
+                >
+                  {row.database}.{row.table}
+                </td>
+                <td>{formatNumber(row.countRead)}</td>
+                <td>{formatNumber(row.countWrite)}</td>
+                <td className="text-warn">{formatDuration(row.totalLatencyMs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The lock-wait view: every row is one waiter → blocker edge with the wait
+ * age and the contested lock. Read-only — killing a session stays on the
+ * Processes tab.
+ */
+export function LockWaitsPanel({
+  snapshot,
+  refreshing,
+  onRefresh,
+}: {
+  snapshot: LockWaitsSnapshot | null;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+}) {
+  const waits = snapshot?.waits ?? [];
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line-soft p-3">
+        <div className="section-title">Lock waits</div>
+        <span className="text-2xs text-muted">
+          InnoDB transactions waiting on another transaction&apos;s lock
+        </span>
+        <Button
+          variant="tertiary"
+          size="sm"
+          className="ml-auto"
+          icon={refreshing ? <Spinner size={12} /> : <RefreshCw size={12} />}
+          onClick={onRefresh}
+          loading={refreshing}
+        >
+          Refresh
+        </Button>
+      </div>
+      {waits.length === 0 ? (
+        <div className="p-4">
+          <EmptyState
+            icon={<Lock size={20} />}
+            title="No lock waits"
+            copy={snapshot?.reason ?? 'No transaction is currently waiting on another transaction.'}
+          />
+        </div>
+      ) : (
+        <div className="overflow-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Waiting transaction</th>
+                <th>Blocked by</th>
+                <th>Wait</th>
+                <th>Lock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {waits.map((wait, index) => (
+                <tr key={`${wait.waiterTrxId}-${wait.blockerTrxId}-${index}`}>
+                  <td>
+                    <div className="font-mono text-2xs">trx {wait.waiterTrxId}</div>
+                    {wait.waiterThread != null ? (
+                      <div className="text-2xs text-muted">thread {wait.waiterThread}</div>
+                    ) : null}
+                    <div
+                      className="max-w-[320px] truncate font-mono text-2xs text-muted"
+                      title={wait.waiterQuery ?? ''}
+                    >
+                      {wait.waiterQuery ?? '—'}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="font-mono text-2xs">trx {wait.blockerTrxId}</div>
+                    {wait.blockerThread != null ? (
+                      <div className="text-2xs text-muted">thread {wait.blockerThread}</div>
+                    ) : null}
+                    <div
+                      className="max-w-[320px] truncate font-mono text-2xs text-muted"
+                      title={wait.blockerQuery ?? ''}
+                    >
+                      {wait.blockerQuery ?? '—'}
+                    </div>
+                  </td>
+                  <td className={cn(wait.waitSeconds > 30 && 'text-warn')}>{wait.waitSeconds}s</td>
+                  <td>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {wait.lockMode ? <Badge tone="warn">{wait.lockMode}</Badge> : null}
+                      {wait.heldLockMode && wait.heldLockMode !== wait.lockMode ? (
+                        <Badge tone="info">held: {wait.heldLockMode}</Badge>
+                      ) : null}
+                      {wait.lockType ? <Badge>{wait.lockType}</Badge> : null}
+                    </div>
+                    <div className="font-mono text-2xs text-muted">
+                      {wait.lockedTable ?? '—'}
+                      {wait.lockedIndex ? ` · ${wait.lockedIndex}` : ''}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function PerformancePage() {
   const navigate = useNavigate();
   const activeProfileId = useAppStore((state) => state.activeProfileId);
@@ -92,7 +293,11 @@ export function PerformancePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const [tab, setTab] = useState<'overview' | 'processes' | 'slow' | 'variables'>('overview');
+  const [tab, setTab] = useState<'overview' | 'processes' | 'slow' | 'variables' | 'locks'>(
+    'overview',
+  );
+  const [lockWaits, setLockWaits] = useState<LockWaitsSnapshot | null>(null);
+  const [locksLoading, setLocksLoading] = useState(false);
   const [processFilter, setProcessFilter] = useState('');
   const [variableFilter, setVariableFilter] = useState('');
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null);
@@ -138,14 +343,40 @@ export function PerformancePage() {
     }
   };
 
+  // Lock waits ride the page's own poll (they are transient, so a stale view
+  // misleads), plus the section's manual refresh button.
+  const loadLocks = async (quiet = false): Promise<void> => {
+    if (!activeProfileId) return;
+    if (!quiet) setLocksLoading(true);
+    try {
+      const result = await api.get<LockWaitsSnapshot>(
+        `/api/db/${encodeURIComponent(activeProfileId)}/locks`,
+      );
+      setLockWaits(result);
+    } catch (err) {
+      setLockWaits({
+        waits: [],
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      if (!quiet) setLocksLoading(false);
+    }
+  };
+
   useEffect(() => {
     // The load writes loading/error state, so it runs in a task instead of
     // synchronously in the effect body: that keeps the mount render free of
     // cascading setState calls.
-    const start = setTimeout(() => void load(), 0);
+    const start = setTimeout(() => {
+      void load();
+      void loadLocks();
+    }, 0);
     if (!activeProfileId) return () => clearTimeout(start);
     const timer = setInterval(() => {
-      if (!paused && document.visibilityState === 'visible') void load(true);
+      if (!paused && document.visibilityState === 'visible') {
+        void load(true);
+        void loadLocks(true);
+      }
     }, 5_000);
     return () => {
       clearTimeout(start);
@@ -200,7 +431,7 @@ export function PerformancePage() {
       <div className="page">
         <PageHeader title="Performance" subtitle="Live throughput, sessions, and configuration." />
         <EmptyState
-          icon={<Database size={24} />}
+          icon={<Database size={20} />}
           title="Connect to a database"
           action={
             <Button variant="primary" onClick={() => navigate('/connect')}>
@@ -229,7 +460,7 @@ export function PerformancePage() {
               {paused ? 'Resume' : 'Pause'}
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={loading ? <Spinner size={12} /> : <RefreshCw size={12} />}
               onClick={() => void load()}
@@ -319,10 +550,13 @@ export function PerformancePage() {
            * their own panel now, so every tile in the row is the same tile.
            */}
           {history.length > 1 ? (
-            <Card className="p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
+            // Cards on this page pad with p-3 so anything they box nests at
+            // --radius-xs per the nested-radius rule (inner = outer −
+            // padding) — the same treatment as the practice hub.
+            <Card className="p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <SectionTitle>Throughput trend</SectionTitle>
-                <span className="text-2xs text-muted">last {history.length} samples</span>
+                <span className="num text-2xs text-muted">last {history.length} samples</span>
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
@@ -343,6 +577,11 @@ export function PerformancePage() {
               { id: 'processes', label: 'Processes', count: snapshot.processlist.length },
               { id: 'slow', label: 'Slow queries', count: snapshot.slowQueries.length },
               {
+                id: 'locks',
+                label: 'Lock waits',
+                count: lockWaits?.waits.length ?? 0,
+              },
+              {
                 id: 'variables',
                 label: 'Variables',
                 count: Object.keys(snapshot.variables).length,
@@ -354,8 +593,8 @@ export function PerformancePage() {
 
           {tab === 'overview' ? (
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <Card className="p-4">
-                <div className="mb-3 flex items-center gap-2">
+              <Card className="p-3">
+                <div className="mb-2 flex items-center gap-2">
                   <div className="section-title">Largest tables</div>
                 </div>
                 {snapshot.topTables.length === 0 ? (
@@ -371,8 +610,10 @@ export function PerformancePage() {
                           <span className="text-muted">{formatBytes(table.totalBytes)}</span>
                         </div>
                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
+                          {/* .perf-bar-fill (styles/features/misc-pages.css)
+                              animates a poll refresh to the new share. */}
                           <div
-                            className="h-full rounded-full bg-ember/70"
+                            className="perf-bar-fill h-full rounded-full bg-ember/70"
                             style={{
                               width: `${Math.max(3, (table.totalBytes / topTableMax) * 100)}%`,
                             }}
@@ -382,10 +623,11 @@ export function PerformancePage() {
                     ))}
                   </div>
                 )}
+                <TableIoSection tables={snapshot.tableIo} reason={snapshot.tableIoReason} />
               </Card>
 
-              <Card className="p-4">
-                <div className="mb-3 flex items-center gap-2">
+              <Card className="p-3">
+                <div className="mb-2 flex items-center gap-2">
                   <div className="section-title">Replication</div>
                   <Badge
                     tone={snapshot.replication.configured ? 'mint' : 'neutral'}
@@ -418,7 +660,7 @@ export function PerformancePage() {
                 )}
               </Card>
 
-              <Card className="p-4 lg:col-span-2">
+              <Card className="p-3 lg:col-span-2">
                 <div className="mb-2 flex items-center gap-2">
                   <div className="section-title">Slow query source</div>
                   <span className="ml-auto text-2xs text-muted">{snapshot.slowQuerySource}</span>
@@ -456,7 +698,7 @@ export function PerformancePage() {
                   />
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   icon={paused ? <Play size={12} /> : <Pause size={12} />}
                   onClick={() => setPaused((value) => !value)}
@@ -498,7 +740,7 @@ export function PerformancePage() {
                         </td>
                         <td>
                           <Button
-                            variant="danger"
+                            variant="destructive"
                             size="sm"
                             disabled={!unlocked || process.command === 'Sleep'}
                             onClick={() => setKillTarget(process)}
@@ -530,7 +772,7 @@ export function PerformancePage() {
               {snapshot.slowQuerySource === 'none' ? (
                 <div className="p-4">
                   <EmptyState
-                    icon={<Timer size={22} />}
+                    icon={<Timer size={20} />}
                     title="Slow query data is unavailable"
                     copy={
                       snapshot.slowQueryAdvice ?? 'Enable the slow query log or performance_schema.'
@@ -548,6 +790,7 @@ export function PerformancePage() {
                         <th>Max</th>
                         <th>Rows examined</th>
                         <th>Rows sent</th>
+                        <th>Signals</th>
                         <th>Last seen</th>
                       </tr>
                     </thead>
@@ -562,6 +805,9 @@ export function PerformancePage() {
                           <td className="text-warn">{formatDuration(query.maxLatencyMs)}</td>
                           <td>{formatNumber(query.rowsExamined)}</td>
                           <td>{formatNumber(query.rowsSent)}</td>
+                          <td>
+                            <SlowSignalBadges query={query} />
+                          </td>
                           <td>{query.lastSeen ? formatRelative(query.lastSeen) : '—'}</td>
                         </tr>
                       ))}
@@ -570,6 +816,14 @@ export function PerformancePage() {
                 </div>
               )}
             </Card>
+          ) : null}
+
+          {tab === 'locks' ? (
+            <LockWaitsPanel
+              snapshot={lockWaits}
+              refreshing={locksLoading}
+              onRefresh={() => void loadLocks()}
+            />
           ) : null}
 
           {tab === 'variables' ? (

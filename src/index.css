@@ -8,7 +8,7 @@
  * That is why shared components such as `.input` and `.badge` cannot be
  * restyled with `p-*` / `text-*` from a call site. Where an override is
  * needed, either set it on the element itself or use the dedicated variant
- * class (`.card-pad`, `.btn-primary`, `.modal.wide`, ...).
+ * class (`.card-pad`, `.button-primary`, `.modal.wide`, ...).
  */
 
 @import 'tailwindcss';

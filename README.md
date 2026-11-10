@@ -279,6 +279,25 @@ Environment overrides:
 - `MYLENS_HOST` (default `127.0.0.1`; keep it loopback)
 - `MYLENS_DATA_DIR`
 - `MYLENS_DEBUG=1` for stack traces
+- `MYLENS_STORE` (`json` (default) or `mysql`) — where the app documents are stored
+- `MYLENS_STORE_MYSQL_URI` (default `mysql://root@127.0.0.1:3306`) — MySQL server used in `mysql` mode
+- `MYLENS_STORE_MYSQL_DATABASE` (default `mylens`) — schema holding the documents in `mysql` mode
+
+### Storage backend
+
+By default MyLens is local-first: every app document (users, sessions,
+connection profiles, AI providers, query history, AI conversations, practice,
+snippets, settings, activity, audit schedules) is one JSON file under `data/`.
+Set `MYLENS_STORE=mysql` to store the same JSON documents as rows of an
+`app_documents` table in a schema on your own MySQL/MariaDB server instead —
+useful for LAN or multi-device deployments where accounts and data should
+survive independently of the `data/` folder. On the first boot in `mysql` mode
+the schema and table are created if missing, and each legacy `data/<name>.json`
+file that has no row yet is imported automatically (existing rows are never
+overwritten, and nothing is ever written back into `data/`). `data/.secret.key`
+— the AES master key for saved connection and AI-provider secrets — remains a
+file in both modes, so keep backing it up. If MySQL is unreachable at startup
+the server exits with a clear error instead of serving from a broken backend.
 
 ## Verification
 

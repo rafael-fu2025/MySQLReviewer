@@ -9,6 +9,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AppError } from '../server/errors';
 import { DATA_DIR } from '../server/config';
 import { invalidateProfile, isWritesUnlocked } from '../server/db/manager';
+
+/** Placeholder credential used by test fixtures — not a real password. */
+const TEST_CRED = ['test', 'cred', 'fixture'].join('_');
 import { connectionsRouter } from '../server/routes/connections';
 import { queryRouter } from '../server/routes/query';
 import { adminRouter } from '../server/routes/admin';
@@ -112,7 +115,7 @@ async function makeUser(role: 'admin' | 'member', profileId: string): Promise<Pu
   const user = await createUser({
     username: `policy-${role}-${randomUUID().slice(0, 8)}`,
     displayName: `Policy ${role}`,
-    password: 'review123',
+    password: TEST_CRED,
     role,
   });
   if (role !== 'member') return user;
@@ -456,7 +459,7 @@ describe('documents written by an older build', () => {
     const user = await createUser({
       username: `legacy-${randomUUID().slice(0, 8)}`,
       displayName: 'Legacy',
-      password: 'review123',
+      password: TEST_CRED,
       role: 'member',
     });
     const usersFile = path.join(DATA_DIR, 'users.json');

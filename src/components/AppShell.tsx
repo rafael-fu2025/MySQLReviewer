@@ -443,7 +443,7 @@ export function AppShell() {
 
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className="button button-secondary button-sm"
             onClick={() => setPaletteOpen(true)}
           >
             <Command size={13} />
@@ -481,7 +481,7 @@ export function AppShell() {
                 Writes are unlocked for {formatCountdown(remaining)}.
               </span>
               <Button
-                variant="danger"
+                variant="destructive"
                 size="sm"
                 className="ml-auto"
                 icon={<Lock size={12} />}

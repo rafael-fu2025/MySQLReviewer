@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { REPORTS_DIR, ensureDataDirs } from '../config';
+import { DATA_DIR, REPORTS_DIR } from '../config';
 import { AppError } from '../errors';
 import type { AuditReport, ReportSummary, StoredReviewReport } from '../../shared/types';
-import { writeJsonAtomic } from './json-store';
+import { JsonStore } from './json-store';
 
 export type StoredReport = AuditReport | StoredReviewReport;
 
@@ -13,34 +13,28 @@ const ID_PATTERN = /^[a-zA-Z0-9_-]{1,120}$/;
 export const MAX_REPORTS = 100;
 
 /**
- * The summaries of the stored reports. They are kept in memory and persisted
- * in a small sidecar index, so a listing never has to read and parse every
- * stored report again.
+ * Reports live in one per-installation document (`data/reports.json`, or a
+ * row of the `mylens` schema in MySQL mode) through the shared storage
+ * backend — the pre-storage-layer layout (one file per report under
+ * `data/reports/` plus a summary sidecar) is imported once, lazily, and its
+ * files are renamed out of the way so a deleted report can never resurface
+ * from them.
  */
-const INDEX_FILE = '.reports-index.json';
-
-interface IndexEntry {
-  mtimeMs: number;
-  size: number;
-  summary: ReportSummary;
-}
-
-interface ReportIndex {
+interface ReportsDocument {
   version: 1;
-  reports: Record<string, IndexEntry>;
+  reports: Record<string, StoredReport>;
 }
 
-const entries = new Map<string, IndexEntry>();
-
-function indexPath(): string {
-  return path.join(REPORTS_DIR, INDEX_FILE);
+function blankDocument(): ReportsDocument {
+  return { version: 1, reports: {} };
 }
 
-function reportPath(id: string): string {
+const store = new JsonStore<ReportsDocument>(path.join(DATA_DIR, 'reports.json'), blankDocument);
+
+function assertValidId(id: string): void {
   if (!ID_PATTERN.test(id)) {
     throw new AppError('INVALID_REPORT_ID', 'Invalid report id.', 400);
   }
-  return path.join(REPORTS_DIR, `${id}.json`);
 }
 
 function toSummary(parsed: StoredReport): ReportSummary {
@@ -61,157 +55,92 @@ function toSummary(parsed: StoredReport): ReportSummary {
   };
 }
 
-/** Reads the persisted summary index; a missing or broken index is ignored. */
-async function readIndexFile(): Promise<Map<string, IndexEntry>> {
-  const found = new Map<string, IndexEntry>();
-  try {
-    const raw = await fs.readFile(indexPath(), 'utf8');
-    const parsed = JSON.parse(raw) as ReportIndex;
-    for (const [id, entry] of Object.entries(parsed?.reports ?? {})) {
-      if (entry && typeof entry.mtimeMs === 'number' && entry.summary) found.set(id, entry);
-    }
-  } catch {
-    // No index yet: the summaries are rebuilt from the report files.
-  }
-  return found;
-}
-
-async function persistIndex(): Promise<void> {
-  const reports: Record<string, IndexEntry> = {};
-  for (const [id, entry] of entries) reports[id] = entry;
-  await writeJsonAtomic(indexPath(), { version: 1, reports } satisfies ReportIndex);
-}
-
-/** Report file names, ignoring the index and any other dot file. */
-async function reportIds(): Promise<string[]> {
+/**
+ * One-time import of the pre-storage-layer layout. Idempotent per report
+ * (ids already in the document are skipped) and non-destructive: imported
+ * files are renamed with an `.imported` suffix instead of deleted, so their
+ * content stays inspectable while a deleted report can never be resurrected
+ * from them by a later process.
+ */
+let legacyChecked = false;
+async function importLegacyDirectory(document: ReportsDocument): Promise<void> {
+  if (legacyChecked) return;
+  legacyChecked = true;
   let files: string[];
   try {
     files = await fs.readdir(REPORTS_DIR);
   } catch {
-    return [];
+    return; // No legacy directory: nothing to import.
   }
-  return files
-    .filter((file) => file.endsWith('.json') && !file.startsWith('.'))
-    .map((file) => file.slice(0, -'.json'.length));
-}
-
-/** Drops the oldest reports once more than `MAX_REPORTS` are stored. */
-async function enforceRetention(): Promise<void> {
-  const ids = await reportIds();
-  if (ids.length <= MAX_REPORTS) return;
-  const modified = ids.map((id) => entries.get(id)?.mtimeMs ?? 0);
-  const stamps = new Map<string, number>();
-  ids.forEach((id, index) => stamps.set(id, modified[index]));
-  // A report this process never saw has no timestamp yet; read it from disk.
-  for (const id of ids) {
-    if (stamps.get(id)) continue;
-    const stat = await fs.stat(path.join(REPORTS_DIR, `${id}.json`)).catch(() => null);
-    if (stat) stamps.set(id, stat.mtimeMs);
-  }
-  const ordered = ids
-    .map((id) => ({ id, mtimeMs: stamps.get(id) ?? 0 }))
-    .sort((a, b) => a.mtimeMs - b.mtimeMs);
-  const excess = ids.length - MAX_REPORTS;
-  for (const entry of ordered.slice(0, excess)) {
-    await fs.rm(path.join(REPORTS_DIR, `${entry.id}.json`), { force: true });
-    entries.delete(entry.id);
-  }
-}
-
-export async function saveReport(report: StoredReport): Promise<StoredReport> {
-  ensureDataDirs();
-  const file = reportPath(report.id);
-  await writeJsonAtomic(file, report);
-  const stat = await fs.stat(file);
-  entries.set(report.id, {
-    mtimeMs: stat.mtimeMs,
-    size: stat.size,
-    summary: toSummary(report),
-  });
-  await enforceRetention();
-  return report;
-}
-
-export async function getReport(id: string): Promise<StoredReport> {
-  try {
-    const raw = await fs.readFile(reportPath(id), 'utf8');
-    return JSON.parse(raw) as StoredReport;
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
-      throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
+  const legacy = files.filter((file) => file.endsWith('.json') && !file.startsWith('.'));
+  let imported = false;
+  for (const file of legacy) {
+    const id = file.slice(0, -'.json'.length);
+    if (!ID_PATTERN.test(id)) continue;
+    try {
+      const raw = await fs.readFile(path.join(REPORTS_DIR, file), 'utf8');
+      const parsed = JSON.parse(raw) as StoredReport;
+      if (!parsed || typeof parsed.id !== 'string' || document.reports[parsed.id]) continue;
+      document.reports[parsed.id] = parsed;
+      await fs.rename(path.join(REPORTS_DIR, file), path.join(REPORTS_DIR, `${file}.imported`));
+      imported = true;
+    } catch {
+      // A corrupt or unimportable legacy report is skipped, not fatal.
     }
-    throw error;
   }
-}
-
-export async function deleteReport(id: string): Promise<void> {
-  try {
-    await fs.unlink(reportPath(id));
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code === 'ENOENT') {
-      entries.delete(id);
-      throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
+  if (imported) {
+    // The imported set obeys the same retention cap as saved reports.
+    const ordered = Object.values(document.reports).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+    for (const evicted of ordered.slice(0, Math.max(0, ordered.length - MAX_REPORTS))) {
+      delete document.reports[evicted.id];
     }
-    throw error;
+    await store.write(document);
   }
-  entries.delete(id);
-  await persistIndex();
 }
 
 export async function listReports(): Promise<ReportSummary[]> {
-  ensureDataDirs();
-  const ids = await reportIds();
-  if (ids.length === 0) return [];
-  // Another process may have written reports; merge its index.
-  const persisted = await readIndexFile();
-  let changed = false;
-  for (const [id, entry] of persisted) {
-    const known = entries.get(id);
-    if (!known) {
-      entries.set(id, entry);
-      changed = true;
-    } else if (known.mtimeMs < entry.mtimeMs) {
-      entries.set(id, entry);
-      changed = true;
-    }
-  }
-
-  const summaries: ReportSummary[] = [];
-  const seen = new Set<string>();
-  for (const id of ids) {
-    seen.add(id);
-    const full = path.join(REPORTS_DIR, `${id}.json`);
-    try {
-      const stat = await fs.stat(full);
-      const cached = entries.get(id);
-      // The summary is only reused while the report file is untouched; a
-      // report changed or removed outside this process is never served from
-      // a stale summary.
-      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-        summaries.push(cached.summary);
-        continue;
-      }
-      const raw = await fs.readFile(full, 'utf8');
-      const parsed = JSON.parse(raw) as StoredReport;
-      const summary = toSummary(parsed);
-      entries.set(id, { mtimeMs: stat.mtimeMs, size: stat.size, summary });
-      changed = true;
-      summaries.push(summary);
-    } catch {
-      // A corrupt or vanished report should not break the list, and its stale
-      // summary (if any) must not be reused.
-      if (entries.delete(id)) changed = true;
-    }
-  }
-
-  for (const id of [...entries.keys()]) {
-    if (!seen.has(id)) {
-      entries.delete(id);
-      changed = true;
-    }
-  }
-  if (changed) await persistIndex();
+  const document = await store.read();
+  await importLegacyDirectory(document);
+  const summaries = Object.values(document.reports).map((report) => toSummary(report));
   return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getReport(id: string): Promise<StoredReport> {
+  assertValidId(id);
+  const document = await store.read();
+  await importLegacyDirectory(document);
+  const report = document.reports[id];
+  if (!report) {
+    throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
+  }
+  return report;
+}
+
+export async function saveReport(report: StoredReport): Promise<StoredReport> {
+  assertValidId(report.id);
+  const document = await store.read();
+  await importLegacyDirectory(document);
+  document.reports[report.id] = report;
+  // Retention: keep the newest MAX_REPORTS reports by creation time.
+  const ordered = Object.values(document.reports).sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt),
+  );
+  for (const evicted of ordered.slice(0, Math.max(0, ordered.length - MAX_REPORTS))) {
+    delete document.reports[evicted.id];
+  }
+  await store.write(document);
+  return report;
+}
+
+export async function deleteReport(id: string): Promise<void> {
+  assertValidId(id);
+  const document = await store.read();
+  await importLegacyDirectory(document);
+  if (!document.reports[id]) {
+    throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
+  }
+  delete document.reports[id];
+  await store.write(document);
 }

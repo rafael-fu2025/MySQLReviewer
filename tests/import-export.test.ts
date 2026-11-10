@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildCreateEvent,
   isSessionStatement,
+  keysetPageQuery,
   looksLikeCompoundStatement,
   orderByForeignKey,
+  pickUsableKey,
   previewImportScript,
   sendableStatementText,
   sqlLiteral,
   stripDefiner,
+  type ExportEventRow,
+  type KeyCandidate,
 } from '../server/db/import-export';
 import type { TableSummary } from '../shared/types';
 
@@ -227,5 +232,149 @@ describe('previewImportScript', () => {
     expect(preview.statements.filter((s) => s.session)).toHaveLength(3);
     // The DROP is destructive and is named so the caller can warn about it.
     expect(preview.destructiveStatements.some((line) => line.includes('DROP TABLE'))).toBe(true);
+  });
+});
+
+describe('keysetPageQuery', () => {
+  it('builds a first page that is ordered but unbounded', () => {
+    const page = keysetPageQuery('shop', 'orders', ['id'], null, 500);
+    expect(page.sql).toBe('SELECT * FROM `shop`.`orders` ORDER BY `id` LIMIT ?');
+    expect(page.values).toEqual([500]);
+  });
+
+  it('builds a keyset page with a tuple cursor on a composite key', () => {
+    const page = keysetPageQuery('shop', 'order_lines', ['order_id', 'line_no'], [41, 7], 500);
+    expect(page.sql).toBe(
+      'SELECT * FROM `shop`.`order_lines` WHERE (`order_id`, `line_no`) > (?, ?) ORDER BY `order_id`, `line_no` LIMIT ?',
+    );
+    // The cursor values come first, the page size last.
+    expect(page.values).toEqual([41, 7, 500]);
+  });
+});
+
+describe('pickUsableKey', () => {
+  const column = (
+    name: string,
+    overrides: Partial<{ dataType: string; nullable: boolean; prefixed: boolean }> = {},
+  ) => ({ name, dataType: 'int', nullable: false, prefixed: false, ...overrides });
+
+  const candidate = (
+    name: string,
+    unique: boolean,
+    columns: KeyCandidate['columns'],
+  ): KeyCandidate => ({
+    name,
+    unique,
+    columns,
+  });
+
+  it('prefers the primary key', () => {
+    const picked = pickUsableKey([
+      candidate('idx_email', true, [column('email', { dataType: 'varchar' })]),
+      candidate('PRIMARY', true, [column('id')]),
+    ]);
+    expect(picked).toEqual(['id']);
+  });
+
+  it('falls back to a unique secondary index when there is no primary key', () => {
+    const picked = pickUsableKey([
+      candidate('idx_email', true, [column('email', { dataType: 'varchar' })]),
+      candidate('idx_check', false, [column('a')]),
+    ]);
+    expect(picked).toEqual(['email']);
+  });
+
+  it('rejects a nullable unique index', () => {
+    const picked = pickUsableKey([candidate('PRIMARY', true, [column('id', { nullable: true })])]);
+    expect(picked).toBeNull();
+  });
+
+  it('rejects a prefix unique index, whose values are not fully unique', () => {
+    const picked = pickUsableKey([
+      candidate('PRIMARY', true, [column('id')]),
+      candidate('idx_url', true, [column('url', { dataType: 'varchar', prefixed: true })]),
+    ]);
+    expect(picked).toEqual(['id']);
+  });
+
+  it('rejects key columns of a type whose ordering is unreliable', () => {
+    const picked = pickUsableKey([
+      candidate('PRIMARY', true, [column('id'), column('ratio', { dataType: 'double' })]),
+    ]);
+    expect(picked).toBeNull();
+  });
+
+  it('returns null without any usable candidate', () => {
+    expect(pickUsableKey([candidate('idx_a', false, [column('a')])])).toBeNull();
+    expect(pickUsableKey([])).toBeNull();
+  });
+});
+
+describe('buildCreateEvent', () => {
+  const recurringRow: ExportEventRow = {
+    EVENT_NAME: 'nightly_cleanup',
+    EVENT_DEFINITION: 'DELETE FROM sessions WHERE expires_at < NOW()',
+    EVENT_TYPE: 'RECURRING',
+    INTERVAL_VALUE: '1',
+    INTERVAL_FIELD: 'DAY',
+    STATUS: 'ENABLED',
+    ON_COMPLETION: 'NOT PRESERVE',
+    STARTS: '2026-01-01 03:00:00',
+    ENDS: null,
+    EXECUTE_AT: null,
+    EVENT_COMMENT: 'purge old sessions',
+  };
+
+  it('assembles a recurring event with schedule, completion and status', () => {
+    const sql = buildCreateEvent(recurringRow);
+    expect(sql).toBe(
+      "CREATE EVENT `nightly_cleanup` ON SCHEDULE EVERY 1 DAY STARTS '2026-01-01 03:00:00' " +
+        "ON COMPLETION NOT PRESERVE ENABLE COMMENT 'purge old sessions' " +
+        'DO DELETE FROM sessions WHERE expires_at < NOW()',
+    );
+  });
+
+  it('never emits the definer, even though the server knows it', () => {
+    // The information_schema row carries a definer; the statement is emitted
+    // without one (and runs through stripDefiner at emission).
+    const sql = stripDefiner(buildCreateEvent(recurringRow));
+    expect(sql).not.toContain('DEFINER');
+  });
+
+  it('assembles a one-time event from EXECUTE_AT and keeps DISABLE', () => {
+    const sql = buildCreateEvent({
+      ...recurringRow,
+      EVENT_NAME: 'one_shot',
+      EVENT_TYPE: 'ONE TIME',
+      INTERVAL_VALUE: null,
+      INTERVAL_FIELD: null,
+      STARTS: null,
+      EXECUTE_AT: '2026-02-01 12:00:00',
+      STATUS: 'DISABLED',
+      ON_COMPLETION: 'PRESERVE',
+      EVENT_COMMENT: '',
+    });
+    expect(sql).toBe(
+      "CREATE EVENT `one_shot` ON SCHEDULE AT '2026-02-01 12:00:00' " +
+        'ON COMPLETION PRESERVE DISABLE DO DELETE FROM sessions WHERE expires_at < NOW()',
+    );
+  });
+
+  it('emits DISABLE ON SLAVE for an event disabled on this replica', () => {
+    const sql = buildCreateEvent({ ...recurringRow, STATUS: 'SLAVESIDE_DISABLED' });
+    expect(sql).toContain('DISABLE ON SLAVE');
+  });
+
+  it('omits the comment clause when the comment is empty', () => {
+    const sql = buildCreateEvent({ ...recurringRow, EVENT_COMMENT: '' });
+    expect(sql).not.toContain('COMMENT');
+  });
+
+  it('formats a Date column as a UTC timestamp literal', () => {
+    const sql = buildCreateEvent({
+      ...recurringRow,
+      STARTS: new Date(Date.UTC(2026, 0, 1, 3, 0, 0)),
+    });
+    expect(sql).toContain("STARTS '2026-01-01 03:00:00'");
   });
 });

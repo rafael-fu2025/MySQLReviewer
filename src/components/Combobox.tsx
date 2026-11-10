@@ -338,13 +338,13 @@ function ComboList({
       {(footer || multi || (clearable && hasSelection)) && (
         <div className="combo-footer">
           {clearable && hasSelection ? (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onClear}>
+            <button type="button" className="btn button-tertiary button-sm" onClick={onClear}>
               Clear
             </button>
           ) : null}
           {footer}
           {multi ? (
-            <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={onDone}>
+            <button type="button" className="btn button-primary button-sm ml-auto" onClick={onDone}>
               Done
             </button>
           ) : null}
@@ -714,7 +714,7 @@ export function MultiSelect({
                     {showSelectAll ? (
                       <button
                         type="button"
-                        className="btn btn-ghost btn-sm"
+                        className="btn button-tertiary button-sm"
                         onClick={() =>
                           onChange(
                             values.length === enabledOptions.length

@@ -5,7 +5,7 @@ import { copyText } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Tooltip, type TooltipSide } from '../Tooltip';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'destructive';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -39,13 +39,13 @@ export function Button({
   const button = (
     <button
       className={cn(
-        'btn',
-        variant === 'primary' && 'btn-primary',
-        variant === 'secondary' && 'btn-secondary',
-        variant === 'ghost' && 'btn-ghost',
-        variant === 'danger' && 'btn-danger',
-        size === 'sm' && 'btn-sm',
-        size === 'lg' && 'btn-lg',
+        'button',
+        variant === 'primary' && 'button-primary',
+        variant === 'secondary' && 'button-secondary',
+        variant === 'tertiary' && 'button-tertiary',
+        variant === 'destructive' && 'button-destructive',
+        size === 'sm' && 'button-sm',
+        size === 'lg' && 'button-lg',
         className,
       )}
       disabled={disabled || loading}
@@ -80,7 +80,7 @@ export function IconButton({
   tooltipSide?: TooltipSide;
 }) {
   const button = (
-    <button className={cn('icon-btn', className)} aria-label={label} {...rest}>
+    <button className={cn('icon-button', className)} aria-label={label} {...rest}>
       {children}
     </button>
   );
@@ -106,17 +106,30 @@ export function CopyButton({
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  // `.pulse-success` blooms a mint ring for ~450ms; the class is dropped on a
+  // timeout so the animation can replay on the next copy.
+  const [pulse, setPulse] = useState(false);
   return (
     <Button
-      variant="ghost"
+      variant="tertiary"
       size={size}
-      className={className}
-      icon={copied ? <Check size={13} className="text-mint" /> : <Copy size={13} />}
+      className={cn(className, pulse && 'pulse-success')}
+      icon={
+        // Both icons always render, grid-stacked, so the swap can animate:
+        // the outgoing one eases out through opacity/scale/blur (.icon-off)
+        // while the incoming one crossfades in (.icon-crossfade).
+        <span className="icon-stack" aria-hidden="true">
+          <Copy size={13} className={copied ? 'icon-off' : 'icon-crossfade'} />
+          <Check size={13} className={cn('text-mint', copied ? 'icon-crossfade' : 'icon-off')} />
+        </span>
+      }
       onClick={async () => {
         const ok = await copyText(text);
         if (ok) {
           setCopied(true);
+          setPulse(true);
           setTimeout(() => setCopied(false), 1_500);
+          setTimeout(() => setPulse(false), 500);
         }
       }}
     >

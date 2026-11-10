@@ -278,7 +278,7 @@ export function ImportSqlModal({
         size="default"
         footer={
           <>
-            <Button variant="ghost" onClick={onClose} disabled={status === 'running'}>
+            <Button variant="tertiary" onClick={onClose} disabled={status === 'running'}>
               {status === 'done' ? 'Close' : 'Cancel'}
             </Button>
             {status === 'running' ? (
@@ -356,7 +356,7 @@ export function ImportSqlModal({
                     unlock before they can run.
                   </span>
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     size="sm"
                     icon={<Unlock size={11} />}
                     onClick={() => setUnlockOpen(true)}
@@ -406,7 +406,7 @@ export function ImportSqlModal({
                     {lockedFailures === 1 ? '' : 's'} could not run. {lockMessage ?? ''}
                   </span>
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     size="sm"
                     icon={<Unlock size={11} />}
                     onClick={() => setUnlockOpen(true)}

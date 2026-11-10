@@ -187,7 +187,13 @@ export async function runAudit(input: AuditRunInput): Promise<AuditReport> {
     new Set(input.databases.filter((database) => database && !SYSTEM_SCHEMAS.includes(database))),
   );
   if (databases.length === 0) {
-    databases.push(...input.databases.filter(Boolean));
+    // A selection of only system schemas (mysql, information_schema, ...)
+    // cannot be audited; re-admitting the schemas would silently audit them.
+    throw new AppError(
+      'AUDIT_SELECTION_EMPTY',
+      'No auditable databases in selection. System schemas (mysql, information_schema, performance_schema, sys) are skipped.',
+      400,
+    );
   }
 
   const scope = await getDatabaseScope(input.profileId);

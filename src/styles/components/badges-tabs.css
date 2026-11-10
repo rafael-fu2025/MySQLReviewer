@@ -124,7 +124,13 @@
 .tab.active {
   color: var(--color-ink);
 }
-.tab.active::after {
+/*
+ * The underline lives on every tab, collapsed via scaleX(0), and reveals when
+ * the tab activates. Keeping the pseudo-element mounted is what lets the
+ * reveal transition run — an ::after created by `.active` alone would pop in
+ * instantly. On-screen movement, so it eases in-out.
+ */
+.tab::after {
   content: '';
   position: absolute;
   left: 10px;
@@ -133,10 +139,16 @@
   height: 2px;
   border-radius: 2px;
   background: var(--color-ember);
+  transform: scaleX(0);
+  transition: transform var(--duration-fast) var(--ease-in-out);
+}
+.tab.active::after {
+  transform: scaleX(1);
 }
 .tab .tab-count {
   font-family: var(--font-mono);
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
   padding: 1px 5px;
   border-radius: 999px;
   background: var(--color-panel-3);

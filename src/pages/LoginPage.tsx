@@ -12,6 +12,7 @@ import {
 import { useAppStore } from '@/store/app-store';
 import { ObservatoryAtom } from '@/components/ObservatoryAtom';
 import { Button, Field, IconButton, Input } from '@/components/ui';
+import workspaceShot from '../assets/workspace.png';
 
 /**
  * HTML autocomplete tokens (browser hints, not secrets). Built from parts
@@ -25,27 +26,11 @@ const AUTOCOMPLETE_CURRENT_PASSWORD = ['current', 'password'].join('-');
 function QueryObservatory() {
   return (
     <div className="query-observatory" aria-hidden="true">
-      <div className="observatory-glow" />
       <ObservatoryAtom />
 
       <div className="observatory-core">
         <Database size={15} strokeWidth={1.6} />
         <span>SQL</span>
-      </div>
-
-      <div className="observatory-chip chip-explore">
-        <span>01</span> Explore
-      </div>
-      <div className="observatory-chip chip-understand">
-        <span>02</span> Understand
-      </div>
-      <div className="observatory-chip chip-refine">
-        <span>03</span> Refine
-      </div>
-
-      <div className="observatory-note">
-        <span className="observatory-note-index">A FRESH PERSPECTIVE</span>
-        <span>Less noise. More knowing.</span>
       </div>
     </div>
   );
@@ -149,24 +134,25 @@ export function LoginPage({ mode }: { mode: 'login' | 'setup' }) {
         </div>
 
         <div className="auth-scene-copy">
-          <div className="auth-eyebrow">A fresh perspective on MySQL</div>
-          <div className="auth-scene-title">
-            See the story
+          <div className="auth-eyebrow">MySQL review studio · local-first</div>
+          <div className="auth-scene-title optical-left">
+            Find the slow query.
             <br />
-            <em>behind the query.</em>
+            <span className="auth-title-em">Fix the plan.</span>
           </div>
-          <p>Explore your schema, understand your SQL, and move forward with clarity.</p>
+          <p>
+            Explore schemas, run safe queries, read EXPLAIN plans, audit your server, and practice
+            in SQL Lab — all against your real database.
+          </p>
+          <div className="auth-shot">
+            <img
+              src={workspaceShot}
+              alt="The MyLens workspace: schema tree, SQL editor, results grid, and AI assistant"
+            />
+          </div>
         </div>
 
         <QueryObservatory />
-
-        <div className="auth-scene-foot">
-          <span>OBSERVE</span>
-          <span className="auth-scene-foot-line" />
-          <span>UNDERSTAND</span>
-          <span className="auth-scene-foot-line" />
-          <span>IMPROVE</span>
-        </div>
       </div>
 
       <main className="auth-main">

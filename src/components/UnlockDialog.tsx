@@ -79,11 +79,11 @@ export function UnlockDialog({
       footer={
         step === 'unlock' ? (
           <>
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="tertiary" onClick={onClose}>
               Cancel
             </Button>
             <Button
-              variant="danger"
+              variant="destructive"
               icon={busy ? <Spinner size={13} /> : <Unlock size={13} />}
               loading={busy}
               disabled={phrase.trim().toUpperCase() !== 'UNLOCK WRITES'}
@@ -94,11 +94,11 @@ export function UnlockDialog({
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="tertiary" onClick={onClose}>
               Cancel
             </Button>
             <Button
-              variant="danger"
+              variant="destructive"
               icon={<AlertOctagon size={13} />}
               disabled={!acknowledged}
               onClick={proceed}

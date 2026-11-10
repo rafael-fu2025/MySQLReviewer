@@ -87,3 +87,37 @@
 .markdown a {
   color: var(--color-ember);
 }
+
+/*
+ * Fenced code blocks that opted into `codeCopy` (assistant messages) get a
+ * compact copy button riding the top-right corner, above the pre's scroll
+ * area. It reuses the shared icon-stack crossfade and pulse-success classes;
+ * press follows the app-wide scale(0.97) convention.
+ */
+.markdown-code {
+  position: relative;
+}
+.markdown-code .code-copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--color-panel-2) 88%, transparent);
+  color: var(--color-muted);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.markdown-code .code-copy:hover {
+  color: var(--color-ink);
+  border-color: var(--color-muted);
+}
+.markdown-code .code-copy:active {
+  transform: scale(0.97);
+}

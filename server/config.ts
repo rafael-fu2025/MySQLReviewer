@@ -70,3 +70,39 @@ export function detectXampp(): {
   }
   return null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Document storage backend                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type StorageMode = 'json' | 'mysql';
+
+export interface StorageConfig {
+  /** `json` (default): one JSON file per document inside the data directory. */
+  mode: StorageMode;
+  mysql: {
+    /** Connection URI of the MySQL server holding the documents. */
+    uri: string;
+    /** Schema the documents live in; created on first boot when missing. */
+    database: string;
+  };
+}
+
+function parseStorageMode(value: string | undefined): StorageMode {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'mysql' ? 'mysql' : 'json';
+}
+
+/**
+ * Where the app's own documents (users, sessions, profiles, history, ...) are
+ * stored. The default keeps the local-first file behavior; `mysql` moves the
+ * same JSON documents into a schema on the operator's MySQL server so accounts
+ * and data survive independently of the `data/` folder.
+ */
+export const storageConfig: StorageConfig = {
+  mode: parseStorageMode(process.env.MYLENS_STORE),
+  mysql: {
+    uri: process.env.MYLENS_STORE_MYSQL_URI || 'mysql://root@127.0.0.1:3306',
+    database: process.env.MYLENS_STORE_MYSQL_DATABASE || 'mylens',
+  },
+};

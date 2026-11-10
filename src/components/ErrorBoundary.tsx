@@ -51,12 +51,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </details>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn btn-primary" onClick={this.retry}>
+            <button type="button" className="button button-primary" onClick={this.retry}>
               Try again
             </button>
             <button
               type="button"
-              className="btn btn-secondary"
+              className="button button-secondary"
               onClick={() => window.location.reload()}
             >
               Reload app

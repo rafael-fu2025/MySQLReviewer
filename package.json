@@ -3,6 +3,9 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
   "description": "MyLens — a local-first MySQL/MariaDB review studio with deterministic rules, EXPLAIN insights, full audits, and pluggable AI review.",
   "scripts": {
     "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",

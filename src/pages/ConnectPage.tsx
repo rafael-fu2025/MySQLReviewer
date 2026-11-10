@@ -161,7 +161,7 @@ export function ConnectionCard({
         </Button>
         {canManage ? (
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             onClick={onTest}
             loading={testing}
@@ -321,7 +321,7 @@ export function ConnectionStatusPanel({
           <Button size="sm" variant="primary" onClick={onOpenWorkspace}>
             Open workspace
           </Button>
-          <Button size="sm" variant="ghost" onClick={onDisconnect}>
+          <Button size="sm" variant="tertiary" onClick={onDisconnect}>
             Disconnect
           </Button>
         </div>
@@ -695,7 +695,7 @@ export function ConnectPage() {
         footer={
           <>
             <Button
-              variant="ghost"
+              variant="tertiary"
               onClick={() => {
                 setPasswordFor(null);
                 setPassword('');

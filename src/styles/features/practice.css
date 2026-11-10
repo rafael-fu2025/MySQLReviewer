@@ -23,6 +23,7 @@
   font-family: var(--font-mono);
   font-weight: 800;
   letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
   color: var(--color-ink);
 }
 .score-ring .score-grade {
@@ -150,7 +151,7 @@
   gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid var(--color-line-soft);
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   background: var(--color-panel);
 }
 .practice-nav-head {
@@ -161,7 +162,7 @@
   font-weight: 650;
   color: var(--color-ink-soft);
 }
-.practice-nav-head .icon-btn {
+.practice-nav-head .icon-button {
   width: 26px;
   height: 26px;
   border-radius: var(--radius-sm);
@@ -191,7 +192,7 @@
   place-items: center;
   width: 100%;
   height: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--color-line);
   background: transparent;
   color: var(--color-muted);
@@ -243,4 +244,107 @@
   .practice-toolbar-title {
     font-size: 17px;
   }
+}
+
+/* ---------------------------------------------------------------- */
+/* Practice hub · D2 motion, radii and loading                       */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The per-topic score bars animate when a refresh moves a score: the fill
+ * width is set inline by the component, the transition lives here so the
+ * bar slides instead of jumping. Width changes of a persistent element are
+ * on-screen movement, so they ease in-out per the motion conventions.
+ */
+.topic-bar-fill {
+  transition: width var(--duration-base) var(--ease-in-out);
+}
+
+/*
+ * Entrance for the evaluation card. It mounts once per graded submission
+ * (the render is conditional on `evaluation`), so the animation plays once
+ * per result and never fights React updates. Reuses the global `fadeUp`
+ * keyframes from misc-pages.css.
+ */
+.card-enter {
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+
+/*
+ * Review rows fade in with a small stagger (capped at five rows so a long
+ * queue never feels like a procession). Rows carry their own boxed look, so
+ * the radius follows the nested-card rule: card radius (16) minus the card
+ * padding (12) = 4 = --radius-xs.
+ */
+.review-row {
+  border-radius: var(--radius-xs);
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+.review-row:nth-child(1) {
+  animation-delay: 0.03s;
+}
+.review-row:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.review-row:nth-child(3) {
+  animation-delay: 0.09s;
+}
+.review-row:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.review-row:nth-child(5) {
+  animation-delay: 0.15s;
+}
+
+/*
+ * The recent-set rows share the review rows' entrance: a fadeUp with the
+ * same 30ms stagger, capped at five rows so a long list never feels like a
+ * procession. Rows are direct children of their card's stack, so the
+ * nth-child delays line up per card. The nested radius follows the same
+ * rule as the review rows: card radius (16) minus the card padding (12).
+ */
+.recent-set-row {
+  border-radius: var(--radius-xs);
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+.recent-set-row:nth-child(1) {
+  animation-delay: 0.03s;
+}
+.recent-set-row:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.recent-set-row:nth-child(3) {
+  animation-delay: 0.09s;
+}
+.recent-set-row:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.recent-set-row:nth-child(5) {
+  animation-delay: 0.15s;
+}
+
+/*
+ * Stat values replay a small pop when the number changes: the call site
+ * keys the value wrapper on the value, so React remounts the span and the
+ * animation runs again. The wrapper repeats .stat-value's type styles — as
+ * an inline block it must not repeat its margin, or the number would drift
+ * down inside the card.
+ */
+@keyframes num-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.stat-value.num-pop {
+  display: inline-block;
+  margin-top: 0;
+  /* A there-and-back scale of a persistent element is on-screen movement:
+     it eases in-out so both ends of the pop settle the same way. */
+  animation: num-pop 0.3s var(--ease-in-out);
 }

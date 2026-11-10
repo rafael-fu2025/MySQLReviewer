@@ -160,7 +160,7 @@ export function CreateDatabaseModal({
             </Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={onClose}>
+              <Button variant="tertiary" onClick={onClose}>
                 Cancel
               </Button>
               <Button
@@ -213,7 +213,7 @@ export function CreateDatabaseModal({
                   Writes are locked. Creating a database is a DDL statement and needs an unlock.
                 </span>
                 <Button
-                  variant="danger"
+                  variant="destructive"
                   size="sm"
                   icon={<Unlock size={11} />}
                   onClick={() => setUnlockOpen(true)}

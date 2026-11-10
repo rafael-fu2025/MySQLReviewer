@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { AiProvider, AiReview, StaticReviewResult } from '@shared/types';
 import { useAppStore } from '@/store/app-store';
-import { formatDuration } from '@/lib/format';
+import { copyText, formatDuration } from '@/lib/format';
 import { FindingCard, FindingsHint, FindingsList } from './Findings';
 import { Markdown } from './Markdown';
 import { ChatPanel } from './assistant/ChatPanel';
@@ -389,7 +389,7 @@ export function ReviewPanel({
                 <Spinner size={13} />
                 <span>{aiStreaming ? 'Streaming the review…' : 'Waiting for the provider…'}</span>
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   className="ml-auto"
                   icon={<Square size={11} />}
@@ -401,6 +401,25 @@ export function ReviewPanel({
               {aiRaw ? (
                 <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-2xs">{aiRaw}</pre>
               ) : null}
+            </div>
+          ) : null}
+
+          {/*
+            The text that arrived before the stream stopped stays readable:
+            a cancelled review has no `ai` result to hang it on, and without
+            this card the already-received output would vanish on Cancel.
+          */}
+          {!aiRunning && !ai && aiRaw ? (
+            <div className="card p-3">
+              <div className="flex items-center gap-2 text-2xs text-muted">
+                <Square size={11} />
+                <span>
+                  {aiError
+                    ? 'The review stopped with an error — partial response:'
+                    : 'Review cancelled — partial response:'}
+                </span>
+              </div>
+              <pre className="code-block mt-2 max-h-56 whitespace-pre-wrap text-2xs">{aiRaw}</pre>
             </div>
           ) : null}
 
@@ -491,10 +510,9 @@ export function ReviewPanel({
                   size="sm"
                   icon={<Copy size={12} />}
                   onClick={async () => {
-                    const ok = await navigator.clipboard
-                      .writeText(ai.markdown || ai.summary || '')
-                      .then(() => true)
-                      .catch(() => false);
+                    // copyText falls back to execCommand in insecure contexts
+                    // (plain-HTTP LAN sharing has no async Clipboard API).
+                    const ok = await copyText(ai.markdown || ai.summary || '');
                     toast(
                       ok ? 'AI review copied.' : 'Could not copy the review.',
                       ok ? 'success' : 'error',

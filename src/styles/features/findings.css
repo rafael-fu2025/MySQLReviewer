@@ -10,6 +10,36 @@
   border-radius: 10px;
   background: color-mix(in oklab, var(--color-panel-2) 76%, transparent);
   padding: 11px 13px;
+  /* Findings fade up with a 30ms stagger (review-panel rules list,
+     evaluation-card findings, EXPLAIN insights), so a fresh list reads
+     top-down instead of popping as one block. Cards are direct siblings in
+     every list, and each mounts once per list render, so the animation
+     plays on arrival and never on re-render. */
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+.finding:nth-child(1) {
+  animation-delay: 0.03s;
+}
+.finding:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.finding:nth-child(3) {
+  animation-delay: 0.09s;
+}
+.finding:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.finding:nth-child(5) {
+  animation-delay: 0.15s;
+}
+.finding:nth-child(6) {
+  animation-delay: 0.18s;
+}
+.finding:nth-child(7) {
+  animation-delay: 0.21s;
+}
+.finding:nth-child(8) {
+  animation-delay: 0.24s;
 }
 .finding.sev-critical {
   border-left-color: #ff5c6c;

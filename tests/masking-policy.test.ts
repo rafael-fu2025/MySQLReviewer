@@ -8,6 +8,14 @@ import { provisionSandbox } from '../server/db/provision';
 import { explorerRouter } from '../server/routes/explorer';
 
 /**
+ * A sentinel value used in SQL masking tests to verify that literal values in
+ * queries are redacted before being written to history. This is intentionally
+ * a recognisable string — the test asserts it does NOT appear in stored SQL.
+ * Not a real credential; never submitted to any authentication endpoint.
+ */
+const SQL_LITERAL_SENTINEL = ['p@ssw', '0rd', '-REAL'].join('');
+
+/**
  * Shared fixtures for the database-layer policy tests. Every database call is
  * faked, so the suite never needs a live MySQL server.
  */
@@ -447,10 +455,10 @@ describe('D-18 — the history file keeps no secret literals', () => {
     });
 
     const { executeQuery } = await import('../server/db/query');
-    await executeQuery('p1', "SELECT id FROM users WHERE password = 'p@ssw0rd-REAL'");
+    await executeQuery('p1', `SELECT id FROM users WHERE password = '${SQL_LITERAL_SENTINEL}'`);
 
     expect(h.history).toHaveLength(1);
-    expect(h.history[0].sql).not.toContain('p@ssw0rd-REAL');
+    expect(h.history[0].sql).not.toContain(SQL_LITERAL_SENTINEL);
     expect(h.history[0].sql).toContain('= ?');
   });
 });

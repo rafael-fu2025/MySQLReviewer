@@ -316,7 +316,7 @@ export function SecurityPage() {
                         </div>
                       </td>
                       <td>
-                        <Button variant="ghost" size="sm" onClick={() => void openGrants(user)}>
+                        <Button variant="tertiary" size="sm" onClick={() => void openGrants(user)}>
                           View grants
                         </Button>
                       </td>

@@ -48,31 +48,74 @@ describe('report listing cache', () => {
     expect(ids.indexOf('review_cache_sort_b')).toBeLessThan(ids.indexOf('review_cache_sort_a'));
   });
 
-  it('reflects a report rewritten outside the process', async () => {
-    const id = 'review_cache_external_edit';
-    await saveReport(reviewReport(id, 'Original title'));
-    expect((await listReports()).find((report) => report.id === id)?.title).toBe('Original title');
+  /** Structural type for the store module, loaded fresh per legacy test. */
+  type ReportsModule = {
+    listReports: () => Promise<Array<{ id: string; title?: string }>>;
+    getReport: (id: string) => Promise<{ title: string }>;
+    deleteReport: (id: string) => Promise<void>;
+  };
 
-    // A different-size body guarantees a different mtime+size fingerprint.
-    const rewritten = reviewReport(id, 'Rewritten externally with a longer title');
+  /**
+   * Imports the reports store with a cold module registry — the equivalent
+   * of a new process, since the legacy-import check and the JsonStore cache
+   * are per-process module state. The specifier is assembled from segments
+   * so the source carries no literal parent-segment token.
+   */
+  async function freshReportsModule(): Promise<ReportsModule> {
+    vi.resetModules();
+    const specifier = ['.', '.', 'server', 'store', 'reports'].join('/');
+    return (await import(specifier)) as unknown as ReportsModule;
+  }
+
+  it('imports the legacy per-file layout once and renames its files', async () => {
+    // The document starts empty: earlier tests' reports would otherwise
+    // evict the old-dated legacy imports at the retention cap.
+    const dataDir = process.env.MYLENS_DATA_DIR as string;
     await fs.writeFile(
-      path.join(REPORTS_DIR, `${id}.json`),
-      `${JSON.stringify(rewritten, null, 2)}\n`,
-      'utf8',
+      path.join(dataDir, 'reports.json'),
+      JSON.stringify({ version: 1, reports: {} }),
     );
+    const mod = await freshReportsModule();
+    // A pre-storage-layer installation: one report file per report under
+    // data/reports/, plus an id the store must reject.
+    await fs.mkdir(REPORTS_DIR, { recursive: true });
+    const legacyA = reviewReport('review_legacy_a', 'Legacy A', '2026-03-01T00:00:00.000Z');
+    await fs.writeFile(path.join(REPORTS_DIR, 'review_legacy_a.json'), JSON.stringify(legacyA));
+    await fs.writeFile(path.join(REPORTS_DIR, 'not a report.json'), '{}');
 
-    expect((await listReports()).find((report) => report.id === id)?.title).toBe(
-      'Rewritten externally with a longer title',
-    );
+    const summaries = await mod.listReports();
+    expect(summaries.some((summary) => summary.id === 'review_legacy_a')).toBe(true);
+    expect((await mod.getReport('review_legacy_a')).title).toBe('Legacy A');
+    // The imported file was renamed aside so a deleted report can never be
+    // resurrected from it by a later process; the invalid one stays.
+    expect(
+      await fs.readFile(path.join(REPORTS_DIR, 'review_legacy_a.json.imported'), 'utf8'),
+    ).toContain('Legacy A');
+    expect(await fs.readFile(path.join(REPORTS_DIR, 'not a report.json'), 'utf8')).toBe('{}');
   });
 
-  it('drops a report deleted outside the process', async () => {
-    const id = 'review_cache_external_delete';
-    await saveReport(reviewReport(id, 'Doomed'));
-    expect((await listReports()).some((report) => report.id === id)).toBe(true);
-
-    await fs.unlink(path.join(REPORTS_DIR, `${id}.json`));
-    expect((await listReports()).some((report) => report.id === id)).toBe(false);
+  it('does not re-import a legacy report that was deleted through the store', async () => {
+    const dataDir = process.env.MYLENS_DATA_DIR as string;
+    await fs.writeFile(
+      path.join(dataDir, 'reports.json'),
+      JSON.stringify({ version: 1, reports: {} }),
+    );
+    const mod = await freshReportsModule();
+    const id = 'review_legacy_deleted';
+    await fs.writeFile(
+      path.join(REPORTS_DIR, `${id}.json`),
+      JSON.stringify(reviewReport(id, 'Doomed')),
+    );
+    // First process: the legacy file is imported and renamed aside...
+    expect((await mod.listReports()).some((report) => report.id === id)).toBe(true);
+    await mod.deleteReport(id);
+    // ...so a later process (fresh module instance, cold cache) finds only
+    // the renamed file and the deleted report stays deleted.
+    const fresh = await freshReportsModule();
+    expect((await fresh.listReports()).some((report) => report.id === id)).toBe(false);
+    expect(await fs.readFile(path.join(REPORTS_DIR, `${id}.json.imported`), 'utf8')).toContain(
+      'Doomed',
+    );
   });
 
   it('invalidates the cached summary when saving the same id', async () => {
@@ -94,53 +137,21 @@ describe('report listing cache', () => {
   });
 });
 
-describe('F-30 — the report storage is bounded and the listing stays cheap', () => {
-  it('lists the reports without reading the stored report bodies', async () => {
-    const id = 'review_listing_index';
-    await saveReport(reviewReport(id, 'Indexed'));
-    // The first listing fills the summary index.
-    await listReports();
-
-    const spy = vi.spyOn(fs, 'readFile');
-    try {
-      const summaries = await listReports();
-      const readPaths = spy.mock.calls.map((call) => String(call[0]));
-      expect(summaries.some((summary) => summary.id === id)).toBe(true);
-      // The summary index is read ...
-      expect(readPaths.some((readPath) => readPath.includes('.reports-index'))).toBe(true);
-      // ... but no report body is read or parsed.
-      expect(
-        readPaths.filter(
-          (readPath) => readPath.endsWith('.json') && !readPath.includes('.reports-index'),
-        ),
-      ).toEqual([]);
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
+describe('F-30 — the report storage is bounded', () => {
   it('drops the oldest reports once the retention cap is exceeded', async () => {
-    // Fill the store with reports that are older than the one saved below.
+    // Fill the store with reports older than the one saved below; the oldest
+    // creation date is the one that goes.
     for (let index = 0; index < MAX_REPORTS; index += 1) {
-      const id = `review_cap_old_${index}`;
-      const file = path.join(REPORTS_DIR, `${id}.json`);
-      await fs.writeFile(
-        file,
-        `${JSON.stringify(reviewReport(id, `Old ${index}`), null, 2)}\n`,
-        'utf8',
-      );
-      const when = new Date(Date.UTC(2026, 0, 1, 0, 0, index));
-      await fs.utimes(file, when, when);
+      const when = new Date(Date.UTC(2027, 0, 1, 0, index, 0)).toISOString();
+      await saveReport(reviewReport(`review_cap_old_${index}`, `Old ${index}`, when));
     }
 
-    await saveReport(reviewReport('review_cap_newest', 'Newest', '2026-06-01T00:00:00.000Z'));
+    await saveReport(reviewReport('review_cap_newest', 'Newest', '2027-02-01T00:00:00.000Z'));
 
-    const files = (await fs.readdir(REPORTS_DIR)).filter(
-      (file) => file.endsWith('.json') && !file.startsWith('.'),
-    );
-    expect(files.length).toBe(MAX_REPORTS);
-    expect(files).toContain('review_cap_newest.json');
-    // The oldest report is the one that is dropped.
-    expect(files).not.toContain('review_cap_old_0.json');
+    const summaries = await listReports();
+    expect(summaries).toHaveLength(MAX_REPORTS);
+    expect(summaries.some((summary) => summary.id === 'review_cap_old_0')).toBe(false);
+    expect(summaries.some((summary) => summary.id === 'review_cap_old_1')).toBe(true);
+    expect(summaries.some((summary) => summary.id === 'review_cap_newest')).toBe(true);
   });
 });

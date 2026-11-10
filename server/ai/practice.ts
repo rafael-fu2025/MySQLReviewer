@@ -2,10 +2,12 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import type {
   AiProvider,
+  DatabaseObjects,
   Finding,
   PracticeDifficulty,
   PracticeEvaluation,
   PracticeGenerateRequest,
+  PracticeHintLadder,
   PracticeQuestion,
   PracticeSet,
   PracticeTopic,
@@ -16,8 +18,10 @@ import { PRACTICE_TOPICS } from '../../shared/types';
 import { AppError } from '../errors';
 import { getSettings } from '../store/settings';
 import { getCachedServerInfo } from '../db/manager';
-import { getSchemaSnapshot, getTableData } from '../db/introspection';
+import { getDatabaseObjects, getSchemaSnapshot, getTableData } from '../db/introspection';
 import { assertDatabaseAllowed, assertSqlScope } from '../db/scope';
+import { maskResultRows } from '../db/masking';
+import { estimateBytes } from '../db/serialize';
 import { schemaToText } from '../review/context';
 import { runStaticReview } from '../review/static-review';
 import { runExplain } from '../db/explain';
@@ -25,7 +29,9 @@ import { classifySql } from '../review/sql-classifier';
 import { executeQuery } from '../db/query';
 import {
   comparePracticeResults,
+  filterPracticeHintLadder,
   isSamePracticeSubmission,
+  maskPracticeComparison,
   practiceVerdict,
   scorePractice,
   validateReferenceSql,
@@ -34,6 +40,7 @@ import {
   addPracticeAttempt,
   getPracticeSet,
   listPracticeAttemptsForSet,
+  recordPracticeReviewOutcome,
   savePracticeSet,
 } from '../store/practice';
 import { complete, stream, type ChatMessage } from './index';
@@ -80,6 +87,14 @@ const QuestionSchema = z
     expectedResult: z.string().nullish(),
     orderMatters: z.boolean().optional(),
     hints: z.array(z.string()).optional(),
+    hintLadder: z
+      .object({
+        nudge: z.string().optional(),
+        approach: z.string().optional(),
+        skeleton: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
     estimatedMinutes: z.number().optional(),
     execute: z.boolean().optional(),
   })
@@ -134,6 +149,26 @@ function boundList(values: string[] | undefined, maxItems: number, maxLength: nu
 }
 
 /**
+ * Bounds the hint ladder tiers with the hint cap and runs the leak filter per
+ * tier. The skeleton tier legitimately holds SQL-ish fragments, so it gets the
+ * filter as-is: a skeleton that trips it is dropped while tiers 1–2 survive.
+ * Tiers the model omitted or that leak are absent, and an empty ladder is not
+ * stored at all.
+ */
+function boundHintLadder(
+  ladder: PracticeHintLadder | null | undefined,
+  tables: string[],
+): PracticeHintLadder | undefined {
+  if (!ladder) return undefined;
+  const bounded: PracticeHintLadder = {
+    nudge: boundText(ladder.nudge, PRACTICE_STORAGE_LIMITS.hint)?.trim() || undefined,
+    approach: boundText(ladder.approach, PRACTICE_STORAGE_LIMITS.hint)?.trim() || undefined,
+    skeleton: boundText(ladder.skeleton, PRACTICE_STORAGE_LIMITS.hint)?.trim() || undefined,
+  };
+  return filterPracticeHintLadder(bounded, tables);
+}
+
+/**
  * Applies the storage bounds to a generated question. The prompt-level limits
  * are a request, this is the guarantee: a huge or hostile model answer cannot
  * bloat the practice store.
@@ -145,6 +180,7 @@ export function boundPracticeQuestion(question: {
   referenceSql?: string | null;
   expectedResult?: string | null;
   hints?: string[];
+  hintLadder?: PracticeHintLadder | null;
   topics?: string[];
   tables?: string[];
 }): {
@@ -154,16 +190,29 @@ export function boundPracticeQuestion(question: {
   referenceSql: string | null;
   expectedResult: string | null;
   hints: string[];
+  hintLadder?: PracticeHintLadder;
   topics: string[];
   tables: string[];
 } {
+  // When the model produced a ladder, the flat hints stay the union of the
+  // surviving tiers in order, so old clients keep seeing a progressive list.
+  const hintLadder = boundHintLadder(question.hintLadder, question.tables ?? []);
+  const tierHints = hintLadder
+    ? (['nudge', 'approach', 'skeleton'] as const)
+        .map((tier) => hintLadder[tier])
+        .filter((tier): tier is string => typeof tier === 'string')
+    : [];
   return {
     title: boundText(question.title, PRACTICE_STORAGE_LIMITS.title) ?? '',
     scenario: boundText(question.scenario, PRACTICE_STORAGE_LIMITS.scenario) ?? '',
     brokenSql: boundSql(question.brokenSql, PRACTICE_STORAGE_LIMITS.brokenSql),
     referenceSql: boundSql(question.referenceSql, PRACTICE_STORAGE_LIMITS.referenceSql),
     expectedResult: boundText(question.expectedResult, PRACTICE_STORAGE_LIMITS.expectedResult),
-    hints: boundList(question.hints, PRACTICE_STORAGE_LIMITS.hints, PRACTICE_STORAGE_LIMITS.hint),
+    hints:
+      tierHints.length > 0
+        ? tierHints
+        : boundList(question.hints, PRACTICE_STORAGE_LIMITS.hints, PRACTICE_STORAGE_LIMITS.hint),
+    hintLadder,
     topics: boundList(
       question.topics,
       PRACTICE_STORAGE_LIMITS.topics,
@@ -270,6 +319,41 @@ export interface PracticeScopeOptions {
   scopeOverride?: { allowed: string[] };
 }
 
+function programmableObjectsText(objects: DatabaseObjects, maxChars: number): string {
+  const parts: string[] = [];
+  if (objects.views.length > 0) {
+    parts.push('VIEWS:');
+    for (const view of objects.views.slice(0, 10)) {
+      const def = view.definition ? `\n    ${view.definition.slice(0, 300)}` : '';
+      parts.push(`  VIEW ${view.name} (updatable=${view.updatable}):${def}`);
+    }
+  }
+  if (objects.routines.length > 0) {
+    parts.push('ROUTINES (STORED PROCEDURES & FUNCTIONS):');
+    for (const routine of objects.routines.slice(0, 10)) {
+      const params = routine.parameters ? `(${routine.parameters})` : '()';
+      const returns = routine.returnType ? ` RETURNS ${routine.returnType}` : '';
+      const body = routine.body ? `\n    ${routine.body.slice(0, 300)}` : '';
+      parts.push(`  ${routine.type} ${routine.name}${params}${returns}${body}`);
+    }
+  }
+  if (objects.triggers.length > 0) {
+    parts.push('TRIGGERS:');
+    for (const trigger of objects.triggers.slice(0, 10)) {
+      const stmt = trigger.statement ? `\n    ${trigger.statement.slice(0, 300)}` : '';
+      parts.push(
+        `  TRIGGER ${trigger.name} ${trigger.timing} ${trigger.event} ON ${trigger.table}${stmt}`,
+      );
+    }
+  }
+  if (parts.length === 0) return '';
+  let text = '\n\n' + parts.join('\n');
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars) + '\n-- [programmable objects truncated]';
+  }
+  return text;
+}
+
 async function schemaTextForTables(
   profileId: string,
   database: string,
@@ -287,8 +371,21 @@ async function schemaTextForTables(
           .slice()
           .sort((a, b) => b.rowsEstimate - a.rowsEstimate)
           .slice(0, 20);
+
+  const baseText = schemaToText(selected, maxChars);
+  let extraText = '';
+  try {
+    const remaining = maxChars - baseText.length;
+    if (remaining > 500) {
+      const objects = await getDatabaseObjects(profileId, database);
+      extraText = programmableObjectsText(objects, remaining);
+    }
+  } catch {
+    // Reading views, routines, or triggers is best-effort.
+  }
+
   return {
-    text: schemaToText(selected, maxChars),
+    text: baseText + extraText,
     includedTables: selected.map((table) => table.name),
   };
 }
@@ -433,8 +530,13 @@ export async function generatePracticeSet(
       referenceSql: rawQuestion.referenceSql,
       expectedResult: rawQuestion.expectedResult,
       hints: rawQuestion.hints,
+      hintLadder: rawQuestion.hintLadder,
       topics: rawQuestion.topics,
-      tables: rawQuestion.tables,
+      // The ladder leak filter runs against the tables the schema actually
+      // included: a skeleton that names one of them is a leak of the answer's
+      // FROM source. This is a superset of the stored schemaTables, so the
+      // public-time filter below never has to drop a stored tier.
+      tables: tableNames.length > 0 ? tableNames : rawQuestion.tables,
     });
     const referenceSql = rawQuestion.referenceSql?.trim() || null;
     let execute = Boolean(
@@ -483,6 +585,7 @@ export async function generatePracticeSet(
         .map((hint) => hint.trim())
         .filter(Boolean)
         .slice(0, 5),
+      hintLadder: bounded.hintLadder,
       estimatedMinutes: Math.max(1, Math.min(120, Math.round(rawQuestion.estimatedMinutes ?? 10))),
       execute: Boolean(execute && referenceSql),
     });
@@ -606,8 +709,26 @@ export async function evaluatePractice(input: {
         }
       }
       if (userResult && referenceResult) {
-        comparison = comparePracticeResults(userResult, referenceResult, question.orderMatters);
+        // The comparison runs on the raw values: masking happens per query, so
+        // an aliased credential column could mask differently on the two sides
+        // and flip the verdict.
+        const graded = comparePracticeResults(userResult, referenceResult, question.orderMatters);
         executed = true;
+        // The verdict is decided; the samples reach the client, the attempt
+        // store and the AI prompt, so their sensitive cells are masked here.
+        comparison = maskPracticeComparison(
+          graded,
+          userResult,
+          referenceResult,
+          settings.maskSensitiveColumns,
+        );
+      }
+      // Everything that leaves the grader from here on — prompt, response,
+      // attempt store — sees masked rows. The raw copies existed only for the
+      // comparison above.
+      if (userResult) userResult = maskPracticeResult(userResult, settings.maskSensitiveColumns);
+      if (referenceResult) {
+        referenceResult = maskPracticeResult(referenceResult, settings.maskSensitiveColumns);
       }
     } else {
       issues.push(
@@ -757,6 +878,7 @@ export async function evaluatePractice(input: {
     aiRepairAttempted: aiRepairAttempted || undefined,
   };
 
+  const attemptedAt = new Date().toISOString();
   await addPracticeAttempt({
     id: crypto.randomUUID(),
     profileId: input.profileId,
@@ -773,8 +895,28 @@ export async function evaluatePractice(input: {
       referenceResult: null,
       explain: null,
     },
-    createdAt: new Date().toISOString(),
+    createdAt: attemptedAt,
   });
+
+  // Spaced-repetition scheduling rides on the recorded attempt. The
+  // duplicate-submission path above returned before this point, so a duplicate
+  // never touches the review queue. Scheduling is best-effort: the attempt is
+  // already recorded, so a queue failure must not fail the response.
+  try {
+    await recordPracticeReviewOutcome({
+      profileId: input.profileId,
+      setId: set.id,
+      questionId: question.id,
+      verdict: evaluation.verdict,
+      topics: question.topics,
+      difficulty: question.difficulty,
+      attemptedAt,
+    });
+  } catch (error) {
+    console.warn(
+      `[mylens] Could not update the practice review queue: ${(error as Error).message}`,
+    );
+  }
 
   return evaluation;
 }
@@ -785,12 +927,36 @@ async function executePracticeQuery(
   sql: string,
   scopeOverride?: { allowed: string[] },
 ): Promise<QueryResult> {
+  // Rows come back unmasked so the comparison sees the real values on both
+  // sides. `evaluatePractice` masks everything it keeps, persists, or returns.
   return executeQuery(profileId, sql, {
     database,
     rowLimit: 200,
     timeoutMs: 10_000,
     skipHistory: true,
     revealSensitive: false,
+    skipMasking: true,
     scopeOverride,
   });
+}
+
+/**
+ * Re-apply the source-aware masking to a result that was executed raw for the
+ * comparison. The sensitivity rule is the one `executeQuery` would have
+ * applied, so the previews the client sees stay identical.
+ */
+function maskPracticeResult(result: QueryResult, enabled: boolean): QueryResult {
+  const masked = maskResultRows(result.columns, result.rows, {
+    enabled,
+    reveal: false,
+    sql: result.sql,
+  });
+  return {
+    ...result,
+    columns: masked.columns,
+    rows: masked.rows,
+    rowCount: masked.rows.length,
+    bytesApprox: estimateBytes(masked.rows),
+    masked: masked.masked,
+  };
 }

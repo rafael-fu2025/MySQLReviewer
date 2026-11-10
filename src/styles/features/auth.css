@@ -7,23 +7,18 @@
  */
 
 .auth-page {
-  /* Dark theme: a real black-grey palette — no hue anywhere. Accents are
-     pure white, text neutral, and the borrowed brand tokens are pinned to
-     greys so the orange stays out of the sign-in screens. */
+  /* Dark theme: a real black-grey palette — no hue in the surfaces. The brand
+     accent is inherited from the global tokens: ember orange now carries the
+     CTA, the kicker and the focus rings on this screen too. */
   --auth-scene-bg: #09090a;
   --auth-scene-ink: #f2f2f3;
   --auth-scene-muted: #8e8e93;
   --auth-scene-line: color-mix(in oklab, #ffffff 14%, transparent);
   --auth-scene-orbit: color-mix(in oklab, #ffffff 18%, transparent);
-  --auth-scene-chip: #17171a;
   --auth-glow: #c9c9cf;
   --auth-panel-bg: #121214;
   --auth-panel-muted: #9b9ba1;
   --auth-panel-line: #2d2d31;
-  --auth-cta-bg: #f2f2f3;
-  --auth-cta-bg-hover: #ffffff;
-  --auth-cta-ink: #0b0b0c;
-  --color-ember: #ffffff;
   --color-ink: #f2f2f3;
   --color-ink-soft: #c9c9ce;
   /* The form fields borrow the app's navy-tinted surfaces; pin them neutral. */
@@ -46,21 +41,16 @@
 
 [data-theme='light'] .auth-page {
   /* Light theme keeps its warm paper palette; it re-declares every token the
-     dark block pins to greys. */
+     dark block pins to greys. Ember keeps the global burnt orange. */
   --auth-scene-bg: #eeede6;
   --auth-scene-ink: #1b2834;
   --auth-scene-muted: #566273;
   --auth-scene-line: color-mix(in oklab, #3f5169 18%, transparent);
   --auth-scene-orbit: color-mix(in oklab, #3c516c 25%, transparent);
-  --auth-scene-chip: #f8f7f1;
   --auth-glow: #ef9560;
   --auth-panel-bg: #fbfaf7;
   --auth-panel-muted: #5e6976;
   --auth-panel-line: #deded6;
-  --auth-cta-bg: #c9551c;
-  --auth-cta-bg-hover: #b94814;
-  --auth-cta-ink: #ffffff;
-  --color-ember: #a84705;
   --color-ink: #151a22;
   --color-ink-soft: #354050;
   --color-canvas: #f5f3ed;
@@ -130,7 +120,7 @@
 .auth-mark {
   width: 42px;
   height: 42px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--auth-scene-ink);
   color: var(--auth-scene-bg);
   box-shadow: none;
@@ -145,7 +135,6 @@
 
 .auth-brand-sub {
   margin-top: 5px;
-  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 450;
   letter-spacing: 0.16em;
@@ -163,7 +152,6 @@
 
 .auth-eyebrow,
 .auth-form-kicker {
-  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.16em;
@@ -177,24 +165,18 @@
   color: var(--auth-scene-muted);
 }
 
-.auth-eyebrow::before {
-  content: '';
-  width: 24px;
-  height: 1px;
-  background: var(--color-ember);
-}
-
 .auth-scene-title {
   margin-top: 23px;
   font-size: clamp(44px, 4.1vw, 68px);
   font-weight: 500;
   letter-spacing: -0.065em;
   line-height: 1.06;
+  text-wrap: balance;
 }
 
-.auth-scene-title em {
-  font-weight: 400;
-  font-style: normal;
+/* The second line is the same weight and style as the title; only the ember
+   color sets it apart. */
+.auth-title-em {
   color: var(--color-ember);
 }
 
@@ -204,6 +186,28 @@
   font-size: 13px;
   line-height: 1.8;
   color: var(--auth-scene-muted);
+  text-wrap: pretty;
+}
+
+/*
+ * The real product, framed: a flat screenshot of the workspace under the hero
+ * copy. No transforms — the border, radius and pop shadow do the framing. The
+ * cap keeps the observatory artwork in charge of the lower-right scene.
+ */
+.auth-shot {
+  width: min(500px, 100%);
+  margin-top: var(--space-6);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-pop);
+}
+
+.auth-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .query-observatory {
@@ -211,22 +215,11 @@
   z-index: 1;
   right: -3%;
   bottom: -30px;
-  width: min(68vw, 760px);
+  width: min(56vw, 620px);
   max-width: 110%;
   aspect-ratio: 1.31;
   pointer-events: none;
   animation: auth-enter 1.2s 0.2s ease-out both;
-}
-
-.observatory-glow {
-  position: absolute;
-  top: 36%;
-  left: 38%;
-  width: 32%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: color-mix(in oklab, var(--auth-glow) 9%, transparent);
-  filter: blur(50px);
 }
 
 .observatory-3d {
@@ -252,87 +245,10 @@
 }
 
 .observatory-core span {
-  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.22em;
   padding-left: 0.22em;
-}
-
-.observatory-chip {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 14px;
-  border: 1px solid var(--auth-scene-line);
-  border-radius: 6px;
-  background: color-mix(in oklab, var(--auth-scene-chip) 93%, transparent);
-  box-shadow: 0 7px 20px color-mix(in oklab, var(--auth-scene-bg) 18%, transparent);
-  font-size: 11px;
-  color: var(--auth-scene-ink);
-}
-
-.observatory-chip span {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  color: var(--color-ember);
-}
-
-.chip-explore {
-  top: 27%;
-  left: 12%;
-  animation: observatory-float 8s -1s ease-in-out infinite alternate;
-}
-
-.chip-understand {
-  top: 35%;
-  right: 4%;
-  animation: observatory-float 10s -5s ease-in-out infinite alternate-reverse;
-}
-
-.chip-refine {
-  bottom: 16%;
-  left: 21%;
-  animation: observatory-float 9s -2s ease-in-out infinite alternate;
-}
-
-.observatory-note {
-  position: absolute;
-  right: 10%;
-  bottom: 14%;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--auth-scene-ink);
-}
-
-.observatory-note-index {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.13em;
-  color: var(--auth-scene-muted);
-}
-
-.auth-scene-foot {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: auto;
-  padding-top: 48px;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.14em;
-  color: var(--auth-scene-muted);
-}
-
-.auth-scene-foot-line {
-  width: 16px;
-  height: 1px;
-  background: var(--auth-scene-line);
 }
 
 /* --- Access panel --------------------------------------------------- */
@@ -358,7 +274,6 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.015em;
   color: var(--auth-panel-muted);
@@ -384,6 +299,7 @@
   letter-spacing: -0.055em;
   line-height: 1.12;
   color: var(--color-ink);
+  text-wrap: balance;
 }
 
 .auth-heading p {
@@ -461,9 +377,10 @@
   padding-right: 48px;
 }
 
+/* Full-strength muted ink: #9b9ba1 on the #121214 field reads ≈6.8:1 in dark
+   (light #5e6976 on #fbfaf6 ≈5.3:1), so the old 0.8 opacity is unneeded. */
 .auth-card .input::placeholder {
   color: var(--auth-panel-muted);
-  opacity: 0.8;
 }
 
 .auth-card .input:hover {
@@ -500,6 +417,11 @@
   color: var(--color-ink);
 }
 
+/*
+ * The submit button keeps .button-primary's CTA tokens (background, hover fill,
+ * ink) and only resizes and spaces them for the form. The resting shadow is a
+ * faint halo of the CTA fill; the hover lift pops with --shadow-pop.
+ */
 .auth-submit {
   display: flex;
   width: 100%;
@@ -511,11 +433,9 @@
   padding: 0 17px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--auth-cta-bg);
-  box-shadow: 0 4px 14px color-mix(in oklab, var(--auth-cta-bg) 13%, transparent);
+  box-shadow: 0 4px 14px color-mix(in oklab, var(--color-cta) 13%, transparent);
   font-size: 13px;
   font-weight: 650;
-  color: var(--auth-cta-ink);
   transition:
     background 0.18s ease,
     transform 0.18s ease,
@@ -523,8 +443,7 @@
 }
 
 .auth-submit:hover:not(:disabled) {
-  background: var(--auth-cta-bg-hover);
-  box-shadow: 0 6px 18px color-mix(in oklab, var(--auth-cta-bg) 20%, transparent);
+  box-shadow: var(--shadow-pop);
   transform: translateY(-1px);
 }
 
@@ -541,7 +460,7 @@
   margin-top: -10px;
   font-size: 11px;
   text-align: center;
-  color: var(--auth-panel-muted);
+  color: var(--color-ink-soft);
 }
 
 .auth-privacy {
@@ -586,11 +505,10 @@
 .auth-panel-footer {
   flex-shrink: 0;
   padding-top: 30px;
-  font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.01em;
   text-align: center;
-  color: var(--auth-panel-muted);
+  color: var(--color-ink-soft);
 }
 
 @keyframes auth-enter {
@@ -612,12 +530,6 @@
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-@keyframes observatory-float {
-  to {
-    transform: translateY(-8px);
   }
 }
 
@@ -664,9 +576,10 @@
     max-width: 125%;
   }
 
-  .observatory-chip {
-    padding: 8px 10px;
-    font-size: 10px;
+  /* The screenshot drops out with the other scene dressing; the artwork and
+     copy carry the scene on their own from here down. */
+  .auth-shot {
+    display: none;
   }
 
   .auth-main {
@@ -731,12 +644,6 @@
     font-size: 8px;
   }
 
-  .observatory-chip,
-  .observatory-note,
-  .auth-scene-foot {
-    display: none;
-  }
-
   .auth-main {
     min-height: 610px;
     flex: 1;
@@ -788,10 +695,6 @@
     gap: 9px;
     font-size: 8px;
     letter-spacing: 0.1em;
-  }
-
-  .auth-eyebrow::before {
-    width: 16px;
   }
 
   .auth-scene-title {
@@ -860,7 +763,6 @@
   .auth-panel-footer {
     margin-top: auto;
     padding-top: 32px;
-    font-size: 8px;
   }
 }
 
@@ -879,23 +781,13 @@
     width: min(60vw, 640px);
     max-width: 125%;
   }
-
-  .chip-explore {
-    display: none;
-  }
-
-  .observatory-note {
-    right: 20%;
-    bottom: 16%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .auth-brand,
   .auth-scene-copy,
   .query-observatory,
-  .auth-panel,
-  .observatory-chip {
+  .auth-panel {
     animation: none !important;
   }
 

@@ -82,7 +82,7 @@ function ReviewReportView({ report }: { report: StoredReviewReport }) {
               HTML
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={exporting === 'json' ? <Spinner size={12} /> : <FileJson size={12} />}
               onClick={() => void exportFormat('json')}
@@ -278,7 +278,7 @@ export function ReportDetailPage() {
     <div className="page">
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           icon={<ArrowLeft size={13} />}
           onClick={() => navigate('/reports')}

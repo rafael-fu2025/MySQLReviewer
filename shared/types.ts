@@ -482,6 +482,12 @@ export interface ExplainNode {
   runtimeRows?: number | null;
   runtimeFiltered?: number | null;
   runtimeMs?: number | null;
+  /**
+   * How often this node executed (`loops=N` of a MySQL EXPLAIN ANALYZE tree),
+   * when known. `runtimeRows` holds the total across the loops for MySQL, so
+   * per-iteration rows are `runtimeRows / runtimeLoops`.
+   */
+  runtimeLoops?: number | null;
 }
 
 export interface IndexSuggestion {
@@ -896,6 +902,20 @@ export interface SlowQueryInfo {
   rowsSent: number;
   firstSeen: string | null;
   lastSeen: string | null;
+  /**
+   * Digest-only enrichment below, present when the row came from
+   * performance_schema and the server carries the column. Slow-log rows leave
+   * these undefined.
+   */
+  /** Executions that scanned without using any index (full scans). */
+  noIndexUsed?: number;
+  /** Executions where no index was usable at all. */
+  noGoodIndexUsed?: number;
+  tmpTables?: number;
+  tmpDiskTables?: number;
+  /** 95th / 99th percentile latency in ms (MySQL >= 8.0.19 digests only). */
+  quantile95Ms?: number;
+  quantile99Ms?: number;
 }
 
 export interface ReplicationStatus {
@@ -903,6 +923,52 @@ export interface ReplicationStatus {
   ioRunning: string | null;
   sqlRunning: string | null;
   lagSeconds: number | null;
+}
+
+/**
+ * One waiter → blocker link in the current lock-wait graph. The transaction
+ * and thread ids match what the process list shows, so a blocker can be
+ * traced back to a session. `lockType` / `lockMode` describe the lock the
+ * waiter asked for; `heldLockMode` is the conflicting mode the blocker holds.
+ */
+export interface LockWaitInfo {
+  waiterTrxId: string;
+  waiterQuery: string | null;
+  waiterThread: number | null;
+  blockerTrxId: string;
+  blockerQuery: string | null;
+  blockerThread: number | null;
+  waitSeconds: number;
+  lockType: string | null;
+  lockMode: string | null;
+  lockedTable: string | null;
+  lockedIndex: string | null;
+  heldLockMode: string | null;
+}
+
+/**
+ * Lock-wait data for one server. When the source tables are unavailable
+ * (performance_schema off, missing privileges) `waits` is empty and `reason`
+ * explains why.
+ */
+export interface LockWaitsSnapshot {
+  waits: LockWaitInfo[];
+  reason: string | null;
+}
+
+/** One table's I/O since server start, from performance_schema. */
+export interface TableIoInfo {
+  database: string;
+  table: string;
+  countStar: number;
+  countRead: number;
+  countWrite: number;
+  totalLatencyMs: number;
+}
+
+export interface TableIoHotspots {
+  tables: TableIoInfo[];
+  reason: string | null;
 }
 
 export interface PerformanceSnapshot {
@@ -915,6 +981,9 @@ export interface PerformanceSnapshot {
   slowQueryAdvice: string | null;
   replication: ReplicationStatus;
   topTables: { database: string; table: string; rowsEstimate: number; totalBytes: number }[];
+  /** Top tables by I/O wait since server start (empty when performance_schema is off). */
+  tableIo: TableIoInfo[];
+  tableIoReason: string | null;
   generatedAt: string;
 }
 
@@ -1018,6 +1087,9 @@ export type PracticeTopic =
   | 'ddl'
   | 'indexes'
   | 'transactions'
+  | 'views'
+  | 'procedures'
+  | 'triggers'
   | 'design'
   | 'security';
 
@@ -1027,6 +1099,21 @@ export type PracticeTopic =
  * to the browser for an unanswered question — use `PracticeQuestionPublic` on the
  * wire instead.
  */
+/**
+ * Three progressive hint tiers the model is asked to produce. Tiers are absent
+ * when the model omitted them or when the leak filter dropped them, so every
+ * member is optional. `nudge` and `approach` are words only; `skeleton` may
+ * carry partial SQL but never the full answer (the leak filter guards that).
+ */
+export interface PracticeHintLadder {
+  /** Which clause or topic to look at; never SQL. */
+  nudge?: string;
+  /** The strategy in words; never SQL. */
+  approach?: string;
+  /** A partial SQL skeleton, at most one line per clause; not the answer. */
+  skeleton?: string;
+}
+
 export interface PracticeQuestion {
   id: string;
   type: PracticeTaskType;
@@ -1040,6 +1127,8 @@ export interface PracticeQuestion {
   expectedResult: string | null;
   orderMatters: boolean;
   hints: string[];
+  /** Tiered hints when the model produced them; `hints` stays the flat union. */
+  hintLadder?: PracticeHintLadder;
   estimatedMinutes: number;
   execute: boolean;
 }
@@ -1200,6 +1289,12 @@ export interface PracticeProgress {
   topics: PracticeProgressTopic[];
   recent: PracticeAttempt[];
   recommendedTopics: PracticeTopic[];
+  /** Consecutive local calendar days with at least one attempt, ending today (or yesterday). */
+  currentStreak?: number;
+  /** Longest consecutive-day run found in the retained attempt history. */
+  longestStreak?: number;
+  /** Score-weighted experience points over the retained attempts. */
+  xp?: number;
 }
 
 /** Wire shape of progress: recent attempts drop reference material. */
@@ -1209,6 +1304,52 @@ export interface PracticeProgressPublic extends Omit<PracticeProgress, 'recent'>
 
 export interface PracticeGenerateResult {
   set: PracticeSet;
+}
+
+/* ------------------------------------------------------------------ */
+/* SQL Lab learning loop (review queue, daily challenge)               */
+/* ------------------------------------------------------------------ */
+
+/** Verdicts that schedule a spaced-repetition review. */
+export type PracticeReviewVerdict = 'correct' | 'close' | 'incorrect';
+
+/** The intervals a `correct` answer earns, indexed by the box it just left. */
+export const PRACTICE_REVIEW_INTERVAL_DAYS = [3, 7, 14, 30] as const;
+
+/**
+ * One due review card as the wire shape of `GET /api/practice/review`. It
+ * carries the question text only: reference answers never travel on this
+ * endpoint, exactly as for an unattempted question elsewhere.
+ */
+export interface PracticeReviewQueueItem {
+  setId: string;
+  questionId: string;
+  title: string;
+  scenario: string;
+  topics: PracticeTopic[];
+  difficulty: PracticeDifficulty;
+  /** SM-2-lite box the item is in (0 = relearn). */
+  box: number;
+  /** ISO timestamp; the item is due when this is in the past. */
+  dueAt: string;
+  lastVerdict: PracticeReviewVerdict;
+  lastAttemptAt: string;
+}
+
+/** Stored pointer to the profile's daily challenge (local calendar date). */
+export interface PracticeDailyEntry {
+  /** Local date in `YYYY-MM-DD` form. */
+  date: string;
+  setId: string;
+}
+
+/** Wire shape of `GET /api/practice/daily`. */
+export interface PracticeDaily {
+  date: string;
+  /** Null when no daily challenge could be generated or picked; `reason` says why. */
+  set: PracticeSetPublic | null;
+  /** `no-provider` or `generation-failed` when `set` is null. */
+  reason?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1361,6 +1502,7 @@ export type ActivityAction =
   | 'audit'
   | 'practice-generate'
   | 'practice-evaluate'
+  | 'practice-daily'
   | 'report-export'
   | 'report-delete'
   | 'admin-user-create'
@@ -1487,6 +1629,9 @@ export const PRACTICE_TOPICS: { id: PracticeTopic; label: string }[] = [
   { id: 'ddl', label: 'DDL' },
   { id: 'indexes', label: 'Indexes & EXPLAIN' },
   { id: 'transactions', label: 'Transactions' },
+  { id: 'views', label: 'Views' },
+  { id: 'procedures', label: 'Stored procedures & functions' },
+  { id: 'triggers', label: 'Triggers' },
   { id: 'design', label: 'Schema design' },
   { id: 'security', label: 'Security' },
 ];

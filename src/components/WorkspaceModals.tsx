@@ -1,7 +1,17 @@
 import { Bookmark, ChevronRight, History, Plus, Save, Trash2 } from 'lucide-react';
 import type { HistoryEntry, Snippet } from '@shared/types';
 import { formatDate, formatDuration, sqlPreview } from '@/lib/format';
-import { Badge, Button, EmptyState, Field, IconButton, Input, Modal, Spinner } from './ui';
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  Input,
+  LoadingBlock,
+  Modal,
+  Spinner,
+} from './ui';
 
 export function WorkspaceModals({
   historyOpen,
@@ -15,6 +25,7 @@ export function WorkspaceModals({
   snippetsOpen,
   onCloseSnippets,
   snippets,
+  snippetsLoading,
   snippetTitle,
   onSnippetTitle,
   snippetTags,
@@ -35,6 +46,7 @@ export function WorkspaceModals({
   snippetsOpen: boolean;
   onCloseSnippets: () => void;
   snippets: Snippet[];
+  snippetsLoading: boolean;
   snippetTitle: string;
   onSnippetTitle: (value: string) => void;
   snippetTags: string;
@@ -59,7 +71,12 @@ export function WorkspaceModals({
         title="Query history"
         size="wide"
         footer={
-          <Button variant="danger" size="sm" icon={<Trash2 size={12} />} onClick={onClearHistory}>
+          <Button
+            variant="destructive"
+            size="sm"
+            icon={<Trash2 size={12} />}
+            onClick={onClearHistory}
+          >
             Clear history
           </Button>
         }
@@ -86,7 +103,12 @@ export function WorkspaceModals({
         ) : (
           <div className="flex max-h-[50vh] flex-col gap-2 overflow-auto">
             {filtered.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-line-soft bg-panel-2 p-3">
+              // `history-row` carries the modal rows' staggered entrance
+              // (modal-toast.css).
+              <div
+                key={entry.id}
+                className="history-row rounded-lg border border-line-soft bg-panel-2 p-3"
+              >
                 <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
                   <Badge tone={entry.success ? 'mint' : 'danger'}>
                     {entry.success ? 'ok' : 'error'}
@@ -104,7 +126,7 @@ export function WorkspaceModals({
                       Load
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       icon={<Plus size={11} />}
                       onClick={() => onLoadHistory(entry, true)}
@@ -128,11 +150,19 @@ export function WorkspaceModals({
       <Modal open={snippetsOpen} onClose={onCloseSnippets} title="Saved snippets" size="wide">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_260px]">
           <div className="flex max-h-[55vh] flex-col gap-2 overflow-auto">
-            {snippets.length === 0 ? (
+            {snippetsLoading && snippets.length === 0 ? (
+              // The list is fetched when the modal opens; a first open shows
+              // shimmer lines instead of silently sitting on the empty state.
+              // A refresh over an existing list keeps it on screen.
+              <LoadingBlock lines={4} />
+            ) : snippets.length === 0 ? (
               <EmptyState icon={<Bookmark size={20} />} title="No snippets saved" />
             ) : (
               snippets.map((snippet) => (
-                <div key={snippet.id} className="rounded-lg border border-line-soft bg-panel-2 p-3">
+                <div
+                  key={snippet.id}
+                  className="snippet-row rounded-lg border border-line-soft bg-panel-2 p-3"
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-semibold text-ink">{snippet.title}</span>
                     {snippet.tags.map((tag) => (

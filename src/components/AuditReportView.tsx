@@ -89,7 +89,7 @@ export function AuditReportView({ report }: { report: AuditReport }) {
               HTML
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={
                 exporting === 'json' ? (

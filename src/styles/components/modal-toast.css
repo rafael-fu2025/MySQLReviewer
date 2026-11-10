@@ -15,7 +15,7 @@
   justify-content: center;
   padding: 16px;
   overflow: auto;
-  animation: fadeIn 0.14s ease;
+  animation: fadeIn 0.14s var(--ease-out);
 }
 .modal {
   width: 100%;
@@ -26,13 +26,14 @@
   background: var(--color-panel);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
-  animation: fadeUp 0.18s ease;
+  animation: fadeUp 0.18s var(--ease-out);
   max-height: 88vh;
   display: flex;
   flex-direction: column;
 }
 .modal.closing {
-  animation: fadeOut 0.18s ease both;
+  /* Exit ≈20% shorter than the 0.18s entrance. */
+  animation: fadeOut 0.14s ease both;
 }
 .modal.wide {
   max-width: 880px;
@@ -75,7 +76,7 @@
   max-width: 100%;
   border-radius: 18px 18px 0 0;
   border-bottom: 0;
-  animation: sheetUp 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: sheetUp 0.26s var(--ease-out) both;
   will-change: transform;
 }
 .modal-sheet.closing {
@@ -126,6 +127,37 @@
   flex-wrap: wrap;
 }
 
+/*
+ * History and snippet rows fade up with the same 30ms stagger the practice
+ * rows use (capped at five). The modal panel itself already fades up as a
+ * whole (`.modal`), so the rows only add the staggered entrance; the radius
+ * stays on the rows' own Tailwind classes.
+ */
+.history-row,
+.snippet-row {
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+.history-row:nth-child(1),
+.snippet-row:nth-child(1) {
+  animation-delay: 0.03s;
+}
+.history-row:nth-child(2),
+.snippet-row:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.history-row:nth-child(3),
+.snippet-row:nth-child(3) {
+  animation-delay: 0.09s;
+}
+.history-row:nth-child(4),
+.snippet-row:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.history-row:nth-child(5),
+.snippet-row:nth-child(5) {
+  animation-delay: 0.15s;
+}
+
 .toast-viewport {
   position: fixed;
   right: 16px;
@@ -144,7 +176,7 @@
   border-radius: 11px;
   border: 1px solid var(--color-line);
   background: var(--color-panel-2);
-  animation: fadeUp 0.18s ease;
+  animation: fadeUp 0.18s var(--ease-out);
   font-size: 12px;
   color: var(--color-ink-soft);
 }
@@ -228,7 +260,8 @@
   height: 100%;
   border-radius: inherit;
   background: var(--color-ember);
-  transition: width 0.3s ease;
+  /* Bar fill is on-screen movement: eases in-out per the motion conventions. */
+  transition: width 0.3s var(--ease-in-out);
 }
 
 .spin {

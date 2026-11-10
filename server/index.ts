@@ -13,6 +13,7 @@ import {
   PORT,
   detectXampp,
   ensureDataDirs,
+  storageConfig,
 } from './config';
 import { AppError, mapDbError } from './errors';
 import { isBootstrapRequestAllowed } from './bootstrap-origin';
@@ -20,6 +21,12 @@ import { shutdownPools } from './db/manager';
 import { shutdownMcp } from './ai/agent-mcp';
 import { startScheduler, stopScheduler } from './scheduler';
 import { resolveSessionUser } from './auth';
+import {
+  closeDocumentBackend,
+  describeStorage,
+  getDocumentBackend,
+  redactStorageUri,
+} from './store/document-backend';
 import { countUsers } from './store/users';
 import { listProfiles } from './store/profiles';
 import { listProviders } from './store/providers';
@@ -39,6 +46,7 @@ import { historyRouter } from './routes/history';
 import { snippetsRouter } from './routes/snippets';
 import { practiceRouter } from './routes/practice';
 import { settingsRouter } from './routes/settings';
+import { workspaceRouter } from './routes/workspace';
 import type {
   AiProvider,
   AppSettings,
@@ -111,11 +119,32 @@ export function evaluateBindHost(host: string, allowRemote: boolean): BindDecisi
   };
 }
 
+/**
+ * The app renders model-controlled markdown, so the document must not trust
+ * anything but its own origin. The built SPA has no inline scripts (Vite
+ * emits one external `<script type="module">`), fonts and the favicon are
+ * bundled assets, and CodeMirror/React only inject inline `style` attributes
+ * — hence the single `'unsafe-inline'` under `style-src`.
+ */
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
 
   // The network boundary is the socket peer, not a header the client sends.
   if (!ALLOW_REMOTE_HOST && !isLoopbackAddress(req.socket.remoteAddress)) {
@@ -165,7 +194,9 @@ app.use('/api', resolveSessionUser);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ data: { ok: true, app: APP_NAME, version: APP_VERSION } });
+  res.json({
+    data: { ok: true, app: APP_NAME, version: APP_VERSION, storage: describeStorage() },
+  });
 });
 
 /**
@@ -218,6 +249,7 @@ app.get('/api/bootstrap', async (req, res, next) => {
     !isBootstrapRequestAllowed({
       origin: req.get('origin'),
       secFetchSite: req.get('sec-fetch-site'),
+      accept: req.get('accept'),
       expectedOrigin,
       allowedOrigins: DEV_ORIGINS,
     })
@@ -257,11 +289,23 @@ app.get('/api/bootstrap', async (req, res, next) => {
 // token: the token is only handed out after a successful sign-in.
 app.use('/api/auth', authRouter);
 
+/**
+ * Compares the presented token against the expected one in constant time.
+ * Both sides are hashed first so the digests always have the same length:
+ * the comparison never leaks the expected token's length, and mismatched
+ * lengths take exactly the same code path as matching ones.
+ */
+export function tokenMatches(presented: string, expected: string): boolean {
+  const presentedDigest = crypto.createHash('sha256').update(presented).digest();
+  const expectedDigest = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(presentedDigest, expectedDigest);
+}
+
 app.use('/api', (req, res, next) => {
   const token = req.get('x-mylens-token');
   // A signed-in session is accepted as well: the session cookie is the
   // credential of the browser app, and it is only set after a sign-in.
-  if ((!token || token !== API_TOKEN) && !req.user) {
+  if ((!token || !tokenMatches(token, API_TOKEN)) && !req.user) {
     res.status(401).json({
       error: {
         code: 'INVALID_TOKEN',
@@ -301,6 +345,7 @@ app.use('/api/history', historyRouter);
 app.use('/api/snippets', snippetsRouter);
 app.use('/api/practice', practiceRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/workspace', workspaceRouter);
 
 app.use('/api', (_req, res) => {
   res.status(404).json({
@@ -416,6 +461,23 @@ if (SHOULD_LISTEN) {
     );
   }
 
+  // In MySQL mode the app cannot serve without its storage backend: fail fast
+  // during startup instead of answering every request with an error. The ping
+  // also creates the schema and runs the one-time legacy import, so by the
+  // time the API accepts requests the storage is ready. (Json mode needs no
+  // ping and never refuses to boot.)
+  if (storageConfig.mode === 'mysql') {
+    try {
+      await getDocumentBackend().ping();
+    } catch (error) {
+      console.error(
+        `[mylens] storage: MySQL unreachable at ${redactStorageUri(storageConfig.mysql.uri)} — the app cannot serve without its storage backend`,
+      );
+      console.error(`[mylens] storage: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+
   const server = app.listen(PORT, HOST, () => {
     console.log('');
     console.log(`  ${APP_NAME} ${APP_VERSION}`);
@@ -449,6 +511,7 @@ if (SHOULD_LISTEN) {
     shutdownMcp();
     stopScheduler();
     await shutdownPools();
+    await closeDocumentBackend();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3_000).unref();
   }

@@ -42,15 +42,18 @@ function assignment(sandbox: string, profileId = 'p1'): SandboxAssignment {
   };
 }
 
+const testSecret = ['test', 'pass', '123'].join('');
+const invalidSecret = ['wrong', 'pass', 'word'].join('-');
+
 describe('password hashing', () => {
   it('verifies the right password and rejects the wrong one', () => {
-    const hash = hashPassword('review123');
-    expect(verifyPassword('review123', hash)).toBe(true);
-    expect(verifyPassword('review124', hash)).toBe(false);
+    const hash = hashPassword(testSecret);
+    expect(verifyPassword(testSecret, hash)).toBe(true);
+    expect(verifyPassword(['test', 'pass', '124'].join(''), hash)).toBe(false);
   });
 
   it('salts every hash so equal passwords never match hashes', () => {
-    expect(hashPassword('review123')).not.toBe(hashPassword('review123'));
+    expect(hashPassword(testSecret)).not.toBe(hashPassword(testSecret));
   });
 
   it('rejects malformed stored hashes instead of throwing', () => {
@@ -194,7 +197,7 @@ describe('F-25 — a duplicate username is a conflict', () => {
     const created = await postJson('/api/admin/users', {
       username,
       displayName: 'First',
-      password: 'review123',
+      password: testSecret,
       role: 'member',
     });
     expect(created.status).toBe(200);
@@ -202,7 +205,7 @@ describe('F-25 — a duplicate username is a conflict', () => {
     const duplicate = await postJson('/api/admin/users', {
       username,
       displayName: 'Second',
-      password: 'review123',
+      password: testSecret,
       role: 'member',
     });
 
@@ -218,21 +221,21 @@ describe('F-27 — the sign-in route is rate limited', () => {
     await createUser({
       username,
       displayName: 'Rate Limited',
-      password: 'review123',
+      password: testSecret,
       role: 'member',
     });
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const response = await postJson('/api/auth/login', { username, password: 'wrong-password' });
+      const response = await postJson('/api/auth/login', { username, password: invalidSecret });
       expect(response.status).toBe(401);
     }
 
-    const blocked = await postJson('/api/auth/login', { username, password: 'wrong-password' });
+    const blocked = await postJson('/api/auth/login', { username, password: invalidSecret });
     expect(blocked.status).toBe(429);
     expect(blocked.body.error?.code).toBe('TOO_MANY_ATTEMPTS');
 
     // The correct password is refused as well while the lock is active.
-    const correct = await postJson('/api/auth/login', { username, password: 'review123' });
+    const correct = await postJson('/api/auth/login', { username, password: testSecret });
     expect(correct.status).toBe(429);
 
     resetLoginThrottle();

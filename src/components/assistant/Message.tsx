@@ -78,7 +78,11 @@ function AssistantMessage({
       </div>
       <ToolCallList calls={message.toolCalls ?? []} onInsertSql={onInsertSql} />
       <ThinkingBlock text={message.thinking ?? ''} streaming={streaming} />
-      {hasContent ? <Markdown sanitize>{message.content}</Markdown> : null}
+      {hasContent ? (
+        <Markdown sanitize codeCopy>
+          {message.content}
+        </Markdown>
+      ) : null}
       {message.usage ? (
         <div className="ai-usage">
           ↑{formatTokens(message.usage.inputTokens)} ↓{formatTokens(message.usage.outputTokens)}{' '}

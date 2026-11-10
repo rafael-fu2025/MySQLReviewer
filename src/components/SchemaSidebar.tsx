@@ -312,7 +312,11 @@ export function SchemaSidebar({
       ) : pinnedError ? (
         <div className="flex flex-col items-start gap-2 p-3">
           <div className="text-2xs text-danger">{pinnedError}</div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refresh()}>
+          <button
+            type="button"
+            className="button button-secondary button-sm"
+            onClick={() => void refresh()}
+          >
             Retry
           </button>
         </div>

@@ -730,7 +730,7 @@ export function SettingsPage() {
                     Test
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
                     icon={<Edit3 size={11} />}
                     onClick={() => setConnectionModal({ open: true, profile })}
@@ -738,7 +738,7 @@ export function SettingsPage() {
                     Edit
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="tertiary"
                     size="sm"
                     className="ml-auto text-danger"
                     icon={<Trash2 size={11} />}
@@ -824,7 +824,7 @@ export function SettingsPage() {
                       Test
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       icon={<Edit3 size={11} />}
                       onClick={() => setProviderModal({ open: true, provider })}
@@ -833,7 +833,7 @@ export function SettingsPage() {
                     </Button>
                     {!provider.isDefault ? (
                       <Button
-                        variant="ghost"
+                        variant="tertiary"
                         size="sm"
                         icon={<Star size={11} />}
                         onClick={() => void makeDefaultProvider(provider)}
@@ -843,7 +843,7 @@ export function SettingsPage() {
                       </Button>
                     ) : null}
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       className="ml-auto text-danger"
                       icon={<Trash2 size={11} />}
@@ -1049,7 +1049,7 @@ export function SettingsPage() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
-                variant="danger"
+                variant="destructive"
                 size="sm"
                 icon={<Trash2 size={11} />}
                 onClick={() => {
@@ -1065,7 +1065,7 @@ export function SettingsPage() {
               >
                 Clear query history
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setTab('connections')}>
+              <Button variant="tertiary" size="sm" onClick={() => setTab('connections')}>
                 Manage connections
               </Button>
             </div>

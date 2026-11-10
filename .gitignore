@@ -35,7 +35,10 @@ coverage/
 /.vitest-out.txt
 /.verify-resp.json
 /.secret.key
+/.repro-data/
+/graphify-out/
 *.log
+*.tmp
 
 # OS and editor temporary files
 .DS_Store

@@ -47,7 +47,7 @@ describe('import SQL source', () => {
     const buttonIndex = html.indexOf('Choose .sql file');
     expect(buttonIndex).toBeGreaterThan(-1);
     const buttonStart = html.lastIndexOf('<button', buttonIndex);
-    expect(html.slice(buttonStart, buttonIndex)).toContain('btn-primary');
+    expect(html.slice(buttonStart, buttonIndex)).toContain('button-primary');
   });
 
   it('keeps the paste review separate from the file picker', () => {

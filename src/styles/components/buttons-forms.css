@@ -1,10 +1,22 @@
-/* Buttons / inputs — moved verbatim from index.css */
+/*
+ * Buttons / inputs — naming convention: base → purpose → size → state.
+ *
+ *   .button                  base component (never an acronym like .btn)
+ *   .button-primary          purpose modifier: primary | secondary | tertiary | destructive
+ *   .button-sm / .button-lg  size modifier (md is the base, so it takes no size class)
+ *   states                   pseudo-classes (:hover, :active, :focus-visible, :disabled)
+ *                            or state classes (.pulse-success, .closing) — never baked
+ *                            into the name
+ *
+ * Modifiers are separate composable classes: a small destructive button is
+ * `class="button button-destructive button-sm"`.
+ */
 
 /* ---------------------------------------------------------------- */
 /* Buttons / inputs                                                 */
 /* ---------------------------------------------------------------- */
 
-.btn {
+.button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22,91 +34,99 @@
     background 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease,
-    transform 0.1s ease,
+    transform var(--duration-fast) var(--ease-out),
     box-shadow 0.15s ease;
   user-select: none;
 }
-.btn:active {
-  transform: translateY(1px);
+.button:active {
+  transform: scale(0.97);
 }
-.btn:focus-visible {
+.button:focus-visible {
   outline: 2px solid var(--color-ember);
   outline-offset: 1px;
 }
-.btn:disabled {
+.button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
   transform: none;
 }
 /*
- * The CTA is theme-driven: orange with white text in light (5.2:1, fill above
- * 3:1 against both canvases), white with near-black text in dark.
+ * The CTA is theme-driven: ember orange with near-black text in dark, burnt
+ * orange with white text in light (≈5.2:1, fill above 3:1 against both
+ * canvases).
  */
-.btn-primary {
+.button-primary {
   background: var(--color-cta);
   color: var(--color-cta-ink);
   border-color: color-mix(in oklab, var(--color-cta) 78%, var(--color-cta-ink));
 }
-.btn-primary:hover:not(:disabled) {
+.button-primary:hover:not(:disabled) {
   background: var(--color-cta-hover);
 }
-.btn-secondary {
+.button-secondary {
   background: var(--color-panel-3);
   color: var(--color-ink);
   border-color: var(--color-line);
 }
-.btn-secondary:hover:not(:disabled) {
+.button-secondary:hover:not(:disabled) {
   border-color: color-mix(in oklab, var(--color-muted) 45%, var(--color-line));
   background: color-mix(in oklab, var(--color-panel-3) 75%, var(--color-panel));
 }
-.btn-ghost {
+.button-tertiary {
   background: transparent;
   color: var(--color-muted);
   border-color: transparent;
 }
-.btn-ghost:hover:not(:disabled) {
+.button-tertiary:hover:not(:disabled) {
   background: color-mix(in oklab, var(--color-panel-3) 70%, transparent);
   color: var(--color-ink);
 }
-.btn-danger {
+.button-destructive {
   background: color-mix(in oklab, var(--color-danger) 15%, var(--color-panel));
   color: var(--color-danger);
   border-color: color-mix(in oklab, var(--color-danger) 38%, var(--color-line));
 }
-.btn-danger:hover:not(:disabled) {
+.button-destructive:hover:not(:disabled) {
   background: color-mix(in oklab, var(--color-danger) 22%, var(--color-panel));
 }
-.btn-sm {
+.button-sm {
   padding: 6px 10px;
   min-height: 28px;
   font-size: var(--text-xs);
   border-radius: var(--radius-sm);
 }
-.btn-lg {
+.button-lg {
   padding: 11px 18px;
   min-height: 40px;
   font-size: var(--text-sm);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
-.icon-btn {
+.icon-button {
   width: 36px;
   height: 36px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: inline-grid;
   place-items: center;
   background: transparent;
   border: 1px solid transparent;
   color: var(--color-muted);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform var(--duration-fast) var(--ease-out);
 }
-.icon-btn:hover {
+.icon-button:hover {
   background: var(--color-panel-3);
   color: var(--color-ink);
   border-color: var(--color-line);
 }
-.icon-btn:focus-visible {
+.icon-button:active {
+  transform: scale(0.97);
+}
+.icon-button:focus-visible {
   outline: 2px solid var(--color-ember);
   outline-offset: 1px;
 }
@@ -121,7 +141,7 @@
   width: 100%;
   background: var(--input-surface);
   border: 1px solid var(--color-line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   padding: 8px 11px;
   font-size: 13px;
   color: var(--color-ink);
@@ -240,7 +260,7 @@ textarea.textarea:-webkit-autofill:focus {
   appearance: none;
   width: 16px;
   height: 16px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--color-line);
   background: var(--color-panel-3);
   display: grid;
@@ -274,6 +294,11 @@ textarea.textarea:-webkit-autofill:focus {
     background 0.15s ease,
     border-color 0.15s ease;
   flex: 0 0 auto;
+  /* Knob travel between the two resting positions: track is 36px wide with a
+     15px thumb inset 2px from each edge (34 - 15 - 2 - 2 = 15px). The
+     coarse-pointer override in base.css raises it for the larger touch
+     switch. */
+  --switch-travel: 15px;
 }
 .switch::after {
   content: '';
@@ -285,14 +310,75 @@ textarea.textarea:-webkit-autofill:focus {
   border-radius: 999px;
   background: var(--color-muted);
   transition:
-    transform 0.15s ease,
+    transform var(--duration-fast) var(--ease-in-out),
     background 0.15s ease;
+}
+/*
+ * 12% stretch rule: the thumb squashes along the track mid-flight — scaling X
+ * to 1.12 while it travels — and settles back to scaleX(1) so both resting
+ * positions are exactly the knob's resting size and offset. On-screen
+ * movement, so it eases in-out. The `switch-live` hook class is added by the
+ * Switch component on first interaction: CSS animations replay on mount, and
+ * an unchecked/checked switch must not slide on first render.
+ */
+@keyframes knob-on {
+  0% {
+    transform: translateX(0) scaleX(1);
+  }
+  50% {
+    transform: translateX(calc(var(--switch-travel) * 0.5)) scaleX(1.12);
+  }
+  100% {
+    transform: translateX(var(--switch-travel)) scaleX(1);
+  }
+}
+@keyframes knob-off {
+  0% {
+    transform: translateX(var(--switch-travel)) scaleX(1);
+  }
+  50% {
+    transform: translateX(calc(var(--switch-travel) * 0.5)) scaleX(1.12);
+  }
+  100% {
+    transform: translateX(0) scaleX(1);
+  }
+}
+.switch-live.on::after {
+  animation: knob-on var(--duration-fast) var(--ease-in-out);
+}
+.switch-live:not(.on)::after {
+  animation: knob-off var(--duration-fast) var(--ease-in-out);
 }
 .switch.on {
   background: color-mix(in oklab, var(--color-ember) 25%, var(--color-panel));
   border-color: color-mix(in oklab, var(--color-ember) 45%, var(--color-line));
 }
 .switch.on::after {
-  transform: translateX(15px);
+  transform: translateX(var(--switch-travel));
   background: var(--color-ember);
+}
+
+/*
+ * Stacked icon swap (CopyButton): both icons render in the same grid cell so
+ * the outgoing one can animate out while the incoming fades in (the incoming
+ * gets `.icon-crossfade` from base.css). The resting icon hidden off-state
+ * keeps its final frame as a transition, so a swap in either direction eases
+ * through opacity/scale/blur at exit length instead of snapping.
+ */
+.icon-stack {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.icon-stack > * {
+  grid-area: 1 / 1;
+}
+.icon-stack .icon-off {
+  opacity: 0;
+  transform: scale(0.8);
+  filter: blur(2px);
+  transition:
+    opacity var(--duration-exit) var(--ease-out),
+    transform var(--duration-exit) var(--ease-out),
+    filter var(--duration-exit) var(--ease-out);
 }

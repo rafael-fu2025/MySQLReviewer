@@ -691,7 +691,7 @@ function DataPreview({
           />
         </div>
         <Button
-          variant="ghost"
+          variant="tertiary"
           size="sm"
           className="ml-auto"
           icon={<RefreshCw size={12} />}
@@ -772,7 +772,7 @@ function TableDetailView({
         <div className="flex items-center gap-1">
           <CopyButton text={summary.name} label="Copy name" />
           <Button
-            variant="ghost"
+            variant="tertiary"
             size="sm"
             icon={<RefreshCw size={12} />}
             onClick={onRefresh}
@@ -997,7 +997,7 @@ function TableDetailView({
               {detail.createSql ? <CopyButton text={detail.createSql} label="Copy DDL" /> : null}
               {detail.createSql ? (
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   icon={<Download size={12} />}
                   onClick={() => {

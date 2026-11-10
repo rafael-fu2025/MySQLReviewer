@@ -240,7 +240,7 @@ export function ReportsPage() {
                   Open
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   icon={
                     exporting === `${report.id}:md` ? <Spinner size={11} /> : <FileText size={11} />
@@ -251,7 +251,7 @@ export function ReportsPage() {
                   tooltip="Markdown"
                 />
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   icon={
                     exporting === `${report.id}:html` ? <Spinner size={11} /> : <Globe2 size={11} />
@@ -262,7 +262,7 @@ export function ReportsPage() {
                   tooltip="HTML"
                 />
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   icon={
                     exporting === `${report.id}:json` ? (
@@ -277,7 +277,7 @@ export function ReportsPage() {
                   tooltip="JSON"
                 />
                 <Button
-                  variant="ghost"
+                  variant="tertiary"
                   size="sm"
                   className="text-danger"
                   tooltipClassName="ml-auto"

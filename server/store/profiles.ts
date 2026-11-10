@@ -327,7 +327,7 @@ export async function resolveProfilePassword(id: string): Promise<string> {
 export function profileConfigHash(profile: StoredProfile): string {
   const sessionPassword = sessionPasswords.get(profile.id);
   return crypto
-    .createHash('sha1')
+    .createHash('sha256')
     .update(
       JSON.stringify({
         host: profile.host,
@@ -339,7 +339,7 @@ export function profileConfigHash(profile: StoredProfile): string {
         sessionPassword:
           sessionPassword === undefined
             ? null
-            : crypto.createHash('sha1').update(sessionPassword).digest('hex'),
+            : crypto.createHash('sha256').update(sessionPassword).digest('hex'),
       }),
     )
     .digest('hex');

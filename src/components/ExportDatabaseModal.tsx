@@ -120,7 +120,7 @@ export function ExportDatabaseModal({
             </Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={onClose}>
+              <Button variant="tertiary" onClick={onClose}>
                 Cancel
               </Button>
               <Button
@@ -171,7 +171,7 @@ export function ExportDatabaseModal({
                   Writes are locked. Exporting the rows of a database needs an unlock.
                 </span>
                 <Button
-                  variant="danger"
+                  variant="destructive"
                   size="sm"
                   icon={<Unlock size={11} />}
                   onClick={() => setUnlockOpen(true)}
@@ -214,7 +214,7 @@ export function ExportDatabaseModal({
                 <span className="flex-1">{error}</span>
                 {locked ? (
                   <Button
-                    variant="danger"
+                    variant="destructive"
                     size="sm"
                     icon={<Unlock size={11} />}
                     onClick={() => setUnlockOpen(true)}

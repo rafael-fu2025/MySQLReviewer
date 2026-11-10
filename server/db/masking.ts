@@ -1019,7 +1019,12 @@ function flatSourceSensitiveColumns(
   return sensitive;
 }
 
-function maskCell(value: CellValue): CellValue {
+/**
+ * The masked-cell marker. Exported for the practice grader, which computes its
+ * verdict on raw rows and then masks the row samples it reports so the samples
+ * carry exactly the marker the result previews use.
+ */
+export function maskCell(value: CellValue): CellValue {
   if (value === null || value === undefined) return value;
   if (typeof value === 'string' && value.length === 0) return value;
   if (typeof value === 'object' && value !== null && '__type' in value) {

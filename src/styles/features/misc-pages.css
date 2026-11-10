@@ -20,7 +20,7 @@
 }
 
 .fade-in {
-  animation: fadeUp 0.25s ease both;
+  animation: fadeUp 0.25s var(--ease-out) both;
 }
 
 .mono {
@@ -35,6 +35,54 @@
 
 .hide-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* Performance page                                                 */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The largest-tables share bars: a poll refresh moves a bar to its new
+ * share instead of snapping straight to it. Width changes of a persistent
+ * element are on-screen movement, so they ease in-out.
+ */
+.perf-bar-fill {
+  transition: width var(--duration-base) var(--ease-in-out);
+}
+
+/* ---------------------------------------------------------------- */
+/* View transitions                                                 */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Content-level swaps (the results grid's Table/Chart toggle, practice
+ * question navigation) ride the View Transitions API when the browser has
+ * it. The results toolbar is identical across the two views, so naming it
+ * makes it MORPH between them — a shared layout element — while the pane
+ * root crossfades. Question navigation shares no element, so it only uses
+ * the root crossfade below.
+ *
+ * (The grid's own styles live in editor.css, but this package owns
+ * misc-pages.css, so the rules live here instead.)
+ */
+.results-toolbar {
+  view-transition-name: results-toolbar;
+}
+
+/* The root crossfade runs at the fast duration instead of the 250ms
+   default, so content swaps read as a beat, not a scene change. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-fast);
+}
+
+/*
+ * Reduced motion: the global kill-switch in base.css already collapses every
+ * animation (duration 0.001ms !important), which covers these view-transition
+ * animations too — so this block is intentionally a no-op.
+ */
+@media (prefers-reduced-motion: reduce) {
+  /* no-op: covered by the global kill-switch */
 }
 
 @media (max-width: 1180px) {

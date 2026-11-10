@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Sparkles, X } from 'lucide-react';
 import type { AssistantMode } from '@shared/types';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/app-store';
 import { ConfirmDialog } from '@/components/ui';
 import { ChatPanel } from './assistant/ChatPanel';
@@ -67,6 +68,13 @@ export interface AiAssistantProps {
 const PANEL_GAP = 60;
 
 /**
+ * How long the panel stays mounted after it starts closing: the exit
+ * animation runs 200ms — the 250ms entrance less the ~20% exits shave
+ * (`.ai-panel.closing` in assistant.css).
+ */
+const PANEL_EXIT_MS = 200;
+
+/**
  * The assistant that lives in the floating action button.
  *
  * It is a non-modal panel: the page behind it stays usable, so focus is not
@@ -100,11 +108,36 @@ export function AiAssistant({
   );
 
   const [open, setOpen] = useState(false);
+  const [wasOpen, setWasOpen] = useState(open);
+  const [mounted, setMounted] = useState(open);
+  const [closing, setClosing] = useState(false);
   const [input, setInput] = useState('');
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const fabRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<ComposerHandle | null>(null);
+
+  // Adjusting state as `open` changes keeps the panel mounted through its
+  // exit animation, so it can travel back into the button instead of
+  // vanishing — the same render-time adjustment the modal uses.
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setMounted(true);
+      setClosing(false);
+    } else {
+      setClosing(true);
+    }
+  }
+
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(() => {
+      setMounted(false);
+      setClosing(false);
+    }, PANEL_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
 
   const { profileId, database, sql, question } = context;
 
@@ -321,11 +354,14 @@ export function AiAssistant({
         {open ? <X size={19} /> : <Sparkles size={19} />}
       </button>
 
-      {open ? (
+      {mounted ? (
         <div
           id={panelId}
           ref={panelRef}
-          className="ai-panel"
+          // `settle` staggers the header and the chat body on open; the panel
+          // root mounts fresh on every open, so the stagger never replays on
+          // message renders. `closing` swaps the entrance for the exit.
+          className={cn('ai-panel', 'settle', closing && 'closing')}
           style={{ bottom: `calc(var(--ai-fab-bottom) + ${PANEL_GAP + bottomInset}px)` }}
           role="dialog"
           aria-label={title}
@@ -343,7 +379,7 @@ export function AiAssistant({
             <div className="ai-panel-head-actions">
               <button
                 type="button"
-                className="ai-panel-icon-btn"
+                className="ai-panel-icon-button"
                 onClick={requestReset}
                 disabled={!hasMessages}
                 aria-label={hasMessages ? 'Reset the conversation' : 'Nothing to reset'}
@@ -353,7 +389,7 @@ export function AiAssistant({
               </button>
               <button
                 type="button"
-                className="ai-panel-icon-btn"
+                className="ai-panel-icon-button"
                 onClick={close}
                 aria-label="Close the assistant"
               >
@@ -390,7 +426,7 @@ export function AiAssistant({
               onSend={send}
               onStop={chat.stop}
               onInsertSql={onInsertSql}
-              className="ai-panel-body"
+              className="ai-panel-body settle"
             />
           )}
         </div>

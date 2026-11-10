@@ -560,19 +560,23 @@ export default function ObservatoryAtomScene() {
 
     // --- Motion ----------------------------------------------------------------------
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+    // Pointer parallax tracks the pointer DIRECTLY: handheld input is never
+    // tweened, so there is no lerp between a target and a current value — the
+    // parallax term reads the last pointer position 1:1. The slow ambient
+    // drift below stays on its own sine terms; that part is ambience, not
+    // handheld input. With reduced motion the pointer is never picked up and
+    // the reset below zeroes it, so the parallax stays at rest.
+    const pointer = { x: 0, y: 0 };
     const onPointerMove = (event: MouseEvent): void => {
       if (reduced.matches) return;
-      pointer.tx = (event.clientX / window.innerWidth) * 2 - 1;
-      pointer.ty = (event.clientY / window.innerHeight) * 2 - 1;
+      pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+      pointer.y = (event.clientY / window.innerHeight) * 2 - 1;
     };
     window.addEventListener('mousemove', onPointerMove);
 
     let t = 18;
     const pose = (): void => {
-      // Slow editorial drift (the old 70s CSS wobble) plus pointer parallax.
-      pointer.x += (pointer.tx - pointer.x) * 0.04;
-      pointer.y += (pointer.ty - pointer.y) * 0.04;
+      // Slow editorial drift (the old 70s CSS wobble) plus direct pointer parallax.
       world.rotation.y = Math.sin((t * Math.PI * 2) / 70) * 0.3 + pointer.x * 0.12;
       world.rotation.x = Math.sin((t * Math.PI * 2) / 97 + 1.7) * 0.05 + pointer.y * 0.07;
       dust.rotation.y = -t * 0.01;
@@ -622,8 +626,8 @@ export default function ObservatoryAtomScene() {
     };
 
     const onReducedChange = (): void => {
-      pointer.tx = 0;
-      pointer.ty = 0;
+      pointer.x = 0;
+      pointer.y = 0;
       renderOnce();
     };
     reduced.addEventListener('change', onReducedChange);

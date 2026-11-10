@@ -15,8 +15,13 @@ import type {
 } from '@shared/types';
 import { DEFAULT_SETTINGS } from '@shared/types';
 import { api, ApiError, setApiToken, setUnauthorizedHandler } from '@/lib/api';
+import { randomId } from '@/lib/uuid';
+import { useWorkspaceStore } from './workspace-store';
 
-const ACTIVE_KEY = 'mylens.activeProfile';
+/** The selected profile is remembered per signed-in user, not per browser. */
+function activeProfileKey(userId: string | null): string | null {
+  return userId ? `mylens.activeProfile.${userId}` : null;
+}
 
 export interface Toast {
   id: string;
@@ -159,12 +164,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       applyTheme(boot.settings.theme);
 
-      const stored = localStorage.getItem(ACTIVE_KEY);
+      // The workspace belongs to the account, not the browser: swap in this
+      // user's persisted tabs before anything restores a profile.
+      useWorkspaceStore.getState().hydrateForUser(boot.currentUser?.id ?? null);
+      // The pre-multiuser build remembered the profile in one global key.
+      try {
+        localStorage.removeItem('mylens.activeProfile');
+      } catch {
+        // Storage unavailable; nothing to clean up.
+      }
+      const bootUser = boot.currentUser;
+      const activeKey = activeProfileKey(bootUser?.id ?? null);
+      const stored = activeKey ? localStorage.getItem(activeKey) : null;
       if (stored && boot.profiles.some((profile) => profile.id === stored)) {
         try {
           await get().connect(stored);
         } catch (error) {
-          localStorage.removeItem(ACTIVE_KEY);
+          if (activeKey) localStorage.removeItem(activeKey);
           get().toast(`Could not reconnect: ${clientError(error)}`, 'warn');
         }
       }
@@ -185,6 +201,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const theme = result.user.theme ?? get().settings.theme;
     set({ currentUser: result.user, needsSetup: false, theme });
     applyTheme(theme);
+    useWorkspaceStore.getState().hydrateForUser(result.user.id);
     // The anonymous bootstrap deliberately withholds the API token, the profile
     // list and the AI providers, and its profile list is unscoped. Re-read it
     // now that the session cookie exists so the client picks up the token and
@@ -209,6 +226,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const theme = result.user.theme ?? get().theme;
     set({ currentUser: result.user, needsSetup: false, theme });
     applyTheme(theme);
+    useWorkspaceStore.getState().hydrateForUser(result.user.id);
     const boot = await api.get<BootstrapInfo>('/api/bootstrap');
     setApiToken(boot.token);
     set({
@@ -226,8 +244,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       // Clearing local state matters more than the server round trip.
     }
-    const id = get().activeProfileId;
-    if (id) localStorage.removeItem(ACTIVE_KEY);
+    const user = get().currentUser;
+    const activeKey = activeProfileKey(user?.id ?? null);
+    if (activeKey) localStorage.removeItem(activeKey);
+    // Hand the workspace back to nobody: tabs, SQL and AI threads must not
+    // leak into the next account that signs in on this browser.
+    useWorkspaceStore.getState().hydrateForUser(null);
     // The token was issued to a signed-in session; drop it so a signed-out
     // client holds no pre-session credential.
     setApiToken('');
@@ -283,7 +305,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       objects: null,
       unlockedUntil: result.unlock.unlocked ? Date.parse(result.unlock.until ?? '') : null,
     });
-    localStorage.setItem(ACTIVE_KEY, profileId);
+    const user = get().currentUser;
+    const activeKey = activeProfileKey(user?.id ?? null);
+    if (activeKey) localStorage.setItem(activeKey, profileId);
     void get().refreshProfiles();
     void get().refreshSchema();
     void get().refreshObjects();
@@ -298,7 +322,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         // The local state still needs to be cleared.
       }
     }
-    localStorage.removeItem(ACTIVE_KEY);
+    const user = get().currentUser;
+    const activeKey = activeProfileKey(user?.id ?? null);
+    if (activeKey) localStorage.removeItem(activeKey);
     set({
       activeProfileId: null,
       server: null,
@@ -414,7 +440,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toast: (message, type = 'info') => {
-    const id = crypto.randomUUID();
+    const id = randomId();
     set((state) => ({
       toasts: [...state.toasts.slice(-3), { id, message, type }],
     }));

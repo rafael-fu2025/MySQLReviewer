@@ -32,11 +32,21 @@
 }
 
 .editor-wrap {
-  min-height: 150px;
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--color-canvas);
+}
+
+/*
+ * Splitter snap-back: a drag that releases past a bound returns to the clamp
+ * — an on-screen movement, so it eases in-out. While the drag is live there
+ * is deliberately no transition on `height`: the wrap follows the pointer
+ * directly (the rubber-banded value arrives from `resistSplit` instead).
+ */
+.editor-wrap.settling {
+  transition: height 0.2s var(--ease-in-out);
 }
 
 .editor-host {
@@ -241,7 +251,7 @@
  * The rule lifts their resting colour, and the separator gives the editor
  * utilities their own group instead of trailing the statement actions.
  */
-.toolbar .btn-ghost {
+.toolbar .button-tertiary {
   color: color-mix(in oklab, var(--color-ink) 60%, var(--color-muted));
 }
 .toolbar-sep {

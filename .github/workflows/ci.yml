@@ -7,14 +7,22 @@ on:
 
 jobs:
   verify:
-    name: Typecheck, lint, test
-    runs-on: ubuntu-latest
+    name: Verify (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['22']
+        include:
+          - os: ubuntu-latest
+            node: '24'
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
@@ -31,3 +39,13 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Secret scan
+        run: python scripts/secret-scan.py
+
+      - name: Dependency audit (advisory)
+        run: npm audit --audit-level=high
+        continue-on-error: true

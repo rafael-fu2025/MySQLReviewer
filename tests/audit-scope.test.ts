@@ -29,3 +29,27 @@ describe('audit server-wide scope guard', () => {
     });
   });
 });
+
+describe('audit database selection', () => {
+  it('rejects a selection that holds only system schemas', async () => {
+    const profile = await createProfile({
+      name: 'Unscoped connection',
+      host: '127.0.0.1',
+      port: 3306,
+      user: 'root',
+    });
+
+    // System schemas are filtered out of the selection; the audit must not
+    // re-admit them (which would silently audit `mysql`), it must fail fast.
+    await expect(
+      runAudit({
+        profileId: profile.id,
+        databases: ['mysql', 'information_schema'],
+        server: {} as ServerInfo,
+      }),
+    ).rejects.toMatchObject({
+      code: 'AUDIT_SELECTION_EMPTY',
+      status: 400,
+    });
+  });
+});

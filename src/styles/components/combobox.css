@@ -41,7 +41,10 @@
   border-radius: 11px;
   border: 1px solid var(--color-line);
   background: var(--color-panel-2);
-  animation: fadeUp 0.12s ease;
+  /* Drops from the input (150ms window, ease-out): origin at the top edge so
+     the panel scales out of the trigger, never from center. */
+  animation: fadeUp var(--duration-fast) var(--ease-out);
+  transform-origin: top;
 }
 .combo-search {
   display: flex;

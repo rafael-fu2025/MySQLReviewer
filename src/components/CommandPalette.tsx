@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -16,6 +16,7 @@ import {
 import { useAppStore } from '@/store/app-store';
 import { useUiStore } from '@/store/ui-store';
 import { emitWorkspace } from '@/lib/events';
+import { nextPaletteIndex } from '@/lib/keyboard';
 import { Kbd, Modal } from './ui';
 import { cn } from '@/lib/utils';
 
@@ -180,6 +181,12 @@ export function CommandPalette() {
   const activeItem = filtered[safeIndex];
   const activeOptionId = activeItem ? `${listboxId}-option-${activeItem.id}` : undefined;
 
+  /** The highlighted option, kept in view while the selection moves. */
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [activeOptionId]);
+
   // Reopening the palette starts from an empty query. Adjusting the state while
   // rendering avoids a second render from an effect.
   const [wasOpen, setWasOpen] = useState(open);
@@ -223,13 +230,11 @@ export function CommandPalette() {
               setIndex(0);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
+              const next = nextPaletteIndex(event.key, safeIndex, filtered.length);
+              if (next != null) {
                 event.preventDefault();
-                setIndex((value) => Math.min(filtered.length - 1, value + 1));
-              }
-              if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                setIndex((value) => Math.max(0, value - 1));
+                setIndex(next);
+                return;
               }
               if (event.key === 'Enter') {
                 activate(filtered[safeIndex]);
@@ -277,6 +282,7 @@ export function CommandPalette() {
                 role="option"
                 id={`${listboxId}-option-${item.id}`}
                 aria-selected={position === safeIndex}
+                ref={position === safeIndex ? activeRef : undefined}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs',
                   position === safeIndex

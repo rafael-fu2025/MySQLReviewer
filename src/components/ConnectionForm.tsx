@@ -591,7 +591,7 @@ export function ConnectionForm({
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         {onCancel ? (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <Button type="button" variant="tertiary" onClick={onCancel}>
             Cancel
           </Button>
         ) : null}

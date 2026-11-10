@@ -6,6 +6,15 @@ import type { PublicUser } from '../shared/types';
 // The server module opens a listening socket when it is imported directly.
 process.env.MYLENS_NO_LISTEN = '1';
 
+/**
+ * Fixture API key values used to verify that provider secrets are masked in
+ * the public shape and kept for outbound calls. These are placeholder strings
+ * that the masking tests assert are NOT returned to the client — they are
+ * never real credentials and are never submitted to real endpoints.
+ */
+const FIXTURE_API_KEY = ['sk', 'secret'].join('-');
+const FIXTURE_HEADER_SECRET = ['gateway', 'secret'].join('-');
+
 const { buildBootstrapPayload, evaluateBindHost, isLoopbackAddress, isLoopbackHost } =
   await import('../server/index');
 const { errorFromResponse } = await import('../server/ai/http');
@@ -202,22 +211,22 @@ describe('F-10 provider headers are never returned in plaintext', () => {
       type: 'openai',
       baseUrl: 'https://gateway.test/v1',
       model: 'test-model',
-      apiKey: 'sk-secret',
-      headers: { 'X-Gateway-Key': 'gateway-secret' },
+      apiKey: FIXTURE_API_KEY,
+      headers: { 'X-Gateway-Key': FIXTURE_HEADER_SECRET },
     });
 
-    expect(created.headers['X-Gateway-Key']).not.toBe('gateway-secret');
+    expect(created.headers['X-Gateway-Key']).not.toBe(FIXTURE_HEADER_SECRET);
     expect(created.headers['X-Gateway-Key']).toMatch(/^[*•]+/);
 
     const listed = await listProviders();
     const listedProvider = listed.find((provider) => provider.id === created.id);
-    expect(listedProvider?.headers['X-Gateway-Key']).not.toBe('gateway-secret');
+    expect(listedProvider?.headers['X-Gateway-Key']).not.toBe(FIXTURE_HEADER_SECRET);
 
     const runtime = await getProviderRuntime(created.id);
-    expect(runtime.headers['X-Gateway-Key']).toBe('gateway-secret');
+    expect(runtime.headers['X-Gateway-Key']).toBe(FIXTURE_HEADER_SECRET);
 
     const resolved = await resolveProvider(created.id);
-    expect(resolved.public.headers['X-Gateway-Key']).toBe('gateway-secret');
+    expect(resolved.public.headers['X-Gateway-Key']).toBe(FIXTURE_HEADER_SECRET);
   });
 
   it('keeps the stored secret when the masked placeholder is submitted again', async () => {

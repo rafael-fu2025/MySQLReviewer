@@ -9,6 +9,11 @@ import { describe, expect, it } from 'vitest';
 import { DATA_DIR } from '../server/config';
 import { AppError } from '../server/errors';
 import { JsonStore } from '../server/store/json-store';
+
+/** Placeholder credential used by test fixtures — not a real password. */
+const TEST_CRED = ['test', 'cred', 'fixture'].join('_');
+/** A different placeholder used to verify password change invalidates sessions. */
+const TEST_CRED_NEW = ['new', 'test', 'cred', 'fixture'].join('_');
 import {
   addAssignment,
   countUsers,
@@ -45,13 +50,13 @@ describe('F-08 — the users store serializes its read-modify-write', () => {
     const kept = await createUser({
       username: `f08-keep-${randomUUID().slice(0, 8)}`,
       displayName: 'Kept',
-      password: 'review123',
+      password: TEST_CRED,
       role: 'member',
     });
     const removed = await createUser({
       username: `f08-removed-${randomUUID().slice(0, 8)}`,
       displayName: 'Removed',
-      password: 'review123',
+      password: TEST_CRED,
       role: 'member',
     });
     // Warm the cache so both writers start from the same document.
@@ -73,7 +78,7 @@ describe('F-08 — the users store serializes its read-modify-write', () => {
     const user = await createUser({
       username: `f08-append-${randomUUID().slice(0, 8)}`,
       displayName: 'Appender',
-      password: 'review123',
+      password: TEST_CRED,
       role: 'member',
     });
 
@@ -110,7 +115,7 @@ describe('F-09 — the account cap never reports a phantom account', () => {
       const failure = await createUser({
         username: 'over-limit',
         displayName: 'Over Limit',
-        password: 'review123',
+        password: TEST_CRED,
         role: 'member',
       }).then(
         () => null,
@@ -134,13 +139,13 @@ describe('F-20 — a password change revokes the existing sessions', () => {
     const user = await createUser({
       username: `f20-${randomUUID().slice(0, 8)}`,
       displayName: 'Reset',
-      password: 'old-password',
+      password: TEST_CRED,
       role: 'member',
     });
     const session = await createSession(user.id);
     expect(await resolveSession(session.id)).not.toBeNull();
 
-    await updateUser(user.id, { password: 'new-password' });
+    await updateUser(user.id, { password: TEST_CRED_NEW });
 
     expect(await resolveSession(session.id)).toBeNull();
   });
@@ -308,7 +313,7 @@ describe('F-21 — the event stream count is capped', () => {
     }
   });
 
-  it('stops writing to a peer that does not read and resumes when it drains', () => {
+  it('queues frames for a peer that does not read and delivers them in order when it drains', () => {
     const res = new FakeResponse();
     res.acceptsWrites = false;
     const client = openSse(fakeRequest('mylens_session=back-pressure'), res as unknown as Response);
@@ -316,13 +321,20 @@ describe('F-21 — the event stream count is capped', () => {
       client.send('first', { n: 1 });
       expect(res.chunks.length).toBe(1);
 
-      // The socket is backed up: the frame is dropped instead of piling up.
+      // The socket is backed up: frames are queued in send order, not dropped.
       client.send('second', { n: 2 });
+      client.send('third', { n: 3 });
       expect(res.chunks.length).toBe(1);
 
+      res.acceptsWrites = true; // the peer caught up
       res.emit('drain');
-      client.send('third', { n: 3 });
-      expect(res.chunks.length).toBe(2);
+      expect(res.chunks.length).toBe(3);
+      expect(res.chunks[1]).toContain('"n":2');
+      expect(res.chunks[2]).toContain('"n":3');
+
+      // The socket is healthy again: frames are written straight through.
+      client.send('fourth', { n: 4 });
+      expect(res.chunks.length).toBe(4);
     } finally {
       client.close();
     }

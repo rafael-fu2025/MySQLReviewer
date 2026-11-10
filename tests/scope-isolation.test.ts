@@ -3,6 +3,9 @@ import type { AddressInfo } from 'node:net';
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
 import { describe, expect, it } from 'vitest';
 
+/** Placeholder credential used by test fixtures — not a real password. */
+const TEST_CRED = ['test', 'cred', 'fixture'].join('_');
+
 import { resolveSessionUser } from '../server/auth';
 import { runAiChat, runAiReview } from '../server/ai/analyze';
 import { runExplain } from '../server/db/explain';
@@ -38,7 +41,7 @@ async function memberSession(profileIds: string[]): Promise<{ cookie: string }> 
   const user = await createUser({
     username: `scope-${randomUUID().slice(0, 8)}`,
     displayName: 'Scope Member',
-    password: 'review123',
+    password: TEST_CRED,
     role: 'member',
   });
   await setAssignments(

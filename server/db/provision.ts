@@ -74,7 +74,12 @@ export interface ProvisionResult {
   complete: boolean;
 }
 
-function assertIdentifier(name: string, label: string): string {
+/**
+ * Validates that a name is a plain SQL identifier (letters, digits, `_`, `$`).
+ * Exported so route handlers can run the same guard the SQL-generating
+ * functions apply internally — the returned value is the safe one to use.
+ */
+export function assertIdentifier(name: string, label: string): string {
   if (!IDENTIFIER_RE.test(name)) {
     throw new AppError(
       'INVALID_NAME',

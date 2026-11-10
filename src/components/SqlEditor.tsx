@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { MySQL, sql } from '@codemirror/lang-sql';
+import {
+  snippetCompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionSource,
+} from '@codemirror/autocomplete';
 import { EditorState, Prec } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { lintGutter, linter, type Diagnostic } from '@codemirror/lint';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import type { SchemaSummary, StaticReviewResult } from '@shared/types';
+import type { SchemaSummary, Snippet, StaticReviewResult } from '@shared/types';
 import { api } from '@/lib/api';
+import { findingRange } from '@/lib/finding-range';
+import {
+  SQL_SNIPPET_TEMPLATES,
+  buildHoverIndex,
+  qualifierBefore,
+  resolveHover,
+  savedSnippetCompletions,
+} from '@/lib/sql-snippets';
 
 const highlight = HighlightStyle.define([
   { tag: tags.keyword, color: 'var(--cm-keyword)', fontWeight: '600' },
@@ -64,6 +78,22 @@ const editorTheme = EditorView.theme(
       backgroundColor: 'color-mix(in oklab, var(--color-ember) 18%, transparent)',
       color: 'var(--color-ink)',
     },
+    '.cm-sql-hover': {
+      padding: '6px 9px',
+      fontSize: '11px',
+      fontWeight: '560',
+      lineHeight: '1.35',
+      letterSpacing: '0.01em',
+    },
+    '.cm-sql-hover-title': {
+      fontFamily: 'var(--font-mono, monospace)',
+      fontWeight: '700',
+      color: 'var(--color-ink)',
+    },
+    '.cm-sql-hover-line': {
+      marginTop: '2px',
+      color: 'var(--color-muted)',
+    },
     '.cm-panels': {
       backgroundColor: 'var(--color-panel-2)',
       color: 'var(--color-ink)',
@@ -115,11 +145,20 @@ function severityFor(severity: string): Diagnostic['severity'] {
 // reconfigure the whole editor on every keystroke.
 const highlightExtension = syntaxHighlighting(highlight);
 const tabSizeExtension = EditorState.tabSize.of(2);
+// The template set never changes, so its snippet completions are built once.
+const templateCompletions: Completion[] = SQL_SNIPPET_TEMPLATES.map((template) =>
+  snippetCompletion(template.body, {
+    label: template.label,
+    detail: template.detail,
+    type: 'text',
+  }),
+);
 
 export function SqlEditor({
   value,
   onChange,
   schema,
+  snippets = [],
   profileId,
   database,
   liveLint,
@@ -131,6 +170,8 @@ export function SqlEditor({
   value: string;
   onChange: (value: string) => void;
   schema: SchemaSummary | null;
+  /** Saved snippets, offered as completions alongside the built-in templates. */
+  snippets?: Snippet[];
   profileId: string | null;
   database: string | null;
   liveLint: boolean;
@@ -160,11 +201,66 @@ export function SqlEditor({
     for (const table of schema?.tables ?? []) {
       schemaObject[table.name] = table.columns;
     }
-    return sql({
-      dialect: MySQL,
-      schema: schemaObject,
-      upperCaseKeywords: true,
-    });
+    // The source merges with the language's own keyword and schema sources by
+    // joining the same language-data facet `sql()` registers its sources on.
+    // Saved snippets are inserted verbatim (`apply` is plain text), so
+    // prepared-statement `${}` markers and PLACEHOLDER tokens stay untouched.
+    const snippetOptions: Completion[] = [
+      ...templateCompletions,
+      ...savedSnippetCompletions(snippets),
+    ];
+    const completionSource: CompletionSource = (context: CompletionContext) => {
+      // Snippets only compete while an identifier is being typed; after a dot
+      // (column completion) or on whitespace the language's own sources run
+      // alone.
+      const word = context.matchBefore(/[\w$]+/);
+      if (!word) return null;
+      return { from: word.from, options: snippetOptions };
+    };
+    return [
+      sql({
+        dialect: MySQL,
+        schema: schemaObject,
+        upperCaseKeywords: true,
+      }),
+      MySQL.language.data.of({ autocomplete: completionSource }),
+    ];
+  }, [schema, snippets]);
+
+  // Hover facts are rebuilt only when the schema changes; the tooltip source
+  // reads through the closed-over index, so hovering stays cheap.
+  const hoverExtension = useMemo(() => {
+    const hoverIndex = buildHoverIndex(schema?.tables ?? []);
+    return hoverTooltip(
+      (view, pos) => {
+        const line = view.state.doc.lineAt(pos);
+        const word = view.state.wordAt(pos);
+        if (!word) return null;
+        const wordText = line.text.slice(word.from - line.from, word.to - line.from);
+        const qualifier = qualifierBefore(line.text, word.from - line.from);
+        const info = resolveHover(wordText, qualifier, hoverIndex);
+        if (!info) return null;
+        return {
+          pos: word.from,
+          above: true,
+          create: () => {
+            const dom = document.createElement('div');
+            dom.className = 'cm-sql-hover';
+            const title = dom.appendChild(document.createElement('div'));
+            title.className = 'cm-sql-hover-title';
+            title.textContent = info.title;
+            for (const infoLine of info.lines) {
+              const row = dom.appendChild(document.createElement('div'));
+              row.className = 'cm-sql-hover-line';
+              row.textContent = infoLine;
+            }
+            return { dom };
+          },
+        };
+      },
+      // Hover-only: touch taps never open it, so mobile behavior is unchanged.
+      { hoverTime: 300 },
+    );
   }, [schema]);
 
   const lintExtensions = useMemo(() => {
@@ -187,9 +283,13 @@ export function SqlEditor({
               if (!finding.line) continue;
               if (finding.line < 1 || finding.line > view.state.doc.lines) continue;
               const line = view.state.doc.line(finding.line);
-              const to = Math.min(view.state.doc.length, Math.max(line.from + 1, line.to));
+              const { from, to } = findingRange(
+                finding.column,
+                line,
+                view.state.sliceDoc(line.from, line.to),
+              );
               diagnostics.push({
-                from: line.from,
+                from,
                 to,
                 severity: severityFor(finding.severity),
                 message: `${finding.title}\n${finding.message}`,
@@ -246,12 +346,13 @@ export function SqlEditor({
       // extension has to be added directly.
       EditorView.lineWrapping,
       sqlExtension,
+      hoverExtension,
       highlightExtension,
       tabSizeExtension,
       ...lintExtensions,
       keymapExtension,
     ],
-    [keymapExtension, lintExtensions, sqlExtension],
+    [hoverExtension, keymapExtension, lintExtensions, sqlExtension],
   );
 
   return (

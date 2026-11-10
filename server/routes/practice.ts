@@ -1,17 +1,22 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { PracticeGenerateRequest } from '../../shared/types';
+import type { PracticeGenerateRequest, PracticeSet, PracticeTopic } from '../../shared/types';
 import { AppError } from '../errors';
 import { assertProfileAssigned, currentUser, sandboxScopeOverride } from '../auth';
 import { logActivity } from '../store/activity';
 import { resolveProvider } from '../store/providers';
 import {
   clearPracticeAttempts,
+  getPracticeDailyEntry,
   getPracticeProgress,
   getPracticeSet,
+  listDuePracticeReviewItems,
   listPracticeAttempts,
   listPracticeAttemptsForSet,
   listPracticeSets,
+  localDateKey,
+  removePracticeReviewItem,
+  setPracticeDailyEntry,
   stampPracticeAttemptOwner,
   stampPracticeSetOwner,
 } from '../store/practice';
@@ -20,6 +25,7 @@ import {
   canRevealPracticeAnswers,
   toPublicPracticeAttempt,
   toPublicPracticeProgress,
+  toPublicPracticeReviewItem,
   toPublicPracticeSet,
 } from '../db/practice';
 import { evaluatePractice, generatePracticeSet } from '../ai/practice';
@@ -39,6 +45,9 @@ const TopicsSchema = z.array(
     'ddl',
     'indexes',
     'transactions',
+    'views',
+    'procedures',
+    'triggers',
     'design',
     'security',
   ]),
@@ -48,7 +57,7 @@ const GenerateSchema = z.object({
   profileId: z.string().min(1).max(200),
   database: z.string().min(1).max(200),
   tables: z.array(z.string().max(200)).max(50).optional(),
-  topics: TopicsSchema.min(1).max(13),
+  topics: TopicsSchema.min(1).max(16),
   difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
   count: z.coerce.number().int().min(1).max(25),
   providerId: z.string().min(1).max(200),
@@ -292,5 +301,153 @@ practiceRouter.delete(
     const query = parseQuery(ProfileQuery, req);
     await clearPracticeAttempts(query.profileId, user.role === 'member' ? user.id : undefined);
     res.json({ data: { cleared: true } });
+  }),
+);
+
+/* ------------------------------------------------------------------ */
+/* Learning loop: review queue, daily challenge                        */
+/* ------------------------------------------------------------------ */
+
+practiceRouter.get(
+  '/review',
+  asyncHandler(async (req, res) => {
+    const user = currentUser(req);
+    const query = parseQuery(ProfileQuery, req);
+    const items = await listDuePracticeReviewItems(
+      query.profileId,
+      user.role === 'member' ? user.id : undefined,
+    );
+    res.json({ data: items.map(toPublicPracticeReviewItem) });
+  }),
+);
+
+practiceRouter.delete(
+  '/review/:setId/:questionId',
+  asyncHandler(async (req, res) => {
+    // Parse first: the security decision must be made on a validated profileId.
+    const query = parseQuery(ProfileQuery, req);
+    assertProfileAssigned(req, query.profileId);
+    const setId = param(req, 'setId');
+    const questionId = param(req, 'questionId');
+    const dismissed = await removePracticeReviewItem(query.profileId, setId, questionId);
+    res.json({ data: { dismissed } });
+  }),
+);
+
+/** The most recently practiced database of the profile, for grounding a generation. */
+async function dailyDatabaseForProfile(profileId: string, userId?: string): Promise<string | null> {
+  const sets = await listPracticeSets(profileId, 1, userId);
+  if (sets[0]) return sets[0].database;
+  const attempts = await listPracticeAttempts(profileId, 1, userId);
+  return attempts[0]?.database ?? null;
+}
+
+/** The profile's most recent set that still holds an unattempted executable question. */
+async function pickFallbackDailySet(
+  profileId: string,
+  userId?: string,
+): Promise<PracticeSet | null> {
+  const sets = await listPracticeSets(profileId, 20, userId);
+  for (const set of sets) {
+    const attempts = await listPracticeAttemptsForSet(profileId, set.id, userId);
+    const attempted = new Set(attempts.map((attempt) => attempt.questionId));
+    if (set.questions.some((question) => question.execute && !attempted.has(question.id))) {
+      return set;
+    }
+  }
+  return null;
+}
+
+practiceRouter.get(
+  '/daily',
+  asyncHandler(async (req, res) => {
+    // Parse first: the security decision must be made on a validated profileId.
+    const query = parseQuery(ProfileQuery, req);
+    const user = assertProfileAssigned(req, query.profileId);
+    const memberFilter = user.role === 'member' ? user.id : undefined;
+    const date = localDateKey(new Date());
+
+    // Today's entry wins while its set still exists (and is still the member's).
+    const existing = await getPracticeDailyEntry(query.profileId);
+    if (existing && existing.date === date) {
+      try {
+        const set = await getPracticeSet(existing.setId);
+        if (!(memberFilter && set.userId !== memberFilter)) {
+          res.json({ data: { date, set: toPublicPracticeSet(set) } });
+          return;
+        }
+      } catch {
+        // The set fell out of the store cap; produce a fresh challenge below.
+      }
+    }
+
+    // The generation can call the provider; tie its lifetime to the request so
+    // a disconnected client cancels the (billable) call.
+    const controller = new AbortController();
+    res.on('close', () => controller.abort());
+    let set: PracticeSet | null = null;
+    let reason: string | undefined;
+    try {
+      const resolved = await resolveProvider(null);
+      const provider = resolved.public;
+      const database = await dailyDatabaseForProfile(query.profileId, memberFilter);
+      if (!database) {
+        throw new AppError(
+          'PRACTICE_DAILY_NO_DATABASE',
+          'No practiced database to build a daily challenge from.',
+          400,
+        );
+      }
+      const progress = await getPracticeProgress(query.profileId, memberFilter);
+      const fallbackTopics: PracticeTopic[] = ['select'];
+      const topics =
+        progress.recommendedTopics.length > 0 ? progress.recommendedTopics : fallbackTopics;
+      const request: PracticeGenerateRequest = {
+        profileId: query.profileId,
+        database,
+        topics,
+        difficulty: 'medium',
+        count: 1,
+        providerId: provider.id,
+      };
+      const result = await generatePracticeSet(
+        request,
+        provider,
+        resolved.apiKey,
+        () => {},
+        controller.signal,
+        { scopeOverride: sandboxScopeOverride(req.user, query.profileId) },
+      );
+      set = result.set;
+      await stampPracticeSetOwner(set.id, user.id);
+      await logActivity({
+        userId: user.id,
+        username: user.username,
+        action: 'practice-daily',
+        profileId: query.profileId,
+        database,
+        detail: '1 challenge',
+      });
+    } catch (error) {
+      reason =
+        (error as { code?: string }).code === 'NO_AI_PROVIDER'
+          ? 'no-provider'
+          : 'generation-failed';
+    }
+
+    if (!set) {
+      // No provider or a failed generation: fall back to a fresh executable
+      // question the profile has not attempted yet.
+      const fallback = await pickFallbackDailySet(query.profileId, memberFilter);
+      if (!fallback) {
+        res.json({ data: { date, set: null, reason: reason ?? 'no-candidate' } });
+        return;
+      }
+      set = fallback;
+    }
+
+    // The pointer persists for fallback picks too, so the day stays stable.
+    await setPracticeDailyEntry(query.profileId, { date, setId: set.id });
+    res.json({ data: { date, set: toPublicPracticeSet(set) } });
   }),
 );

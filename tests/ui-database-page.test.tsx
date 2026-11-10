@@ -93,14 +93,14 @@ describe('database page header actions (D-09)', () => {
 
   it('leaves the primary action of the page to create database', () => {
     const html = renderActions();
-    expect(buttonClass(html, 'Create database')).toContain('btn-primary');
-    expect(buttonClass(html, 'Import SQL')).not.toContain('btn-primary');
-    expect(buttonClass(html, 'Export SQL')).not.toContain('btn-primary');
+    expect(buttonClass(html, 'Create database')).toContain('button-primary');
+    expect(buttonClass(html, 'Import SQL')).not.toContain('button-primary');
+    expect(buttonClass(html, 'Export SQL')).not.toContain('button-primary');
   });
 
   it('keeps the read-only export a plain secondary action', () => {
     const html = renderActions();
-    expect(buttonClass(html, 'Export SQL')).toContain('btn-secondary');
+    expect(buttonClass(html, 'Export SQL')).toContain('button-secondary');
     expect(wrapperClass(html, 'Export SQL')).not.toMatch(/border-warn/);
   });
 });

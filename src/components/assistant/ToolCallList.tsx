@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import type { AgentToolCallView } from '@shared/types';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui';
+import { copyText } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -135,11 +136,13 @@ function ProposalCard({
   const rationale = stringArg(call.arguments.rationale);
 
   const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(sql);
+    // copyText covers insecure contexts (plain-HTTP LAN sharing), where the
+    // async Clipboard API does not exist.
+    const ok = await copyText(sql);
+    if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
+    } else {
       // A denied clipboard is not worth an error surface; the SQL is
       // readable in the card itself.
     }
@@ -188,14 +191,14 @@ function ProposalCard({
           {onInsertSql && sql ? (
             <button
               type="button"
-              className="ai-proposal-btn ai-proposal-btn-primary"
+              className="ai-proposal-button ai-proposal-button-primary"
               onClick={() => onInsertSql(sql)}
             >
               Insert into editor
             </button>
           ) : null}
           {sql ? (
-            <button type="button" className="ai-proposal-btn" onClick={() => void copy()}>
+            <button type="button" className="ai-proposal-button" onClick={() => void copy()}>
               {copied ? 'Copied' : 'Copy'}
             </button>
           ) : null}

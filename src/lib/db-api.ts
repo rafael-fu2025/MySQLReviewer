@@ -11,9 +11,11 @@ import type {
   HistoryEntry,
   PracticeAnswers,
   PracticeAttemptPublic,
+  PracticeDaily,
   PracticeEvaluateRequest,
   PracticeEvaluation,
   PracticeProgressPublic,
+  PracticeReviewQueueItem,
   PracticeSetPublic,
   QueryResult,
   SavedReviewResult,
@@ -388,5 +390,34 @@ export const dbApi = {
 
   clearPracticeAttempts(profileId: string): Promise<unknown> {
     return api.del(`/api/practice/attempts?profileId=${encodeURIComponent(profileId)}`);
+  },
+
+  /** The due spaced-repetition cards, ordered by when they came due. */
+  practiceReviewQueue(profileId: string): Promise<PracticeReviewQueueItem[]> {
+    return api.get<PracticeReviewQueueItem[]>(
+      `/api/practice/review?profileId=${encodeURIComponent(profileId)}`,
+    );
+  },
+
+  /**
+   * Drop one spaced-repetition card from the review queue. The recorded
+   * attempt stays; only the reminder is removed.
+   */
+  dismissPracticeReviewItem(
+    setId: string,
+    questionId: string,
+    profileId: string,
+  ): Promise<{ dismissed: boolean }> {
+    return api.del<{ dismissed: boolean }>(
+      `/api/practice/review/${encodeURIComponent(setId)}/${encodeURIComponent(questionId)}?profileId=${encodeURIComponent(profileId)}`,
+    );
+  },
+
+  /**
+   * Today's one-question challenge. The first call of a day may generate it,
+   * which can take a few seconds; after that the entry is stable for the day.
+   */
+  practiceDaily(profileId: string): Promise<PracticeDaily> {
+    return api.get<PracticeDaily>(`/api/practice/daily?profileId=${encodeURIComponent(profileId)}`);
   },
 };

@@ -72,7 +72,7 @@ a:hover {
 
 /*
  * One focus convention for every interactive primitive. `:where()` keeps
- * specificity at zero, so components that define their own ring (`.btn`,
+ * specificity at zero, so components that define their own ring (`.button`,
  * `.nav-item`, …) keep it and everything else gets the shared ember ring.
  * Text inputs are excluded on purpose: `.input:focus` draws their ring.
  */
@@ -139,13 +139,13 @@ a:hover {
   }
 }
 .panel-enter {
-  animation: rise-in 0.18s ease-out;
+  animation: rise-in 0.18s var(--ease-out);
 }
 .drawer-enter {
-  animation: slide-in-right 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: slide-in-right 0.22s var(--ease-out);
 }
 .scrim-enter {
-  animation: fade-in 0.18s ease;
+  animation: fade-in 0.18s var(--ease-out);
 }
 
 /*
@@ -198,6 +198,130 @@ a:hover {
 }
 
 /* ---------------------------------------------------------------- */
+/* Utilities                                                        */
+/* ---------------------------------------------------------------- */
+
+/* Numeric readouts: tabular figures keep columns of numbers steady. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Optical left alignment: pulls a display line left by a fraction of an em so
+ * its first glyph lines up with smaller neighbours set with normal tracking.
+ * Used on the auth title, which tracks at -0.065em — the value is tuned by
+ * eye against the eyebrow and sub above it, not measured.
+ */
+.optical-left {
+  margin-left: -0.04em;
+}
+
+/* ---------------------------------------------------------------- */
+/* Motion utilities                                                 */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Popovers/dropdowns open at scale 0.95 anchored to their TRIGGER: set
+ * `--pop-origin` per context — `top left` / `top right` for menus under a
+ * right/left-aligned button, `top` for dropdowns under an input — never from
+ * center. `.pop-in` plays on mount; `.pop-out` (forwards, exit length) when a
+ * kept-mounted panel animates its dismissal.
+ */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+.pop-in {
+  animation: pop-in var(--duration-fast) var(--ease-out);
+  transform-origin: var(--pop-origin, top right);
+}
+.pop-out {
+  animation: pop-out var(--duration-exit) var(--ease-out) forwards;
+  transform-origin: var(--pop-origin, top right);
+}
+
+/* Masks for reveals and color changes: wipe in from the left edge. */
+@keyframes mask-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.mask-reveal {
+  animation: mask-reveal var(--duration-base) var(--ease-out);
+}
+
+/* Pulse confirms success: a mint ring blooms and fades from the element. */
+@keyframes pulse-success {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-mint) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+.pulse-success {
+  animation: pulse-success 0.45s var(--ease-out);
+  border-radius: inherit;
+}
+
+/*
+ * Icons crossfade with scale and blur: pair `.icon-crossfade` (incoming) with
+ * an outgoing icon fading out (see `.icon-stack .icon-off` in
+ * buttons-forms.css) when both are rendered.
+ */
+@keyframes icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+    filter: blur(2px);
+  }
+}
+.icon-crossfade {
+  animation: icon-in var(--duration-fast) var(--ease-out);
+}
+
+/*
+ * Details settle in staggered order: apply `.settle` to a container and its
+ * direct children fade up 30ms apart (first child immediately, eighth at
+ * 0.21s).
+ */
+.settle > * {
+  animation: fadeUp var(--duration-base) var(--ease-out) both;
+}
+.settle > *:nth-child(2) {
+  animation-delay: 0.03s;
+}
+.settle > *:nth-child(3) {
+  animation-delay: 0.06s;
+}
+.settle > *:nth-child(4) {
+  animation-delay: 0.09s;
+}
+.settle > *:nth-child(5) {
+  animation-delay: 0.12s;
+}
+.settle > *:nth-child(6) {
+  animation-delay: 0.15s;
+}
+.settle > *:nth-child(7) {
+  animation-delay: 0.18s;
+}
+.settle > *:nth-child(8) {
+  animation-delay: 0.21s;
+}
+
+/* ---------------------------------------------------------------- */
 /* Touch targets                                                    */
 /* ---------------------------------------------------------------- */
 
@@ -207,8 +331,8 @@ a:hover {
  * desktop sizing so the data UI stays compact.
  */
 @media (pointer: coarse) {
-  .btn,
-  .btn-sm,
+  .button,
+  .button-sm,
   .tab,
   .segmented button,
   .nav-item,
@@ -219,8 +343,8 @@ a:hover {
   .combo-button {
     min-height: var(--hit-min);
   }
-  .icon-btn,
-  .practice-nav-head .icon-btn {
+  .icon-button,
+  .practice-nav-head .icon-button {
     width: var(--hit-min);
     height: var(--hit-min);
   }
@@ -233,13 +357,15 @@ a:hover {
   .switch {
     width: 48px;
     height: 28px;
+    /* Larger touch switch: the knob rests 20px further right when on. */
+    --switch-travel: 20px;
   }
   .switch::after {
     width: 22px;
     height: 22px;
   }
   .switch.on::after {
-    transform: translateX(20px);
+    transform: translateX(var(--switch-travel));
   }
   .checkbox input {
     width: 20px;

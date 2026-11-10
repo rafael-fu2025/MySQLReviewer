@@ -83,6 +83,92 @@ export function stripDefiner(createSql: string): string {
   );
 }
 
+/**
+ * One row of `information_schema.EVENTS`, the columns a dump assembles a
+ * `CREATE EVENT` from. The row's `DEFINER` column is deliberately not read:
+ * the statement is emitted without a definer clause, like the routines, so it
+ * loads on a server where the creating account does not exist.
+ */
+export interface ExportEventRow {
+  EVENT_NAME: string;
+  EVENT_DEFINITION: string | null;
+  /** `RECURRING` or `ONE TIME`. */
+  EVENT_TYPE: string | null;
+  INTERVAL_VALUE: string | number | null;
+  INTERVAL_FIELD: string | null;
+  /** `ENABLED`, `DISABLED` or `SLAVESIDE_DISABLED`. */
+  STATUS: string | null;
+  /** `PRESERVE` or `NOT PRESERVE`. */
+  ON_COMPLETION: string | null;
+  STARTS: unknown;
+  ENDS: unknown;
+  EXECUTE_AT: unknown;
+  EVENT_COMMENT: string | null;
+}
+
+/**
+ * Render a DATETIME/TIMESTAMP column as a SQL literal.
+ *
+ * mysql2 hands `information_schema` timestamps over as Date objects; the dump
+ * header sets `TIME_ZONE = '+00:00'`, so a UTC rendering is exact. A plain
+ * string is quoted as it arrives.
+ */
+function sqlTimestampLiteral(value: unknown): string | null {
+  if (value == null) return null;
+  let text: string;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    text = value.toISOString().replace('T', ' ').slice(0, 19);
+  } else {
+    text = String(value).trim();
+  }
+  return text.length > 0 ? sqlLiteral(text) : null;
+}
+
+/**
+ * Assemble the `CREATE EVENT` statement of one event from its
+ * `information_schema.EVENTS` row: the schedule (EVERY ... for a recurring
+ * event, AT ... for a one-time one), ON COMPLETION, the status, the comment
+ * and the DO body. Mirrors what mysqldump emits, minus the definer.
+ */
+export function buildCreateEvent(row: ExportEventRow): string {
+  const name = quoteIdent(String(row.EVENT_NAME));
+  const parts: string[] = [`CREATE EVENT ${name}`];
+
+  const schedule: string[] = ['ON SCHEDULE'];
+  if (String(row.EVENT_TYPE ?? '').toUpperCase() === 'RECURRING') {
+    const every = String(row.INTERVAL_VALUE ?? '1');
+    const field = String(row.INTERVAL_FIELD ?? 'DAY');
+    schedule.push(`EVERY ${every} ${field}`);
+    const starts = sqlTimestampLiteral(row.STARTS);
+    if (starts) schedule.push(`STARTS ${starts}`);
+    const ends = sqlTimestampLiteral(row.ENDS);
+    if (ends) schedule.push(`ENDS ${ends}`);
+  } else {
+    const at = sqlTimestampLiteral(row.EXECUTE_AT);
+    if (at) schedule.push(`AT ${at}`);
+  }
+  parts.push(schedule.join(' '));
+
+  const onCompletion = String(row.ON_COMPLETION ?? '')
+    .trim()
+    .toUpperCase();
+  parts.push(`ON COMPLETION ${onCompletion === 'PRESERVE' ? 'PRESERVE' : 'NOT PRESERVE'}`);
+
+  const status = String(row.STATUS ?? '')
+    .trim()
+    .toUpperCase();
+  if (status === 'SLAVESIDE_DISABLED') parts.push('DISABLE ON SLAVE');
+  else if (status === 'DISABLED') parts.push('DISABLE');
+  else parts.push('ENABLE');
+
+  const comment = String(row.EVENT_COMMENT ?? '').trim();
+  if (comment.length > 0) parts.push(`COMMENT ${sqlLiteral(comment)}`);
+
+  parts.push(`DO ${String(row.EVENT_DEFINITION ?? '').trim()}`);
+  return parts.join(' ');
+}
+
 export interface ExportOptions {
   /** Include the rows of every table. */
   includeData?: boolean;
@@ -221,7 +307,7 @@ export function previewImportScript(sql: string): ImportPreview {
 
 /**
  * Build a `.sql` dump of one database: the schema of every table, the rows of
- * every table, and the views, triggers and routines that belong to it.
+ * every table, and the views, triggers, routines and events that belong to it.
  *
  * The output is a plain script. It is not executed here, and when it is
  * imported it is reviewed statement by statement before anything runs.
@@ -341,6 +427,9 @@ export async function exportDatabaseSql(
         }
         chunks.push(`${stripDefiner(create)} ;;`, 'DELIMITER ;', '');
       }
+
+      // Events last, after the routines.
+      await dumpEvents(conn, database, chunks, warnings);
     }
   });
 
@@ -446,6 +535,191 @@ async function showCreate(
 }
 
 /**
+ * Append the `CREATE EVENT` statements of one database to the dump.
+ *
+ * The statements are assembled from `information_schema.EVENTS` (mysqldump
+ * style, definer-stripped), so an event whose body is a compound block is
+ * wrapped in a DELIMITER pair like the routines. The account reading the dump
+ * may lack the EVENT privilege or the server may not support events; either
+ * way the dump continues without them and the caller gets a warning.
+ */
+async function dumpEvents(
+  conn: DumpConnection,
+  database: string,
+  chunks: string[],
+  warnings: string[],
+): Promise<void> {
+  let rows: ExportEventRow[];
+  try {
+    const [result] = await conn.query(
+      `SELECT EVENT_NAME, EVENT_DEFINITION, EVENT_TYPE, INTERVAL_VALUE, INTERVAL_FIELD,
+              STATUS, ON_COMPLETION, STARTS, ENDS, EXECUTE_AT, EVENT_COMMENT
+         FROM information_schema.EVENTS
+        WHERE EVENT_SCHEMA = ?
+        ORDER BY EVENT_NAME`,
+      [database],
+    );
+    rows = result as ExportEventRow[];
+  } catch {
+    warnings.push('Could not read the events of this database (EVENT privilege may be missing).');
+    return;
+  }
+  for (const row of rows) {
+    const name = String(row.EVENT_NAME);
+    const create = stripDefiner(buildCreateEvent(row));
+    chunks.push(
+      '--',
+      `-- Event \`${name}\``,
+      '--',
+      '',
+      `DROP EVENT IF EXISTS ${quoteIdent(name)};`,
+    );
+    if (looksLikeCompoundStatement(create)) {
+      chunks.push('DELIMITER ;;', `${create} ;;`, 'DELIMITER ;', '');
+    } else {
+      chunks.push(`${create};`, '');
+    }
+  }
+}
+
+/**
+ * Column types that can serve as the cursor of a keyset page: the types whose
+ * ordering is total and stable, so `(k1, k2) > (?, ?)` cannot skip rows. Floats
+ * and doubles are left out (rounding makes `>` unreliable), as are TEXT, BLOB,
+ * JSON, ENUM and SET. Mirrors the batchable keys of the sandbox provisioner.
+ */
+const CURSOR_KEY_TYPES = new Set([
+  'int',
+  'integer',
+  'bigint',
+  'smallint',
+  'mediumint',
+  'tinyint',
+  'decimal',
+  'numeric',
+  'char',
+  'varchar',
+  'date',
+  'datetime',
+  'timestamp',
+  'year',
+]);
+
+/** One column of an index candidate, as read from information_schema. */
+interface KeyColumnMeta {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  /** True for a prefix index (`UNIQUE (col(10))`), which is not fully unique. */
+  prefixed: boolean;
+}
+
+/** One index of the table that could act as a pagination cursor. */
+export interface KeyCandidate {
+  name: string;
+  unique: boolean;
+  columns: KeyColumnMeta[];
+}
+
+function isUsableCursorKey(candidate: KeyCandidate): boolean {
+  if (!candidate.unique || candidate.columns.length === 0) return false;
+  return candidate.columns.every(
+    (column) =>
+      !column.nullable && !column.prefixed && CURSOR_KEY_TYPES.has(column.dataType.toLowerCase()),
+  );
+}
+
+/**
+ * Choose the key columns a dump paginates by: the PRIMARY key when it is
+ * usable, otherwise the first usable unique index by name.
+ *
+ * A prefix-unique or nullable unique index is rejected: prefix uniqueness does
+ * not make full values unique, and NULL sorts unpredictably for a cursor.
+ */
+export function pickUsableKey(candidates: KeyCandidate[]): string[] | null {
+  const usable = candidates.filter(isUsableCursorKey);
+  const primary = usable.find((candidate) => candidate.name.toUpperCase() === 'PRIMARY');
+  const chosen = primary ?? [...usable].sort((a, b) => a.name.localeCompare(b.name))[0] ?? null;
+  return chosen ? chosen.columns.map((column) => column.name) : null;
+}
+
+/**
+ * The SELECT for one page of a dump.
+ *
+ * With a cursor the page is keyset-style - `(k1, k2) > (?, ?) ORDER BY k1, k2
+ * LIMIT ?` - so a concurrent insert cannot shift the window and no page ever
+ * re-reads the rows before the cursor. Without a cursor it is the first page,
+ * ordered but unbounded; callers without a usable key fall back to OFFSET.
+ */
+export function keysetPageQuery(
+  database: string,
+  table: string,
+  keyColumns: string[],
+  cursor: unknown[] | null,
+  limit: number,
+): { sql: string; values: unknown[] } {
+  const from = `${quoteIdent(database)}.${quoteIdent(table)}`;
+  const orderBy = keyColumns.map((column) => quoteIdent(column)).join(', ');
+  if (cursor == null || cursor.length === 0) {
+    return { sql: `SELECT * FROM ${from} ORDER BY ${orderBy} LIMIT ?`, values: [limit] };
+  }
+  const tuple = keyColumns.map((column) => quoteIdent(column)).join(', ');
+  const placeholders = keyColumns.map(() => '?').join(', ');
+  return {
+    sql: `SELECT * FROM ${from} WHERE (${tuple}) > (${placeholders}) ORDER BY ${orderBy} LIMIT ?`,
+    values: [...cursor, limit],
+  };
+}
+
+/**
+ * The key columns this table can be paginated by, or null when none is usable
+ * and the dump has to fall back to `LIMIT ? OFFSET ?`.
+ */
+async function usableDumpKeyColumns(
+  conn: DumpConnection,
+  database: string,
+  table: string,
+): Promise<string[] | null> {
+  try {
+    const [rows] = await conn.query(
+      `SELECT s.INDEX_NAME AS index_name, s.NON_UNIQUE AS non_unique, s.SUB_PART AS sub_part,
+              s.COLUMN_NAME AS column_name, c.IS_NULLABLE AS is_nullable, c.DATA_TYPE AS data_type
+         FROM information_schema.STATISTICS s
+         JOIN information_schema.COLUMNS c
+           ON c.TABLE_SCHEMA = s.TABLE_SCHEMA
+          AND c.TABLE_NAME = s.TABLE_NAME
+          AND c.COLUMN_NAME = s.COLUMN_NAME
+        WHERE s.TABLE_SCHEMA = ? AND s.TABLE_NAME = ?
+        ORDER BY s.INDEX_NAME, s.SEQ_IN_INDEX`,
+      [database, table],
+    );
+    const candidates = new Map<string, KeyCandidate>();
+    for (const row of rows as RowDataPacket[]) {
+      const name = String(row.index_name);
+      let candidate = candidates.get(name);
+      if (!candidate) {
+        candidate = {
+          name,
+          unique: name.toUpperCase() === 'PRIMARY' || Number(row.non_unique ?? 1) === 0,
+          columns: [],
+        };
+        candidates.set(name, candidate);
+      }
+      candidate.columns.push({
+        name: String(row.column_name),
+        dataType: String(row.data_type ?? ''),
+        nullable: String(row.is_nullable ?? '').toUpperCase() === 'YES',
+        prefixed: row.sub_part != null,
+      });
+    }
+    return pickUsableKey(Array.from(candidates.values()));
+  } catch {
+    // Metadata unreadable: the OFFSET page still dumps the rows.
+    return null;
+  }
+}
+
+/**
  * Read the rows of one table and render them as INSERT statements.
  */
 async function dumpRows(
@@ -459,13 +733,26 @@ async function dumpRows(
   let offset = 0;
   let columns: string[] = [];
 
+  // Keyset pagination when the table has a usable unique key; the OFFSET page
+  // is the fallback (and stays the fallback if a cursor value ever comes back
+  // null, which a usable key's NOT NULL columns rule out anyway).
+  let keyColumns = await usableDumpKeyColumns(conn, database, table);
+  let cursor: unknown[] | null = null;
+
   for (;;) {
     const limit = rowLimit > 0 ? Math.min(DATA_PAGE_SIZE, rowLimit - total) : DATA_PAGE_SIZE;
     if (limit <= 0) break;
-    const [rows, fields] = await conn.query(
-      `SELECT * FROM ${quoteIdent(database)}.${quoteIdent(table)} LIMIT ? OFFSET ?`,
-      [limit, offset],
-    );
+    let rows: unknown;
+    let fields: unknown;
+    if (keyColumns) {
+      const page = keysetPageQuery(database, table, keyColumns, cursor, limit);
+      [rows, fields] = await conn.query(page.sql, page.values);
+    } else {
+      [rows, fields] = await conn.query(
+        `SELECT * FROM ${quoteIdent(database)}.${quoteIdent(table)} LIMIT ? OFFSET ?`,
+        [limit, offset],
+      );
+    }
     const list = rows as RowDataPacket[];
     if (list.length === 0) break;
     if (columns.length === 0) {
@@ -481,6 +768,12 @@ async function dumpRows(
     }
     total += list.length;
     offset += list.length;
+    if (keyColumns) {
+      const last = list[list.length - 1] as Record<string, unknown>;
+      const next = keyColumns.map((column) => last[column]);
+      if (next.some((value) => value == null)) keyColumns = null;
+      else cursor = next;
+    }
     if (list.length < limit) break;
   }
 

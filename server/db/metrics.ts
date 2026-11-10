@@ -7,14 +7,19 @@ import type {
   PerformanceSnapshot,
   ProcessInfo,
   ReplicationStatus,
+  ServerInfo,
   SlowQueryInfo,
+  SqlFlavor,
+  TableIoHotspots,
+  TableIoInfo,
 } from '../../shared/types';
 import { getCachedServerInfo, connectProfile, withConnection } from './manager';
 import { getTopTables } from './introspection';
+import { parseVersion } from './dialect';
 import { assertProcessInScope, getDatabaseScope } from './scope';
 import { AppError } from '../errors';
 
-interface Row extends RowDataPacket {
+export interface Row extends RowDataPacket {
   [key: string]: unknown;
 }
 
@@ -177,6 +182,132 @@ export function resolveSlowLogPath(file: string, datadir: string): string | null
   return resolved;
 }
 
+/** One slow-log entry: the lines from a `# User@Host:` line to the next. */
+interface SlowLogEntry {
+  /** The `# Time:` value that preceded this entry, when the server printed one. */
+  time: string | null;
+  body: string[];
+}
+
+/**
+ * Split a slow log into entries.
+ *
+ * Entries are delimited by `# User@Host:` lines, not by `# Time:` lines:
+ * MariaDB omits `# Time:` when it repeats the previous entry's second, so a
+ * split on `# Time:` would merge consecutive same-second queries into one
+ * entry. A `# Time:` line always precedes its `# User@Host:` line, so it is
+ * remembered as the pending time of the entry that follows; the server-start
+ * headers before the first `# User@Host:` are dropped.
+ */
+function splitSlowLogEntries(text: string): SlowLogEntry[] {
+  const entries: SlowLogEntry[] = [];
+  let pendingTime: string | null = null;
+  let currentTime: string | null = null;
+  let current: string[] | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const timeLine = line.match(/^# Time:\s*(.*)$/);
+    if (timeLine) {
+      pendingTime = timeLine[1].trim().length > 0 ? timeLine[1].trim() : null;
+      continue;
+    }
+    if (/^# User@Host:/.test(line)) {
+      if (current) entries.push({ time: currentTime, body: current });
+      current = [line];
+      // The `# Time:` seen just before this line belongs to this entry.
+      currentTime = pendingTime;
+      pendingTime = null;
+      continue;
+    }
+    if (current) current.push(line);
+  }
+  if (current) entries.push({ time: currentTime, body: current });
+  return entries;
+}
+
+/** The timestamp of one entry, from `# Time:`, `SET timestamp=N;` or the last known time. */
+function slowLogTimestamp(entry: SlowLogEntry, lastKnown: string | null): string | null {
+  if (entry.time) return entry.time;
+  // Both servers write `SET timestamp=N;` ahead of the statement; it is the
+  // only timestamp an entry without `# Time:` carries of its own.
+  const setMatch = entry.body.join('\n').match(/SET timestamp=(\d+)/i);
+  if (setMatch) return new Date(Number(setMatch[1]) * 1000).toISOString();
+  return lastKnown;
+}
+
+/**
+ * Parse the text of a slow query log into the top slow statements.
+ *
+ * Consecutive entries of the same statement are grouped and capped the same
+ * way the digest table reports them.
+ */
+export function parseSlowLogText(text: string): SlowQueryInfo[] {
+  const grouped = new Map<
+    string,
+    {
+      normalized: string;
+      count: number;
+      totalMs: number;
+      maxMs: number;
+      rowsExamined: number;
+      rowsSent: number;
+      firstSeen: string | null;
+      lastSeen: string | null;
+    }
+  >();
+
+  let lastTimestamp: string | null = null;
+  for (const entry of splitSlowLogEntries(text)) {
+    const block = entry.body.join('\n');
+    const queryTime = block.match(/Query_time:\s*([0-9.]+)/);
+    if (!queryTime) continue;
+    const rowsSent = block.match(/Rows_sent:\s*(\d+)/);
+    const rowsExamined = block.match(/Rows_examined:\s*(\d+)/);
+    const timestamp = slowLogTimestamp(entry, lastTimestamp);
+    if (timestamp) lastTimestamp = timestamp;
+    const sqlMatch = block.match(
+      /(?:^|\n)(?:use\s+[^;]+;\s*)?(SELECT[\s\S]*?|INSERT[\s\S]*?|UPDATE[\s\S]*?|DELETE[\s\S]*?|REPLACE[\s\S]*?|ALTER[\s\S]*?|CREATE[\s\S]*?|DROP[\s\S]*?);?\s*$/i,
+    );
+    const sql = sqlMatch ? sqlMatch[1] : '';
+    if (!sql) continue;
+    const normalized = normalizeSlowSql(sql);
+    if (!normalized) continue;
+    const existing = grouped.get(normalized) ?? {
+      normalized,
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+      rowsExamined: 0,
+      rowsSent: 0,
+      firstSeen: timestamp,
+      lastSeen: timestamp,
+    };
+    const ms = Number.parseFloat(queryTime[1]) * 1000;
+    existing.count += 1;
+    existing.totalMs += ms;
+    existing.maxMs = Math.max(existing.maxMs, ms);
+    existing.rowsSent += num(rowsSent?.[1]);
+    existing.rowsExamined += num(rowsExamined?.[1]);
+    existing.lastSeen = timestamp ?? existing.lastSeen;
+    grouped.set(normalized, existing);
+  }
+
+  return Array.from(grouped.values())
+    .sort((a, b) => b.maxMs - a.maxMs)
+    .slice(0, 20)
+    .map((item) => ({
+      digest: crypto.createHash('sha256').update(item.normalized).digest('hex').slice(0, 16),
+      digestText: item.normalized,
+      schemaName: null,
+      count: item.count,
+      avgLatencyMs: item.count > 0 ? item.totalMs / item.count : 0,
+      maxLatencyMs: item.maxMs,
+      rowsExamined: item.rowsExamined,
+      rowsSent: item.rowsSent,
+      firstSeen: item.firstSeen,
+      lastSeen: item.lastSeen,
+    }));
+}
+
 async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo[]> {
   const resolved = resolveSlowLogPath(file, datadir);
   if (!resolved) {
@@ -193,121 +324,129 @@ async function readSlowLog(file: string, datadir: string): Promise<SlowQueryInfo
   try {
     const buffer = Buffer.alloc(stat.size - start);
     await handle.read(buffer, 0, buffer.length, start);
-    const text = buffer.toString('utf8');
-    const blocks = text.split(/# Time: /).slice(1);
-    const grouped = new Map<
-      string,
-      {
-        normalized: string;
-        count: number;
-        totalMs: number;
-        maxMs: number;
-        rowsExamined: number;
-        rowsSent: number;
-        firstSeen: string | null;
-        lastSeen: string | null;
-      }
-    >();
-
-    for (const block of blocks) {
-      const timeMatch = block.match(/^([^\n]+)/);
-      const queryTime = block.match(/Query_time:\s*([0-9.]+)/);
-      if (!queryTime) continue;
-      const rowsSent = block.match(/Rows_sent:\s*(\d+)/);
-      const rowsExamined = block.match(/Rows_examined:\s*(\d+)/);
-      const timestamp = timeMatch ? timeMatch[1].trim() : null;
-      const sqlMatch = block.match(
-        /(?:^|\n)(?:use\s+[^;]+;\s*)?(SELECT[\s\S]*?|INSERT[\s\S]*?|UPDATE[\s\S]*?|DELETE[\s\S]*?|REPLACE[\s\S]*?|ALTER[\s\S]*?|CREATE[\s\S]*?|DROP[\s\S]*?);?\s*$/i,
-      );
-      const sql = sqlMatch ? sqlMatch[1] : '';
-      if (!sql) continue;
-      const normalized = normalizeSlowSql(sql);
-      if (!normalized) continue;
-      const existing = grouped.get(normalized) ?? {
-        normalized,
-        count: 0,
-        totalMs: 0,
-        maxMs: 0,
-        rowsExamined: 0,
-        rowsSent: 0,
-        firstSeen: timestamp,
-        lastSeen: timestamp,
-      };
-      const ms = Number.parseFloat(queryTime[1]) * 1000;
-      existing.count += 1;
-      existing.totalMs += ms;
-      existing.maxMs = Math.max(existing.maxMs, ms);
-      existing.rowsSent += num(rowsSent?.[1]);
-      existing.rowsExamined += num(rowsExamined?.[1]);
-      existing.lastSeen = timestamp ?? existing.lastSeen;
-      grouped.set(normalized, existing);
-    }
-
-    return Array.from(grouped.values())
-      .sort((a, b) => b.maxMs - a.maxMs)
-      .slice(0, 20)
-      .map((item) => ({
-        digest: crypto.createHash('sha256').update(item.normalized).digest('hex').slice(0, 16),
-        digestText: item.normalized,
-        schemaName: null,
-        count: item.count,
-        avgLatencyMs: item.count > 0 ? item.totalMs / item.count : 0,
-        maxLatencyMs: item.maxMs,
-        rowsExamined: item.rowsExamined,
-        rowsSent: item.rowsSent,
-        firstSeen: item.firstSeen,
-        lastSeen: item.lastSeen,
-      }));
+    return parseSlowLogText(buffer.toString('utf8'));
   } finally {
     await handle.close();
   }
 }
 
+/** True when the server `version` string is at least `major.minor.patch`. */
+export function atLeastVersion(
+  version: string,
+  major: number,
+  minor: number,
+  patch: number,
+): boolean {
+  const parts = parseVersion(version);
+  if (parts.major !== major) return parts.major > major;
+  if (parts.minor !== minor) return parts.minor > minor;
+  return parts.patch >= patch;
+}
+
+/**
+ * Whether `events_statements_summary_by_digest` carries the scan and temp
+ * table columns. MySQL has had them since 5.6.5; MariaDB shipped the digest
+ * table in 10.1.2 with the same columns.
+ */
+export function digestScanColumnsAvailable(flavor: SqlFlavor, version: string): boolean {
+  return flavor === 'mysql' ? atLeastVersion(version, 5, 6, 5) : atLeastVersion(version, 10, 1, 2);
+}
+
+/**
+ * `QUANTILE_95` / `QUANTILE_99` arrived in MySQL 8.0.19 and were never added
+ * to MariaDB's digest table, so selecting them anywhere else errors out.
+ */
+export function digestQuantileColumnsAvailable(flavor: SqlFlavor, version: string): boolean {
+  return flavor === 'mysql' && atLeastVersion(version, 8, 0, 19);
+}
+
+/**
+ * The digest SELECT. The optional column groups are version-gated so a server
+ * that predates them does not fail the whole query on an unknown column.
+ */
+export function buildDigestQuery(scanColumns: boolean, quantileColumns: boolean): string {
+  const extra: string[] = [];
+  if (scanColumns) {
+    extra.push(
+      'SUM_NO_INDEX_USED, SUM_NO_GOOD_INDEX_USED, SUM_CREATED_TMP_TABLES, SUM_CREATED_TMP_DISK_TABLES',
+    );
+  }
+  if (quantileColumns) extra.push('QUANTILE_95, QUANTILE_99');
+  return `SELECT SCHEMA_NAME, DIGEST, DIGEST_TEXT, COUNT_STAR, SUM_TIMER_WAIT,
+         AVG_TIMER_WAIT, MAX_TIMER_WAIT, SUM_ROWS_EXAMINED, SUM_ROWS_SENT,
+         FIRST_SEEN, LAST_SEEN${extra.length > 0 ? `,${extra.join(',')}` : ''}
+  FROM performance_schema.events_statements_summary_by_digest
+  ORDER BY SUM_TIMER_WAIT DESC
+  LIMIT 20`;
+}
+
+/** Map one digest-summary row to `SlowQueryInfo`; columns the SELECT skipped stay undefined. */
+export function shapeDigestRow(row: Row): SlowQueryInfo {
+  return {
+    digest: str(row.DIGEST),
+    digestText: str(row.DIGEST_TEXT).slice(0, 1_500),
+    schemaName: row.SCHEMA_NAME == null ? null : str(row.SCHEMA_NAME),
+    count: num(row.COUNT_STAR),
+    avgLatencyMs: num(row.AVG_TIMER_WAIT) / 1e9,
+    maxLatencyMs: num(row.MAX_TIMER_WAIT) / 1e9,
+    rowsExamined: num(row.SUM_ROWS_EXAMINED),
+    rowsSent: num(row.SUM_ROWS_SENT),
+    firstSeen: row.FIRST_SEEN == null ? null : String(row.FIRST_SEEN),
+    lastSeen: row.LAST_SEEN == null ? null : String(row.LAST_SEEN),
+    noIndexUsed: row.SUM_NO_INDEX_USED == null ? undefined : num(row.SUM_NO_INDEX_USED),
+    noGoodIndexUsed:
+      row.SUM_NO_GOOD_INDEX_USED == null ? undefined : num(row.SUM_NO_GOOD_INDEX_USED),
+    tmpTables: row.SUM_CREATED_TMP_TABLES == null ? undefined : num(row.SUM_CREATED_TMP_TABLES),
+    tmpDiskTables:
+      row.SUM_CREATED_TMP_DISK_TABLES == null ? undefined : num(row.SUM_CREATED_TMP_DISK_TABLES),
+    quantile95Ms: row.QUANTILE_95 == null ? undefined : num(row.QUANTILE_95) / 1e9,
+    quantile99Ms: row.QUANTILE_99 == null ? undefined : num(row.QUANTILE_99) / 1e9,
+  };
+}
+
 /**
  * Top slow statements by digest, from Performance Schema when available and
  * the slow query log otherwise. Exported for the agent's `slow_queries` tool;
- * `getPerformanceSnapshot` embeds the same result.
+ * `getPerformanceSnapshot` embeds the same result. Pass `server` (the resolved
+ * `ServerInfo`) to enable the version-gated enrichment columns.
  */
 export async function getSlowQueries(
   profileId: string,
   performanceSchema: boolean,
   variables: Record<string, string>,
+  server?: { flavor: SqlFlavor; version: string },
 ): Promise<{
   rows: SlowQueryInfo[];
   source: 'performance_schema' | 'slow_log' | 'none';
   advice: string | null;
 }> {
   if (performanceSchema) {
-    try {
-      const rows = await withConnection(profileId, async (conn) => {
-        const [result] = await conn.query<Row[]>(
-          `SELECT SCHEMA_NAME, DIGEST, DIGEST_TEXT, COUNT_STAR, SUM_TIMER_WAIT,
-                  AVG_TIMER_WAIT, MAX_TIMER_WAIT, SUM_ROWS_EXAMINED, SUM_ROWS_SENT,
-                  FIRST_SEEN, LAST_SEEN
-           FROM performance_schema.events_statements_summary_by_digest
-           ORDER BY SUM_TIMER_WAIT DESC
-           LIMIT 20`,
-        );
-        return result;
+    const scanColumns = server ? digestScanColumnsAvailable(server.flavor, server.version) : false;
+    const quantileColumns = server
+      ? digestQuantileColumnsAvailable(server.flavor, server.version)
+      : false;
+    const readDigest = async (sql: string): Promise<SlowQueryInfo[]> =>
+      withConnection(profileId, async (conn) => {
+        const [result] = await conn.query<Row[]>(sql);
+        return result.map(shapeDigestRow);
       });
-      return {
-        rows: rows.map((row) => ({
-          digest: str(row.DIGEST),
-          digestText: str(row.DIGEST_TEXT).slice(0, 1_500),
-          schemaName: row.SCHEMA_NAME == null ? null : str(row.SCHEMA_NAME),
-          count: num(row.COUNT_STAR),
-          avgLatencyMs: num(row.AVG_TIMER_WAIT) / 1e9,
-          maxLatencyMs: num(row.MAX_TIMER_WAIT) / 1e9,
-          rowsExamined: num(row.SUM_ROWS_EXAMINED),
-          rowsSent: num(row.SUM_ROWS_SENT),
-          firstSeen: row.FIRST_SEEN == null ? null : String(row.FIRST_SEEN),
-          lastSeen: row.LAST_SEEN == null ? null : String(row.LAST_SEEN),
-        })),
-        source: 'performance_schema',
-        advice: null,
-      };
+
+    let rows: SlowQueryInfo[] | null = null;
+    try {
+      rows = await readDigest(buildDigestQuery(scanColumns, quantileColumns));
     } catch {
-      // Fall through to the slow log.
+      // A version string that mispredicts the columns still fails the whole
+      // query on an unknown column; retry with the base column set first.
+    }
+    if (rows == null && (scanColumns || quantileColumns)) {
+      try {
+        rows = await readDigest(buildDigestQuery(false, false));
+      } catch {
+        // Fall through to the slow log.
+      }
+    }
+    if (rows != null) {
+      return { rows, source: 'performance_schema', advice: null };
     }
   }
 
@@ -332,6 +471,66 @@ export async function getSlowQueries(
     advice:
       'Performance Schema and the slow query log are both unavailable. Enable the slow log with: SET GLOBAL slow_query_log = ON; SET GLOBAL long_query_time = 1; (Performance Schema requires a server restart with performance_schema=ON.)',
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Table I/O hotspots                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Shape the raw `table_io_waits_summary_by_table` rows. Timers are
+ * picoseconds, like the digest table, so the same 1e9 conversion applies.
+ */
+export function shapeTableIoRows(rows: Row[]): TableIoInfo[] {
+  return rows.map((row) => ({
+    database: str(row.TABLE_SCHEMA),
+    table: str(row.TABLE_NAME),
+    countStar: num(row.COUNT_STAR),
+    countRead: num(row.COUNT_READ),
+    countWrite: num(row.COUNT_WRITE),
+    totalLatencyMs: num(row.SUM_TIMER_WAIT) / 1e9,
+  }));
+}
+
+/** Top tables by total I/O wait since server start. The limit is static and bounded. */
+export function buildTableIoQuery(limit: number): string {
+  const capped = Math.max(1, Math.min(50, Math.trunc(limit)));
+  return `SELECT TABLE_SCHEMA, TABLE_NAME, COUNT_STAR, COUNT_READ, COUNT_WRITE, SUM_TIMER_WAIT
+  FROM performance_schema.table_io_waits_summary_by_table
+  WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+    AND COUNT_STAR > 0
+  ORDER BY SUM_TIMER_WAIT DESC
+  LIMIT ${capped}`;
+}
+
+const TABLE_IO_UNAVAILABLE =
+  'performance_schema is disabled on this server, so table I/O statistics are unavailable. ' +
+  'Restart the server with performance_schema=ON to enable them.';
+
+/**
+ * The most-read/written tables since server start. Degrades to an empty list
+ * plus a reason when performance_schema is off or the rows cannot be read.
+ */
+export async function getTableIoHotspots(
+  profileId: string,
+  server?: ServerInfo,
+): Promise<TableIoHotspots> {
+  const info = server ?? getCachedServerInfo(profileId) ?? (await connectProfile(profileId));
+  if (!info.capabilities.performanceSchema) {
+    return { tables: [], reason: TABLE_IO_UNAVAILABLE };
+  }
+  try {
+    const rows = await withConnection(profileId, async (conn) => {
+      const [result] = await conn.query<Row[]>(buildTableIoQuery(10));
+      return result;
+    });
+    return { tables: shapeTableIoRows(rows), reason: null };
+  } catch (error) {
+    return {
+      tables: [],
+      reason: `Table I/O statistics could not be read: ${(error as Error).message}`,
+    };
+  }
 }
 
 async function getReplication(
@@ -368,13 +567,19 @@ export async function getPerformanceSnapshot(
   override?: { allowed: string[] },
 ): Promise<PerformanceSnapshot> {
   const server = getCachedServerInfo(profileId) ?? (await connectProfile(profileId));
-  const [status, variables, processlist, topTables] = await Promise.all([
+  const [status, variables, processlist, topTables, tableIo] = await Promise.all([
     getGlobalStatus(profileId),
     getGlobalVariables(profileId),
     getProcessList(profileId),
     getTopTables(profileId, 10, override),
+    getTableIoHotspots(profileId, server),
   ]);
-  const slow = await getSlowQueries(profileId, server.capabilities.performanceSchema, variables);
+  const slow = await getSlowQueries(
+    profileId,
+    server.capabilities.performanceSchema,
+    variables,
+    server,
+  );
   const replication = await getReplication(profileId, server.capabilities.replicaStatusCommand);
 
   return {
@@ -387,6 +592,8 @@ export async function getPerformanceSnapshot(
     slowQueryAdvice: slow.advice,
     replication,
     topTables,
+    tableIo: tableIo.tables,
+    tableIoReason: tableIo.reason,
     generatedAt: new Date().toISOString(),
   };
 }

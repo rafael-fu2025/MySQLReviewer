@@ -7,7 +7,7 @@
 .card {
   background: var(--color-panel);
   border: 1px solid var(--color-line);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
 }
 
 .card-pad {
@@ -17,7 +17,7 @@
 .panel {
   background: color-mix(in oklab, var(--color-panel) 88%, transparent);
   border: 1px solid var(--color-line);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
 }
 
 .hover-card {
@@ -116,9 +116,11 @@
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
 }
+/* Nested-radius rule: a card at --radius-lg (16) padded by --space-3 (12)
+   nests its stat tiles at --radius-xs (4). */
 .stat {
   border: 1px solid var(--color-line-soft);
-  border-radius: 11px;
+  border-radius: var(--radius-xs);
   padding: var(--space-3);
   background: color-mix(in oklab, var(--color-panel-2) 60%, transparent);
 }
@@ -166,7 +168,7 @@
 .hero-panel {
   position: relative;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-line);
   background: var(--color-panel);
   padding: var(--space-8);
@@ -222,7 +224,7 @@
   height: 38px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: 19px;

@@ -19,6 +19,10 @@ export const MAX_SSE_PER_SESSION = envInt('MYLENS_SSE_PER_SESSION', 5);
 export const MAX_SSE_TOTAL = envInt('MYLENS_SSE_TOTAL', 50);
 /** A peer that stops reading is disconnected once this much is buffered. */
 const MAX_BUFFERED_BYTES = 1024 * 1024;
+/** Frames queued for a stalled peer before the stream is closed. */
+export const MAX_SSE_QUEUE_FRAMES = envInt('MYLENS_SSE_QUEUE_FRAMES', 1000);
+/** Bytes queued for a stalled peer before the stream is closed. */
+export const MAX_SSE_QUEUE_BYTES = envInt('MYLENS_SSE_QUEUE_BYTES', 1024 * 1024);
 
 const perSessionStreams = new Map<string, number>();
 let totalStreams = 0;
@@ -66,6 +70,9 @@ export function openSse(req: Request, res: Response): SseClient {
 
   let closed = false;
   let backpressured = false;
+  /** Frames held while the socket is backed up, in send order. */
+  const queue: { payload: string; bytes: number }[] = [];
+  let queuedBytes = 0;
 
   function release(): void {
     const current = perSessionStreams.get(key) ?? 0;
@@ -78,13 +85,50 @@ export function openSse(req: Request, res: Response): SseClient {
     if (closed) return;
     closed = true;
     clearInterval(heartbeat);
+    queue.length = 0;
+    queuedBytes = 0;
     release();
   }
 
+  /** Tells the peer the stream is ending and why, then closes it. */
+  function abortWithOverflow(): void {
+    if (!closed && !res.writableEnded) {
+      // Written straight to the socket, past the full queue, so the peer
+      // learns why the stream ended instead of seeing a truncated one.
+      res.write(
+        `event: error\ndata: ${JSON.stringify({
+          code: 'SSE_OVERFLOW',
+          message: 'The event stream fell too far behind and was closed.',
+        })}\n\n`,
+      );
+    }
+    close();
+  }
+
+  /** Drains queued frames; stops as soon as the socket backs up again. */
+  function flushQueue(): void {
+    if (closed || res.writableEnded) return;
+    while (queue.length > 0) {
+      if (res.writableLength > MAX_BUFFERED_BYTES) {
+        close();
+        return;
+      }
+      const frame = queue.shift();
+      if (!frame) break;
+      queuedBytes -= frame.bytes;
+      // A false return only means "buffered, continue later": the frame has
+      // been handed to the socket and will reach the peer.
+      if (!res.write(frame.payload)) return;
+    }
+    backpressured = false;
+  }
+
   /**
-   * Writes one frame. A peer that does not read is dropped instead of being
-   * buffered without limit: while the socket is backed up the frames are
-   * skipped, and a peer that stays far behind is disconnected.
+   * Writes one frame. While the socket is backed up the frame is queued so a
+   * briefly slow peer keeps receiving every chunk in order; a peer that
+   * stays stalled past the queue bounds gets an explicit error frame and a
+   * closed stream instead of a silently corrupted one, and a peer that never
+   * reads at all is disconnected once 1 MB sits in the socket buffer.
    */
   function write(payload: string): boolean {
     if (closed || res.writableEnded) return false;
@@ -92,10 +136,22 @@ export function openSse(req: Request, res: Response): SseClient {
       close();
       return false;
     }
-    if (backpressured) return false;
+    if (backpressured) return enqueue(payload);
     const flushed = res.write(payload);
     if (!flushed) backpressured = true;
-    return flushed;
+    return true;
+  }
+
+  /** Holds a frame for the drain; bounded so a stalled peer cannot pile up. */
+  function enqueue(payload: string): boolean {
+    const bytes = Buffer.byteLength(payload);
+    if (queue.length >= MAX_SSE_QUEUE_FRAMES || queuedBytes + bytes > MAX_SSE_QUEUE_BYTES) {
+      abortWithOverflow();
+      return false;
+    }
+    queue.push({ payload, bytes });
+    queuedBytes += bytes;
+    return true;
   }
 
   function close(): void {
@@ -113,9 +169,7 @@ export function openSse(req: Request, res: Response): SseClient {
 
   req.on('aborted', cleanup);
   res.on('close', cleanup);
-  res.on('drain', () => {
-    backpressured = false;
-  });
+  res.on('drain', flushQueue);
 
   return {
     send(event, data) {

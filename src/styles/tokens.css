@@ -27,8 +27,8 @@
 
   /*
    * Dark theme: a real black-grey palette. Surfaces, lines, and text are
-   * neutral (no navy), the brand accent is white, and semantic status colors
-   * (mint/danger/warn/info/violet) keep their hues — they carry meaning.
+   * neutral (no navy), the brand accent is ember orange, and semantic status
+   * colors (mint/danger/warn/info/violet) keep their hues — they carry meaning.
    */
   --color-canvas: #09090a;
   --color-panel: #0e0e10;
@@ -39,8 +39,8 @@
   --color-ink: #f2f2f3;
   --color-ink-soft: #c9c9ce;
   --color-muted: #8e8e93;
-  --color-ember: #ffffff;
-  --color-ember-2: #c9c9ce;
+  --color-ember: #ff8a3d;
+  --color-ember-2: #ffb27a;
   --color-mint: #2dd4a7;
   --color-mint-soft: #123b32;
   --color-danger: #ff5c6c;
@@ -48,10 +48,12 @@
   --color-info: #60a5fa;
   --color-violet: #a78bfa;
 
-  /* Filled by the primary button and brand mark; ink flips per theme. */
-  --color-cta: #f2f2f3;
-  --color-cta-hover: #ffffff;
-  --color-cta-ink: #0b0b0c;
+  /* Ember orange fill for the primary button and brand mark in both themes;
+     ink flips per theme (near-black on orange here, white on burnt orange in
+     light — ≈7.5:1 / 5.2:1). */
+  --color-cta: #ff8a3d;
+  --color-cta-hover: #ff9c5c;
+  --color-cta-ink: #1a0e05;
 }
 
 :root {
@@ -70,12 +72,39 @@
   --space-8: 32px;
   --space-10: 40px;
 
+  /*
+   * Radius scale, smallest step first. Nested-radius rule: an inner surface
+   * rounds at outer − padding, e.g. a card at --radius-lg (16) padded by
+   * --space-3 (12) nests children at --radius-xs (4).
+   */
+  --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
 
+  /*
+   * Motion — the signature ease below already carries drawers and modal
+   * sheets; fast/base are its standard durations for hovers and entrances.
+   *
+   * Conventions: entrances ease out (--ease-out); on-screen movement (knobs,
+   * bars, sidebar widths, tab underline) eases in-out (--ease-in-out);
+   * dropdowns and popovers open in 150–250ms; exits run ≈20% shorter than
+   * entrances (150ms in → 120ms out); list rows stagger 30ms. NO spring,
+   * overshoot or bounce easings in everyday UI.
+   */
+  --duration-fast: 0.15s;
+  --duration-base: 0.25s;
+  --duration-exit: 0.12s; /* exits ≈ 20% shorter than entrances (150ms in → 120ms out) */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Pop shadow for floating accents — CTA hover, framed screenshots. */
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.28);
+
   --focus-ring: 2px solid var(--color-ember);
   --hit-min: 44px; /* minimum touch target on pointer:coarse devices */
+  /* Icon sizes (lucide `size={n}`): inline/badge icons 12, stat-card icons
+     14, empty-state icons 20. */
 
   --cm-keyword: #ff9a57;
   --cm-string: #9ee6c4;
@@ -119,8 +148,11 @@
   --color-info: #2158d4;
   --color-violet: #7c3aed;
 
-  /* Light keeps the warm orange CTA the dark theme replaces with white. */
+  /* Both themes run warm orange CTAs; light uses a deeper burnt orange for
+     contrast on paper. */
   --color-cta: #c2410c;
   --color-cta-hover: #cc4a10;
   --color-cta-ink: #ffffff;
+
+  --shadow-pop: 0 10px 30px rgba(31, 26, 15, 0.14);
 }

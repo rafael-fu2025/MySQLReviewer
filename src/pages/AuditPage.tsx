@@ -241,7 +241,7 @@ export function AuditPage() {
             <span className="text-2xs text-muted">
               {selected.size} selected · {totalTables} tables
             </span>
-            <Button variant="ghost" size="sm" icon={<RefreshCw size={12} />} onClick={loadPast}>
+            <Button variant="tertiary" size="sm" icon={<RefreshCw size={12} />} onClick={loadPast}>
               Refresh
             </Button>
           </>
@@ -262,7 +262,7 @@ export function AuditPage() {
             <span className="text-sm font-semibold">Running audit</span>
             <span className="text-2xs text-muted">{message}</span>
             <span className="ml-auto font-mono text-2xs">{progress}%</span>
-            <Button variant="ghost" size="sm" icon={<Square size={11} />} onClick={stopWatching}>
+            <Button variant="tertiary" size="sm" icon={<Square size={11} />} onClick={stopWatching}>
               Stop watching
             </Button>
           </div>
@@ -326,7 +326,7 @@ export function AuditPage() {
               New audit
             </Button>
             <Button
-              variant="ghost"
+              variant="tertiary"
               size="sm"
               icon={<ChevronRight size={12} />}
               onClick={() => navigate(`/reports/${report.id}`)}
@@ -345,10 +345,10 @@ export function AuditPage() {
             <Card className="p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <div className="section-title">Databases</div>
-                <Button variant="ghost" size="sm" onClick={selectAll}>
+                <Button variant="tertiary" size="sm" onClick={selectAll}>
                   Select all
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                <Button variant="tertiary" size="sm" onClick={() => setSelected(new Set())}>
                   Clear
                 </Button>
               </div>
@@ -475,7 +475,7 @@ export function AuditPage() {
                   <div className="mb-2 flex items-center gap-2">
                     <div className="section-title">Recent audits</div>
                     <Button
-                      variant="ghost"
+                      variant="tertiary"
                       size="sm"
                       className="ml-auto"
                       onClick={() => navigate('/reports')}
@@ -661,7 +661,7 @@ function AuditSchedulesCard({
                 {schedule.lastError ? ` · ${schedule.lastError}` : ''}
               </span>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 disabled={busy}
                 onClick={() => void toggle(schedule)}
@@ -669,7 +669,7 @@ function AuditSchedulesCard({
                 {schedule.enabled ? 'Pause' : 'Resume'}
               </Button>
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 disabled={busy}
                 onClick={() => void remove(schedule)}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { InputHTMLAttributes, ReactNode, Ref, TextareaHTMLAttributes } from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -76,11 +77,18 @@ export function Switch({
   label: string;
   disabled?: boolean;
 }) {
+  // The knob's stretch-and-travel animation (buttons-forms.css) must not play
+  // on mount — CSS animations fire the first time their selector matches — so
+  // `switch-live` arms it from the first interaction on.
+  const [live, setLive] = useState(false);
   return (
     <button
       type="button"
-      className={cn('switch', checked && 'on')}
-      onClick={() => onChange(!checked)}
+      className={cn('switch', checked && 'on', live && 'switch-live')}
+      onClick={() => {
+        setLive(true);
+        onChange(!checked);
+      }}
       aria-label={label}
       aria-pressed={checked}
       disabled={disabled}

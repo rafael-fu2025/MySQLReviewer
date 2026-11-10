@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { EditorView } from '@codemirror/view';
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarDays,
   CheckCircle2,
+  Flame,
+  FlameKindling,
   Flag,
   FlaskConical,
   Info,
@@ -13,20 +17,27 @@ import {
   PanelRight,
   PanelRightClose,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   Target,
+  Timer,
   Trash2,
   Trophy,
   X,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import type {
   AiChatMessage,
   PracticeAnswer,
   PracticeComparison,
+  PracticeDaily,
   PracticeDifficulty,
   PracticeEvaluation,
+  PracticeHintLadder,
   PracticeProgressPublic,
+  PracticeQuestionPublic,
+  PracticeReviewQueueItem,
   PracticeSetPublic,
   PracticeTopic,
   QueryResult,
@@ -55,11 +66,12 @@ import {
   EmptyState,
   Field,
   IconButton,
-  Kbd,
   Modal,
   PageHeader,
   ScoreRing,
+  Skeleton,
   Spinner,
+  StatCard,
   Textarea,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -105,13 +117,19 @@ function readSchemaPanelOpen(): boolean {
   }
 }
 
-function draftKey(profileId: string, setId: string): string {
-  return `${DRAFT_PREFIX}.${profileId}.${setId}`;
+/** Drafts belong to the account, not the browser: the key carries the user id. */
+function draftKey(userId: string, profileId: string, setId: string): string {
+  return `${DRAFT_PREFIX}.${userId}.${profileId}.${setId}`;
 }
 
-function readDraft(profileId: string, setId: string): Record<string, PracticeDraft> {
+function readDraft(
+  userId: string | undefined,
+  profileId: string,
+  setId: string,
+): Record<string, PracticeDraft> {
+  if (!userId) return {};
   try {
-    const raw = localStorage.getItem(draftKey(profileId, setId));
+    const raw = localStorage.getItem(draftKey(userId, profileId, setId));
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object') return {};
@@ -127,14 +145,78 @@ function readDraft(profileId: string, setId: string): Record<string, PracticeDra
   }
 }
 
-function writeDraft(profileId: string, setId: string, drafts: Record<string, PracticeDraft>): void {
+function writeDraft(
+  userId: string | undefined,
+  profileId: string,
+  setId: string,
+  drafts: Record<string, PracticeDraft>,
+): void {
+  if (!userId) return;
   try {
-    const key = draftKey(profileId, setId);
+    const key = draftKey(userId, profileId, setId);
     if (Object.keys(drafts).length === 0) localStorage.removeItem(key);
     else localStorage.setItem(key, JSON.stringify(drafts));
   } catch {
     // Storage can be unavailable (private mode, quota); drafts are best-effort.
   }
+}
+
+/** Stable composite key for a review card (both halves are server ids). */
+function reviewItemKey(item: Pick<PracticeReviewQueueItem, 'setId' | 'questionId'>): string {
+  return `${item.setId}:${item.questionId}`;
+}
+
+/** How long the verdict badge keeps its pulse class: the animation is 0.45s. */
+const VERDICT_PULSE_MS = 500;
+
+/**
+ * Question-content swaps ride the View Transitions API when the browser has
+ * it: the state update is flushed synchronously inside the transition
+ * callback (the React 19 pattern), so the DOM changes where the browser takes
+ * its snapshots and the old question crossfades into the new one at the fast
+ * duration. The content is different on both sides, so no element is named as
+ * a shared transition element — the root crossfade is all there is. Without
+ * the API the swap stays instant.
+ */
+function withQuestionTransition(update: () => void): void {
+  if (typeof document.startViewTransition === 'function') {
+    document.startViewTransition(() => {
+      flushSync(update);
+    });
+    return;
+  }
+  update();
+}
+
+/** The wall-clock a question has been open, as `mm:ss`. Display only. */
+// eslint-disable-next-line react-refresh/only-export-components -- imported by the practice UI tests; a shared lib file is outside this change
+export function formatElapsedTime(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+interface TypingTargetLike {
+  tagName?: string;
+  isContentEditable?: boolean;
+  closest?: (selector: string) => unknown;
+}
+
+/**
+ * True when a keyboard event starts in a surface where plain keys compose
+ * text: form fields, contenteditable nodes, or a CodeMirror editor (which
+ * hosts the caret in a contenteditable div inside `.cm-editor`). Navigation
+ * shortcuts must yield to those.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- imported by the practice UI tests; a shared lib file is outside this change
+export function isTypingTarget(target: unknown): boolean {
+  if (!target || typeof target !== 'object') return false;
+  const node = target as TypingTargetLike;
+  const tag = typeof node.tagName === 'string' ? node.tagName.toUpperCase() : '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (node.isContentEditable === true) return true;
+  return typeof node.closest === 'function' ? Boolean(node.closest('.cm-editor')) : false;
 }
 
 function CodeBlock({ text, className }: { text: string; className?: string }) {
@@ -145,20 +227,34 @@ function CodeBlock({ text, className }: { text: string; className?: string }) {
 function RecentSetsCard({
   sets,
   onPick,
+  loading = false,
 }: {
   sets: PracticeSetPublic[];
   onPick: (item: PracticeSetPublic) => void;
+  /** True while the hub fetch is in flight; two row-height skeletons. */
+  loading?: boolean;
 }) {
+  if (loading) {
+    return (
+      <Card className="p-3">
+        <div className="section-title mb-2">Recent challenge sets</div>
+        <div className="flex flex-col gap-2">
+          <Skeleton height={52} />
+          <Skeleton height={52} />
+        </div>
+      </Card>
+    );
+  }
   if (sets.length === 0) return null;
   return (
-    <Card className="p-4">
+    <Card className="p-3">
       <div className="section-title mb-2">Recent challenge sets</div>
       <div className="flex flex-col gap-2">
         {sets.map((item) => (
           <button
             key={item.id}
             type="button"
-            className="flex items-center gap-2 rounded-lg border border-line-soft bg-panel-2 px-3 py-2 text-left hover:border-ember/35"
+            className="recent-set-row flex items-center gap-2 border border-line-soft bg-panel-2 px-3 py-2 text-left hover:border-ember/35"
             onClick={() => onPick(item)}
           >
             <FlaskConical size={13} className="text-muted" />
@@ -267,6 +363,302 @@ function verdictTone(
   return 'neutral';
 }
 
+/** The per-topic score bars; the hub dashboard card and the setup panel share them. */
+function ProgressTopicBars({ progress }: { progress: PracticeProgressPublic }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {progress.topics
+        .filter((topic) => topic.attempts > 0)
+        .sort((a, b) => b.attempts - a.attempts)
+        .slice(0, 8)
+        .map((topic) => (
+          <div key={topic.topic}>
+            <div className="flex items-center justify-between gap-2 text-2xs">
+              <span className="truncate text-ink-soft">{topicLabel(topic.topic)}</span>
+              <span className="font-mono text-muted">
+                {topic.averageScore} · {topic.attempts}×
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
+              <div
+                className={cn(
+                  'topic-bar-fill h-full rounded-full',
+                  topic.averageScore >= 80
+                    ? 'bg-mint'
+                    : topic.averageScore >= 60
+                      ? 'bg-warn'
+                      : 'bg-danger',
+                )}
+                style={{ width: `${Math.max(3, topic.averageScore)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * The learning dashboard: streaks, XP, per-topic scores and the recommended
+ * next topics. The practice hub hosts it as a first-class card; the setup
+ * panel reuses the same component so the two never drift apart.
+ */
+export function PracticeProgressCard({
+  progress,
+  onRefresh,
+  onClear,
+  loading = false,
+}: {
+  progress: PracticeProgressPublic | null;
+  onRefresh: () => void;
+  onClear: () => void;
+  /** True while the hub fetch is in flight; three .stat-sized skeletons. */
+  loading?: boolean;
+}) {
+  const currentStreak = progress?.currentStreak ?? 0;
+  return (
+    <Card className="p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Trophy size={14} className="text-ember" />
+        <div className="section-title">Progress</div>
+        <Button
+          variant="tertiary"
+          size="sm"
+          className="ml-auto"
+          icon={<RefreshCw size={12} />}
+          onClick={onRefresh}
+        >
+          Refresh
+        </Button>
+      </div>
+      {loading ? (
+        <div className="grid grid-cols-3 gap-2">
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+        </div>
+      ) : progress && progress.totalAttempts > 0 ? (
+        <div className="flex flex-col gap-3">
+          <div className="font-mono text-2xs text-muted">
+            {progress.totalAttempts} attempts · avg {progress.averageScore}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard
+              label="Current streak"
+              value={
+                <span key={currentStreak} className="stat-value num-pop">
+                  {currentStreak}
+                </span>
+              }
+              icon={currentStreak > 0 ? <Flame size={14} /> : <FlameKindling size={14} />}
+              tone={currentStreak > 0 ? 'ember' : undefined}
+            />
+            <StatCard
+              label="Longest streak"
+              value={
+                <span key={progress.longestStreak ?? 0} className="stat-value num-pop">
+                  {progress.longestStreak ?? 0}
+                </span>
+              }
+              icon={<CalendarDays size={14} />}
+            />
+            <StatCard
+              label="XP"
+              value={
+                <span key={progress.xp ?? 0} className="stat-value num-pop">
+                  {progress.xp ?? 0}
+                </span>
+              }
+              icon={<Zap size={14} />}
+              tone="mint"
+            />
+          </div>
+          {progress.recommendedTopics.length > 0 ? (
+            <div>
+              <div className="mono-label mb-1">Recommended next</div>
+              <div className="text-2xs text-ink-soft">
+                {progress.recommendedTopics.map((topic) => topicLabel(topic)).join(' · ')}
+              </div>
+            </div>
+          ) : null}
+          <ProgressTopicBars progress={progress} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="tertiary"
+              size="sm"
+              className="text-danger"
+              icon={<Trash2 size={11} />}
+              onClick={onClear}
+            >
+              Clear attempts
+            </Button>
+            {progress.recent.length > 0 ? (
+              <span className="text-2xs text-muted">
+                last {formatDate(progress.recent[0].createdAt)}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="text-2xs text-muted">Attempt stats appear after you submit answers.</div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Friendly copy for the days a daily challenge cannot exist. `no-provider`
+ * and `generation-failed` come from the server; anything else means no
+ * candidate was available either.
+ */
+function dailyReasonLine(reason: string | undefined): string {
+  if (reason === 'no-provider') {
+    return 'No AI provider is configured yet — add one in Settings to get a daily challenge.';
+  }
+  if (reason === 'generation-failed') {
+    return "Today's challenge could not be generated. Give it another try.";
+  }
+  return 'No daily challenge today — generate a set to keep the streak going.';
+}
+
+/** Today's one-question challenge, picked or generated once per day by the server. */
+export function PracticeDailyCard({
+  daily,
+  loading,
+  failed,
+  onOpen,
+  onRetry,
+}: {
+  daily: PracticeDaily | null;
+  loading: boolean;
+  failed: boolean;
+  onOpen: () => void;
+  onRetry: () => void;
+}) {
+  const challenge = daily?.set?.questions[0] ?? null;
+  return (
+    <Card className="p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <CalendarDays size={14} className="text-ember" />
+        <div className="section-title">Daily challenge</div>
+        {daily?.date ? (
+          <span className="ml-auto font-mono text-2xs text-muted">{daily.date}</span>
+        ) : null}
+      </div>
+      {loading ? (
+        <div className="flex items-center gap-2 text-2xs text-muted">
+          <Spinner size={12} />
+          <span>Preparing today's challenge…</span>
+        </div>
+      ) : !daily ? (
+        failed ? (
+          <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
+            <span className="flex-1">Today's challenge could not be loaded.</span>
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        ) : null
+      ) : daily.set && challenge ? (
+        <div className="flex flex-col gap-2">
+          <div className="text-sm font-bold tracking-tight">{challenge.title}</div>
+          <div className="line-clamp-2 text-2xs leading-5 text-muted">{challenge.scenario}</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge tone="ember">{challenge.difficulty}</Badge>
+          </div>
+          <div>
+            <Button variant="primary" size="sm" icon={<FlaskConical size={12} />} onClick={onOpen}>
+              Open challenge
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 text-2xs text-muted">
+          <span className="flex-1">{dailyReasonLine(daily.reason)}</span>
+          {daily.reason === 'generation-failed' ? (
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The due spaced-repetition cards with their per-item actions. */
+export function ReviewQueueCard({
+  items,
+  busyKey,
+  onStart,
+  onDismiss,
+  loading = false,
+}: {
+  items: PracticeReviewQueueItem[];
+  busyKey: string | null;
+  onStart: (item: PracticeReviewQueueItem) => void;
+  onDismiss: (item: PracticeReviewQueueItem) => void;
+  /** True while the hub fetch is in flight; two row-height skeletons. */
+  loading?: boolean;
+}) {
+  return (
+    <Card className="p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <RotateCcw size={14} className="text-ember" />
+        <div className="section-title num">Review due today ({items.length})</div>
+      </div>
+      {loading ? (
+        <div className="flex flex-col gap-2">
+          <Skeleton height={56} />
+          <Skeleton height={56} />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="text-2xs text-muted">
+          Nothing to review right now — graded challenges come back here when they are due.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((item) => {
+            const key = reviewItemKey(item);
+            const busy = busyKey === key;
+            return (
+              <div
+                key={key}
+                className="review-row flex items-start gap-2 border border-line-soft bg-panel-2 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-2xs font-semibold text-ink-soft">{item.title}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {item.topics.length > 0 ? (
+                      <span className="text-2xs text-muted">
+                        {item.topics.map((topic) => topicLabel(topic)).join(' · ')}
+                      </span>
+                    ) : null}
+                    <Badge tone="ember">{item.difficulty}</Badge>
+                    <Badge tone={item.box === 0 ? 'warn' : 'info'}>Box {item.box + 1}</Badge>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button variant="primary" size="sm" disabled={busy} onClick={() => onStart(item)}>
+                    Start review
+                  </Button>
+                  <IconButton
+                    label="Dismiss this review item"
+                    disabled={busy}
+                    onClick={() => onDismiss(item)}
+                  >
+                    <X size={12} />
+                  </IconButton>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
   return (
     <div className="flex flex-col gap-2">
@@ -322,6 +714,99 @@ function ComparisonView({ comparison }: { comparison: PracticeComparison }) {
   );
 }
 
+/** One ladder tier in reveal order; tiers the model omitted are skipped. */
+export interface HintTier {
+  label: string;
+  text: string;
+  /** The skeleton tier may carry partial SQL, so it renders as code. */
+  code?: boolean;
+}
+
+/** The ladder as an ordered, display-ready list of tiers. */
+// eslint-disable-next-line react-refresh/only-export-components -- imported by the practice UI tests; a shared lib file is outside this change
+export function hintLadderTiers(ladder: PracticeHintLadder): HintTier[] {
+  const tiers: HintTier[] = [];
+  if (ladder.nudge) tiers.push({ label: 'Nudge', text: ladder.nudge });
+  if (ladder.approach) tiers.push({ label: 'Approach', text: ladder.approach });
+  if (ladder.skeleton) tiers.push({ label: 'Skeleton', text: ladder.skeleton, code: true });
+  return tiers;
+}
+
+/**
+ * The hint box of the active question. Questions generated with the tiered
+ * ladder reveal one tier per click, strictly in order (nudge, then approach,
+ * then skeleton); older questions fall back to the flat hint list.
+ */
+export function QuestionHints({
+  question,
+  shown,
+  onReveal,
+}: {
+  question: PracticeQuestionPublic;
+  shown: number;
+  onReveal: () => void;
+}) {
+  const ladder = question.hintLadder ? hintLadderTiers(question.hintLadder) : [];
+  if (ladder.length > 0) {
+    const next = ladder[shown];
+    return (
+      <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Lightbulb size={11} className="text-warn" />
+          <span className="text-2xs font-semibold tracking-wide text-warn uppercase">Hints</span>
+          <span className="font-mono text-2xs text-muted">
+            {Math.min(shown, ladder.length)}/{ladder.length}
+          </span>
+          <Button
+            variant="tertiary"
+            size="sm"
+            className="ml-auto h-7 px-3 text-2xs"
+            tooltip="Reveal the next tier (Alt+H)"
+            onClick={onReveal}
+            disabled={shown >= ladder.length}
+          >
+            {next ? `Show the ${next.label.toLowerCase()}` : 'All tiers revealed'}
+          </Button>
+        </div>
+        {ladder.slice(0, shown).map((tier) => (
+          <div key={tier.label} className="mt-1 text-2xs leading-5 text-ink-soft">
+            <span className="font-semibold text-warn">{tier.label}:</span>
+            {tier.code ? (
+              <CodeBlock text={tier.text} className="mt-1 text-2xs" />
+            ) : (
+              <span> {tier.text}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (question.hints.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <Lightbulb size={11} className="text-warn" />
+        <span className="text-2xs font-semibold tracking-wide text-warn uppercase">Hints</span>
+        <Button
+          variant="tertiary"
+          size="sm"
+          className="ml-auto h-7 px-3 text-2xs"
+          tooltip="Reveal a hint (Alt+H)"
+          onClick={onReveal}
+          disabled={shown >= question.hints.length}
+        >
+          {shown === 0 ? 'Show a hint' : 'Another hint'}
+        </Button>
+      </div>
+      {question.hints.slice(0, shown).map((hint, index) => (
+        <div key={index} className="mt-1 text-2xs leading-5 text-ink-soft">
+          {index + 1}. {hint}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** The error banner of the SQL Lab page. */
 function PracticeErrorNote({ message }: { message: string }) {
   return (
@@ -338,7 +823,9 @@ function PracticeErrorNote({ message }: { message: string }) {
  * The empty state is a direct child of the page, so it settles in the space
  * that is left under the page header instead of sitting at the top of the
  * viewport with a blank page below it. The action it offers is the only
- * "generate challenges" button on this screen.
+ * "generate challenges" button on this screen. The learning loop — progress,
+ * the daily challenge and the due review queue — lives here on the hub as a
+ * row of first-class cards.
  */
 export function PracticeEmptyScreen({
   database,
@@ -346,12 +833,39 @@ export function PracticeEmptyScreen({
   recentSets,
   onPick,
   onGenerate,
+  progress,
+  onRefreshProgress,
+  onClearAttempts,
+  daily,
+  dailyLoading,
+  dailyFailed,
+  onOpenDaily,
+  onRetryDaily,
+  reviewItems,
+  reviewBusyKey,
+  onStartReview,
+  onDismissReview,
+  hubLoading,
 }: {
   database: string;
   error: string | null;
   recentSets: PracticeSetPublic[];
   onPick: (item: PracticeSetPublic) => void;
   onGenerate: () => void;
+  progress: PracticeProgressPublic | null;
+  onRefreshProgress: () => void;
+  onClearAttempts: () => void;
+  daily: PracticeDaily | null;
+  dailyLoading: boolean;
+  dailyFailed: boolean;
+  onOpenDaily: () => void;
+  onRetryDaily: () => void;
+  reviewItems: PracticeReviewQueueItem[];
+  reviewBusyKey: string | null;
+  onStartReview: (item: PracticeReviewQueueItem) => void;
+  onDismissReview: (item: PracticeReviewQueueItem) => void;
+  /** True until the first progress/review/sets fetch of this profile resolves. */
+  hubLoading: boolean;
 }) {
   return (
     <>
@@ -363,7 +877,7 @@ export function PracticeEmptyScreen({
       {error ? <PracticeErrorNote message={error} /> : null}
       <div className="empty-anchor">
         <EmptyState
-          icon={<Target size={26} />}
+          icon={<Target size={20} />}
           title="No challenge set yet"
           copy="Open the setup panel to choose tables, topics, and difficulty, then generate a set."
           action={
@@ -372,8 +886,32 @@ export function PracticeEmptyScreen({
             </Button>
           }
         />
-        <div className="mt-3 w-full max-w-2xl">
-          <RecentSetsCard sets={recentSets} onPick={onPick} />
+        <div className="mt-3 grid w-full max-w-4xl grid-cols-1 gap-3 lg:grid-cols-2">
+          <PracticeProgressCard
+            progress={progress}
+            onRefresh={onRefreshProgress}
+            onClear={onClearAttempts}
+            loading={hubLoading}
+          />
+          <div className="flex flex-col gap-3">
+            <PracticeDailyCard
+              daily={daily}
+              loading={dailyLoading}
+              failed={dailyFailed}
+              onOpen={onOpenDaily}
+              onRetry={onRetryDaily}
+            />
+            <ReviewQueueCard
+              items={reviewItems}
+              busyKey={reviewBusyKey}
+              onStart={onStartReview}
+              onDismiss={onDismissReview}
+              loading={hubLoading}
+            />
+          </div>
+        </div>
+        <div className="mt-3 w-full max-w-4xl">
+          <RecentSetsCard sets={recentSets} onPick={onPick} loading={hubLoading} />
         </div>
       </div>
     </>
@@ -420,10 +958,40 @@ export function PracticePage() {
   const [runError, setRunError] = useState<string | null>(null);
   const [progress, setProgress] = useState<PracticeProgressPublic | null>(null);
   const [recentSets, setRecentSets] = useState<PracticeSetPublic[]>([]);
+  // The learning loop: due review cards and today's daily challenge. The daily
+  // fetch can take seconds (it may generate the challenge), so the result is
+  // cached per profile for the rest of the session.
+  const [reviewItems, setReviewItems] = useState<PracticeReviewQueueItem[]>([]);
+  const [reviewBusyKey, setReviewBusyKey] = useState<string | null>(null);
+  // True until the first progress/review/sets fetch of the active profile has
+  // resolved (successfully or not); the hub cards show skeletons while it is.
+  const [hubLoading, setHubLoading] = useState(true);
+  // A profile switch resets the hub to skeletons. Adjusting during render (the
+  // pattern ResultsGridBase uses) keeps the reset off the effect body.
+  const [loadedProfileId, setLoadedProfileId] = useState<string | null>(activeProfileId);
+  if (activeProfileId !== loadedProfileId) {
+    setLoadedProfileId(activeProfileId);
+    setHubLoading(true);
+  }
+  const [daily, setDaily] = useState<PracticeDaily | null>(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [dailyError, setDailyError] = useState(false);
+  const dailyCache = useRef<Map<string, PracticeDaily>>(new Map());
+  // The profile the in-flight daily request belongs to; a late response for a
+  // profile that was switched away must never be applied.
+  const dailyRequestProfileId = useRef<string | null>(null);
+  // Per-question attempt totals backing the "Attempt N" label; seeded from the
+  // recorded attempts and bumped locally after each newly graded submission.
+  const [attemptCounts, setAttemptCounts] = useState<Record<string, number>>({});
   const [clearConfirm, setClearConfirm] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [navigatorOpen, setNavigatorOpen] = useState(true);
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
+  // The stopwatch of the open question. `questionOpenedAt` resets whenever the
+  // active question changes (the same commit that clears hints); the tick only
+  // drives a mm:ss display — nothing is enforced or recorded.
+  const [questionOpenedAt, setQuestionOpenedAt] = useState<number>(() => Date.now());
+  const [elapsedTick, setElapsedTick] = useState<number>(() => Date.now());
   // The coach keeps a thread per challenge, so moving to another challenge
   // and back does not lose the conversation.
   const [coachTurns, setCoachTurns] = useState<Record<string, AiChatMessage[]>>({});
@@ -449,6 +1017,19 @@ export function PracticePage() {
   const pinnedDatabase = practiceSet?.database ?? selectedDatabase;
   const databaseMismatch = Boolean(practiceSet && practiceSet.database !== selectedDatabase);
   const schemaPanelVisible = isLargeViewport ? schemaPanelOpen : schemaDrawerOpen;
+  // Session metadata of the open question: a display-only stopwatch and the
+  // attempt counter ("recorded attempts + 1").
+  const elapsedMs = Math.max(0, elapsedTick - questionOpenedAt);
+  const attemptNumber = question ? (attemptCounts[question.id] ?? 0) + 1 : 1;
+  // How many tiers the current question can still reveal: the ladder when one
+  // exists, otherwise the flat hint list.
+  const hintTierCount = question
+    ? question.hintLadder
+      ? hintLadderTiers(question.hintLadder).length
+      : question.hints.length
+    : 0;
+  // The keyboard flow steps aside while a dialog owns the screen.
+  const dialogOpen = setupOpen || clearConfirm;
 
   const toggleSchemaPanel = useCallback((): void => {
     if (isLargeViewport) setSchemaPanelOpen((value) => !value);
@@ -531,28 +1112,101 @@ export function PracticePage() {
     setModel(defaultProvider.model);
   }
 
+  /**
+   * Load today's daily challenge for a profile. Each profile is fetched once
+   * per session and cached, so switching back and forth does not re-run the
+   * (possibly slow) generation; `force` bypasses the cache for retries.
+   */
+  const loadDaily = useCallback((profileId: string, options: { force?: boolean } = {}): void => {
+    if (!options.force) {
+      const cached = dailyCache.current.get(profileId);
+      if (cached) {
+        dailyRequestProfileId.current = null;
+        setDaily(cached);
+        setDailyLoading(false);
+        setDailyError(false);
+        return;
+      }
+    } else {
+      dailyCache.current.delete(profileId);
+    }
+    dailyRequestProfileId.current = profileId;
+    setDaily(null);
+    setDailyLoading(true);
+    setDailyError(false);
+    void dbApi
+      .practiceDaily(profileId)
+      .then((entry) => {
+        if (dailyRequestProfileId.current !== profileId) return;
+        dailyRequestProfileId.current = null;
+        dailyCache.current.set(profileId, entry);
+        setDaily(entry);
+        setDailyLoading(false);
+      })
+      .catch(() => {
+        if (dailyRequestProfileId.current !== profileId) return;
+        dailyRequestProfileId.current = null;
+        setDailyError(true);
+        setDailyLoading(false);
+      });
+  }, []);
+
   useEffect(() => {
     if (!activeProfileId) return;
-    void dbApi
-      .practiceProgress(activeProfileId)
-      .then(setProgress)
-      .catch(() => undefined);
-    void dbApi
-      .practiceSets(activeProfileId, 5)
-      .then(setRecentSets)
-      .catch(() => undefined);
-  }, [activeProfileId]);
+    // The hub loads in one pass: progress, recent sets and the review queue
+    // settle together, so the cards show skeletons until all three resolve.
+    // Failures resolve too — an empty card beats a skeleton that never ends.
+    let cancelled = false;
+    void Promise.all([
+      dbApi.practiceProgress(activeProfileId).catch(() => undefined),
+      dbApi.practiceSets(activeProfileId, 5).catch(() => undefined),
+      dbApi.practiceReviewQueue(activeProfileId).catch(() => undefined),
+    ]).then(([nextProgress, nextSets, nextReview]) => {
+      if (cancelled) return;
+      setProgress(nextProgress ?? null);
+      setRecentSets(nextSets ?? []);
+      setReviewItems(nextReview ?? []);
+      setHubLoading(false);
+    });
+    loadDaily(activeProfileId);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileId, loadDaily]);
 
   // A new question starts without hints and without the previous run result.
   // The state is adjusted while rendering so the panel never shows results
-  // that belong to another question.
+  // that belong to another question. The stopwatch restarts in the handlers
+  // that move the active question (activateSet, goTo, startReview).
   const [hintedQuestionId, setHintedQuestionId] = useState(question?.id);
+  // The verdict badge pulses once when a fresh evaluation lands `correct`: a
+  // mint ring blooms from the pill. Adjusting the flag in the same render-time
+  // reset as the run result means a grade restored for a different question
+  // (attempts reload, navigation) never replays it.
+  const [verdictPulse, setVerdictPulse] = useState(false);
   if (hintedQuestionId !== question?.id) {
     setHintedQuestionId(question?.id);
     setHintsShown(0);
     setRunResult(null);
     setRunError(null);
+    setVerdictPulse(false);
   }
+
+  // Drop the pulse class a beat after the animation ends (0.45s), so the next
+  // correct submission can replay it.
+  useEffect(() => {
+    if (!verdictPulse) return;
+    const timer = window.setTimeout(() => setVerdictPulse(false), VERDICT_PULSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [verdictPulse]);
+
+  // The stopwatch ticks once a second while a challenge is open; on the hub
+  // there is nothing to time, so no interval runs at all.
+  useEffect(() => {
+    if (!practiceSet || !question) return;
+    const timer = window.setInterval(() => setElapsedTick(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [practiceSet, question]);
 
   // Restore unsubmitted drafts when a set becomes active (for example after a
   // reload and reopening it from the recent list). The drafts are read while
@@ -567,7 +1221,11 @@ export function PracticePage() {
     (restoredDrafts?.profileId !== activeProfileId || restoredDrafts?.set !== practiceSet)
   ) {
     setRestoredDrafts({ profileId: activeProfileId, set: practiceSet });
-    const stored = readDraft(activeProfileId, practiceSet.id);
+    const stored = readDraft(
+      useAppStore.getState().currentUser?.id,
+      activeProfileId,
+      practiceSet.id,
+    );
     if (Object.keys(stored).length > 0) {
       setAnswers((previous) => {
         const next = { ...previous };
@@ -597,7 +1255,7 @@ export function PracticePage() {
       if (!value.sql.trim() && !value.answer.trim()) continue;
       drafts[questionId] = { sql: value.sql, answer: value.answer };
     }
-    writeDraft(activeProfileId, practiceSet.id, drafts);
+    writeDraft(useAppStore.getState().currentUser?.id, activeProfileId, practiceSet.id, drafts);
   }, [activeProfileId, practiceSet, answers]);
 
   const updateCurrent = (patch: Partial<AnswerState>): void => {
@@ -629,6 +1287,13 @@ export function PracticePage() {
     try {
       const attempts = await dbApi.practiceSetAttempts(setId, activeProfileId);
       if (activeSetId.current !== setId) return;
+      // The per-question totals seed the "Attempt N" label; the label counts
+      // recorded attempts, so it is derived straight from this list.
+      const counts: Record<string, number> = {};
+      for (const attempt of attempts) {
+        counts[attempt.questionId] = (counts[attempt.questionId] ?? 0) + 1;
+      }
+      setAttemptCounts(counts);
       setAnswers((previous) => {
         const next = { ...previous };
         // Attempts are stored newest first, so the first hit for a question is
@@ -659,7 +1324,11 @@ export function PracticePage() {
     setActiveIndex(0);
     setAnswers({});
     setAnswerMaterial({});
+    setAttemptCounts({});
     setFlagged({});
+    // A freshly opened set starts its first question's stopwatch at zero.
+    setQuestionOpenedAt(Date.now());
+    setElapsedTick(Date.now());
     setHintsShown(0);
     setRunResult(null);
     setRunError(null);
@@ -694,20 +1363,76 @@ export function PracticePage() {
     try {
       setProgress(await dbApi.practiceProgress(activeProfileId));
       setRecentSets(await dbApi.practiceSets(activeProfileId, 5));
+      // The review queue changes on every graded submission (the evaluation
+      // reschedules the card), so it rides along with the progress refresh.
+      setReviewItems(await dbApi.practiceReviewQueue(activeProfileId));
     } catch {
       // Supplementary UI.
     }
   };
 
-  // The saved sets are listed on the hub, so they have to be there before the
-  // setup modal is opened.
-  useEffect(() => {
+  /** Open today's daily challenge straight from the hub card. */
+  const openDailyChallenge = (): void => {
+    // The daily payload carries the full set, so activation is the same path
+    // as picking a recent set; it lands on the challenge and loads its
+    // history. The hub → challenge swap is question-content navigation, so it
+    // crossfades through the same view transition as `goTo`.
+    if (daily?.set) withQuestionTransition(() => activateSet(daily.set));
+  };
+
+  /**
+   * Open a due review item's set and jump to that question. The queue carries
+   * ids only, so the set is resolved through the sets listing — the same
+   * mechanism the recent-sets card uses — and the question index is selected
+   * after activation.
+   */
+  const startReview = async (item: PracticeReviewQueueItem): Promise<void> => {
     if (!activeProfileId) return;
-    void dbApi
-      .practiceSets(activeProfileId, 5)
-      .then((sets) => setRecentSets(sets))
-      .catch(() => undefined);
-  }, [activeProfileId]);
+    setReviewBusyKey(reviewItemKey(item));
+    try {
+      const sets = await dbApi.practiceSets(activeProfileId, 50);
+      const set = sets.find((entry) => entry.id === item.setId);
+      if (!set) {
+        toast('The challenge set behind this review item is no longer available.', 'warn');
+        return;
+      }
+      // Starting a review lands on a specific question of the set, so the
+      // whole activation rides the same view transition as question
+      // navigation — activation and the index jump belong to one swap.
+      withQuestionTransition(() => {
+        activateSet(set);
+        const index = set.questions.findIndex((entry) => entry.id === item.questionId);
+        if (index > 0) {
+          // Jump past the first question; the stopwatch follows the new one.
+          setActiveIndex(index);
+          setQuestionOpenedAt(Date.now());
+          setElapsedTick(Date.now());
+        }
+      });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setReviewBusyKey(null);
+    }
+  };
+
+  /** Remove one card from the review queue; the recorded attempt stays. */
+  const dismissReviewItem = async (item: PracticeReviewQueueItem): Promise<void> => {
+    if (!activeProfileId) return;
+    setReviewBusyKey(reviewItemKey(item));
+    try {
+      await dbApi.dismissPracticeReviewItem(item.setId, item.questionId, activeProfileId);
+      setReviewItems((previous) =>
+        previous.filter(
+          (entry) => entry.setId !== item.setId || entry.questionId !== item.questionId,
+        ),
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setReviewBusyKey(null);
+    }
+  };
 
   const generate = async (): Promise<void> => {
     if (!activeProfileId || !selectedDatabase) {
@@ -830,16 +1555,18 @@ export function PracticePage() {
         return;
       }
       updateCurrent({ evaluation: result, duplicate: false });
+      // A correct verdict blooms the mint ring on the verdict badge — the
+      // evaluation card is the feedback surface, the pulse is the highlight.
+      if (result.verdict === 'correct') setVerdictPulse(true);
+      // A new attempt was recorded, so the question's "Attempt N" label moves.
+      setAttemptCounts((previous) => ({
+        ...previous,
+        [question.id]: (previous[question.id] ?? 0) + 1,
+      }));
       void loadProgress();
       void loadAnswers(practiceSet.id);
-      toast(
-        result.verdict === 'correct'
-          ? 'Correct.'
-          : result.verdict === 'close'
-            ? 'Close.'
-            : 'Reviewed.',
-        result.verdict === 'correct' ? 'success' : result.verdict === 'close' ? 'info' : 'warn',
-      );
+      // No verdict toast: the evaluation card is the single feedback surface,
+      // and it is on screen the moment this resolves.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -901,8 +1628,60 @@ export function PracticePage() {
 
   const goTo = (index: number): void => {
     if (!practiceSet) return;
-    setActiveIndex(Math.max(0, Math.min(practiceSet.questions.length - 1, index)));
+    const next = Math.max(0, Math.min(practiceSet.questions.length - 1, index));
+    if (next === activeIndex) return;
+    // The tracker, the prev/next arrows and the j/k shortcuts all land here,
+    // so every question swap crossfades through the same view transition.
+    withQuestionTransition(() => {
+      setActiveIndex(next);
+      // Every jump to another question restarts its stopwatch.
+      setQuestionOpenedAt(Date.now());
+      setElapsedTick(Date.now());
+    });
   };
+
+  // The shortcut listener reads its actions through a ref: `evaluate` and
+  // `goTo` close over the live draft and are rebuilt on every render, while
+  // the listener itself does not need to re-register on each keystroke.
+  const shortcutActions = useRef({ evaluate, goTo });
+  useEffect(() => {
+    shortcutActions.current = { evaluate, goTo };
+  });
+
+  // Learning-loop shortcuts. Plain `j`/`k`/arrow keys never steal typing: they
+  // are dropped when the event starts in a field, a contenteditable node or a
+  // CodeMirror editor. The Alt chords do not compose text, so they stay live
+  // inside the editor (the same rule the workspace uses for Alt+T); they match
+  // on `event.code` because macOS folds Option+S/H into other characters.
+  // Ctrl+B (schema panel) and Ctrl+Enter (preview run) keep their bindings.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return;
+      if (dialogOpen) return;
+      if (!event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (isTypingTarget(event.target)) return;
+        const next = event.key === 'j' || event.key === 'J' || event.key === 'ArrowDown';
+        const prev = event.key === 'k' || event.key === 'K' || event.key === 'ArrowUp';
+        if ((!next && !prev) || !question) return;
+        event.preventDefault();
+        shortcutActions.current.goTo(next ? activeIndex + 1 : activeIndex - 1);
+        return;
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (event.code === 'KeyS') {
+          if (!question || submitting) return;
+          event.preventDefault();
+          void shortcutActions.current.evaluate();
+        } else if (event.code === 'KeyH') {
+          if (!question || hintTierCount === 0) return;
+          event.preventDefault();
+          setHintsShown((value) => Math.min(hintTierCount, value + 1));
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeIndex, dialogOpen, hintTierCount, question, submitting]);
 
   const clearAttempts = async (): Promise<void> => {
     if (!activeProfileId) return;
@@ -931,7 +1710,7 @@ export function PracticePage() {
       <div className="page">
         <PageHeader title="SQL Lab" subtitle="Challenges generated from your schema." />
         <EmptyState
-          icon={<FlaskConical size={24} />}
+          icon={<FlaskConical size={20} />}
           title="Select a database first"
           copy={selectDatabaseHint}
         />
@@ -953,7 +1732,7 @@ export function PracticePage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                variant="ghost"
+                variant="tertiary"
                 size="sm"
                 icon={<ListChecks size={12} />}
                 onClick={() => setNavigatorOpen((value) => !value)}
@@ -970,7 +1749,9 @@ export function PracticePage() {
               </Button>
             </div>
           </div>
-          {error ? <PracticeErrorNote message={error} /> : null}
+          {/* The setup modal shows the same error as a callout; the page-level
+              note steps aside while the modal owns the screen. */}
+          {error && !setupOpen ? <PracticeErrorNote message={error} /> : null}
           {databaseMismatch ? (
             <div className="callout warn flex items-start gap-2">
               <Info size={15} className="mt-0.5 shrink-0" />
@@ -985,10 +1766,27 @@ export function PracticePage() {
       ) : (
         <PracticeEmptyScreen
           database={selectedDatabase}
-          error={error}
+          /* The setup modal repeats the error as a callout; the page-level
+             note steps aside while the modal owns the screen. */
+          error={setupOpen ? null : error}
           recentSets={recentSets}
           onPick={(item) => activateSet(item)}
           onGenerate={openSetup}
+          progress={progress}
+          onRefreshProgress={() => void loadProgress()}
+          onClearAttempts={() => setClearConfirm(true)}
+          daily={daily}
+          dailyLoading={dailyLoading}
+          dailyFailed={dailyError}
+          onOpenDaily={openDailyChallenge}
+          onRetryDaily={() => {
+            if (activeProfileId) loadDaily(activeProfileId, { force: true });
+          }}
+          reviewItems={reviewItems}
+          reviewBusyKey={reviewBusyKey}
+          onStartReview={(item) => void startReview(item)}
+          onDismissReview={(item) => void dismissReviewItem(item)}
+          hubLoading={hubLoading}
         />
       )}
 
@@ -1002,7 +1800,7 @@ export function PracticePage() {
         >
           <div className="practice-setup-grid">
             <Card className="p-4">
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-2 flex items-center gap-2">
                 <FlaskConical size={15} className="text-ember" />
                 <div className="section-title">Generate a challenge set</div>
               </div>
@@ -1026,7 +1824,7 @@ export function PracticePage() {
                   hint={
                     tableOptions.length === 0
                       ? 'Schema is loading. Open the Database page if this persists.'
-                      : 'Leave empty to use up to 20 tables selected by size.'
+                      : 'Leave empty to auto-select.'
                   }
                 >
                   <MultiSelect
@@ -1098,7 +1896,6 @@ export function PracticePage() {
                     <TextCombobox
                       value={model}
                       onChange={setModel}
-                      placeholder="model"
                       inputClassName="font-mono text-2xs"
                       emptyText="No matching models on file."
                       ariaLabel="Model"
@@ -1132,7 +1929,7 @@ export function PracticePage() {
                     Generate challenges
                   </Button>
                   {generating ? (
-                    <Button variant="ghost" size="sm" onClick={cancelGeneration}>
+                    <Button variant="tertiary" size="sm" onClick={cancelGeneration}>
                       Cancel
                     </Button>
                   ) : null}
@@ -1150,7 +1947,7 @@ export function PracticePage() {
                       <Spinner size={13} />
                       Generating challenges from {selectedDatabase}…
                       <Button
-                        variant="ghost"
+                        variant="tertiary"
                         size="sm"
                         className="ml-auto"
                         onClick={cancelGeneration}
@@ -1172,87 +1969,16 @@ export function PracticePage() {
             </Card>
 
             <div className="practice-setup-side">
-              <Card className="p-4">
-                <div className="mb-2 flex items-center gap-2">
-                  <Trophy size={14} className="text-ember" />
-                  <div className="section-title">Progress</div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto"
-                    icon={<RefreshCw size={11} />}
-                    onClick={() => void loadProgress()}
-                  >
-                    Refresh
-                  </Button>
-                </div>
-                {progress && progress.totalAttempts > 0 ? (
-                  <div className="flex flex-col gap-3">
-                    <div className="font-mono text-2xs text-muted">
-                      {progress.totalAttempts} attempts · avg {progress.averageScore}
-                    </div>
-                    {progress.recommendedTopics.length > 0 ? (
-                      <div>
-                        <div className="mono-label mb-1">Recommended next</div>
-                        <div className="text-2xs text-ink-soft">
-                          {progress.recommendedTopics.map((topic) => topicLabel(topic)).join(' · ')}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="flex flex-col gap-2">
-                      {progress.topics
-                        .filter((topic) => topic.attempts > 0)
-                        .sort((a, b) => b.attempts - a.attempts)
-                        .slice(0, 8)
-                        .map((topic) => (
-                          <div key={topic.topic}>
-                            <div className="flex items-center justify-between gap-2 text-2xs">
-                              <span className="truncate text-ink-soft">
-                                {topicLabel(topic.topic)}
-                              </span>
-                              <span className="font-mono text-muted">
-                                {topic.averageScore} · {topic.attempts}×
-                              </span>
-                            </div>
-                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-panel-3">
-                              <div
-                                className={cn(
-                                  'h-full rounded-full',
-                                  topic.averageScore >= 80
-                                    ? 'bg-mint'
-                                    : topic.averageScore >= 60
-                                      ? 'bg-warn'
-                                      : 'bg-danger',
-                                )}
-                                style={{ width: `${Math.max(3, topic.averageScore)}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-danger"
-                        icon={<Trash2 size={11} />}
-                        onClick={() => setClearConfirm(true)}
-                      >
-                        Clear attempts
-                      </Button>
-                      {progress.recent.length > 0 ? (
-                        <span className="text-2xs text-muted">
-                          last {formatDate(progress.recent[0].createdAt)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-2xs text-muted">
-                    Attempt stats appear after you submit answers.
-                  </div>
-                )}
-              </Card>
+              {/*
+               * The hub dashboard card is the primary home for progress; the
+               * setup panel reuses the same component so the two never drift.
+               */}
+              <PracticeProgressCard
+                progress={progress}
+                onRefresh={() => void loadProgress()}
+                onClear={() => setClearConfirm(true)}
+                loading={hubLoading}
+              />
 
               <RecentSetsCard
                 sets={recentSets}
@@ -1260,6 +1986,7 @@ export function PracticePage() {
                   activateSet(item);
                   setSetupOpen(false);
                 }}
+                loading={hubLoading}
               />
             </div>
           </div>
@@ -1280,6 +2007,11 @@ export function PracticePage() {
                       <span className="font-mono text-2xs font-semibold text-ink-soft">
                         {activeIndex + 1}/{practiceSet.questions.length}
                       </span>
+                      <span className="num flex items-center gap-1 font-mono text-2xs text-muted">
+                        <Timer size={11} />
+                        {formatElapsedTime(elapsedMs)}
+                      </span>
+                      <span className="num text-2xs text-muted">Attempt {attemptNumber}</span>
                       <span className="text-2xs text-muted">
                         {question.type.replace('-', ' ')} · {question.difficulty}
                         {question.topics.length > 0
@@ -1288,14 +2020,16 @@ export function PracticePage() {
                       </span>
                       {flaggedCurrent ? (
                         <Badge tone="warn">
-                          <Flag size={9} /> flagged
+                          {/* Filled like the navigator's flag, so both states of
+                              "flagged" read as the same mark. */}
+                          <Flag size={9} fill="currentColor" /> flagged
                         </Badge>
                       ) : null}
                       <span className="ml-auto text-2xs text-muted">
                         ~{question.estimatedMinutes} min · {question.schemaTables.join(', ')}
                       </span>
                       <Button
-                        variant="ghost"
+                        variant="tertiary"
                         size="sm"
                         aria-pressed={schemaPanelVisible}
                         tooltip="Toggle schema browser (Ctrl/Cmd+B)"
@@ -1304,9 +2038,6 @@ export function PracticePage() {
                         onClick={toggleSchemaPanel}
                       >
                         Schema
-                        <span className="hidden xl:inline-flex">
-                          <Kbd>Ctrl B</Kbd>
-                        </span>
                       </Button>
                     </div>
 
@@ -1326,36 +2057,15 @@ export function PracticePage() {
                       </div>
                     ) : null}
 
-                    {question.hints.length > 0 ? (
-                      <div className="mt-2 rounded-lg border border-warn/20 bg-warn/5 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <Lightbulb size={11} className="text-warn" />
-                          <span className="text-2xs font-semibold tracking-wide text-warn uppercase">
-                            Hints
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="ml-auto h-7 px-3 text-2xs"
-                            onClick={() =>
-                              setHintsShown((value) => Math.min(question.hints.length, value + 1))
-                            }
-                            disabled={hintsShown >= question.hints.length}
-                          >
-                            {hintsShown === 0 ? 'Show a hint' : 'Another hint'}
-                          </Button>
-                        </div>
-                        {question.hints.slice(0, hintsShown).map((hint, index) => (
-                          <div key={index} className="mt-1 text-2xs leading-5 text-ink-soft">
-                            {index + 1}. {hint}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
+                    <QuestionHints
+                      question={question}
+                      shown={hintsShown}
+                      onReveal={() => setHintsShown((value) => Math.min(hintTierCount, value + 1))}
+                    />
                   </Card>
 
                   {question.type === 'write-query' || question.type === 'fix-query' ? (
-                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas">
+                    <div className="min-h-[380px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas">
                       <SqlEditor
                         value={current.sql}
                         onChange={(value) => updateCurrent({ sql: value })}
@@ -1372,7 +2082,7 @@ export function PracticePage() {
                       />
                     </div>
                   ) : (
-                    <div className="min-h-[280px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas p-3">
+                    <div className="min-h-[380px] flex-1 overflow-hidden rounded-xl border border-line-soft bg-canvas p-3">
                       <Field
                         label={
                           question.type === 'review-query'
@@ -1398,7 +2108,7 @@ export function PracticePage() {
                   {runResult ? (
                     <details open className="rounded-xl border border-line-soft bg-panel-2 p-2">
                       <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
-                        Query result · {runResult.rowCount} rows · {runResult.executionMs} ms
+                        Query result
                       </summary>
                       <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
                         <ResultsGrid result={runResult} />
@@ -1419,7 +2129,7 @@ export function PracticePage() {
                       <span className="text-2xs text-muted">
                         {running
                           ? 'Running the query…'
-                          : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Submit grades it.`}
+                          : `Ctrl+Enter runs against ${pinnedDatabase ?? 'the database'} without submitting; Alt+S submits; Submit grades it.`}
                       </span>
                     )}
                   </div>
@@ -1456,16 +2166,27 @@ export function PracticePage() {
                   ) : null}
 
                   {evaluation ? (
-                    <Card className="p-4">
+                    <Card className="p-4 card-enter">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
                         <ScoreRing score={evaluation.scores.overall} size={112} />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <Badge tone={verdictTone(evaluation.verdict)}>
-                              {evaluation.verdict === 'not-executed'
-                                ? 'reviewed'
-                                : evaluation.verdict.replace('-', ' ')}
-                            </Badge>
+                            {/* The wrapper carries the success pulse so the
+                                shared Badge stays untouched. The pill radius
+                                is set inline because .pulse-success's
+                                `border-radius: inherit` (an unlayered rule)
+                                would otherwise pull this row's square corner
+                                over any utility class. */}
+                            <span
+                              className={cn(verdictPulse && 'pulse-success')}
+                              style={{ borderRadius: '9999px' }}
+                            >
+                              <Badge tone={verdictTone(evaluation.verdict)}>
+                                {evaluation.verdict === 'not-executed'
+                                  ? 'reviewed'
+                                  : evaluation.verdict.replace('-', ' ')}
+                              </Badge>
+                            </span>
                             <span className="text-2xs text-muted">
                               {evaluation.executed ? 'executed read-only' : 'not executed'}
                               {current.duplicate ? ' · duplicate answer' : ''}
@@ -1499,97 +2220,104 @@ export function PracticePage() {
                         </div>
                       </div>
 
-                      {evaluation.comparison ? (
-                        <div className="mt-4">
-                          <div className="section-title mb-2">Result comparison</div>
-                          <ComparisonView comparison={evaluation.comparison} />
-                        </div>
-                      ) : null}
-
-                      {evaluation.strengths.length > 0 || evaluation.issues.length > 0 ? (
-                        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                          {evaluation.strengths.length > 0 ? (
-                            <div className="rounded-xl border border-mint/20 bg-mint/5 p-3">
-                              <div className="section-title mb-1 text-mint">What worked</div>
-                              {evaluation.strengths.map((item, index) => (
-                                <div key={index} className="text-xs text-ink-soft">
-                                  • {item}
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                          {evaluation.issues.length > 0 ? (
-                            <div className="rounded-xl border border-warn/20 bg-warn/5 p-3">
-                              <div className="section-title mb-1 text-warn">What to fix</div>
-                              {evaluation.issues.map((item, index) => (
-                                <div key={index} className="text-xs text-ink-soft">
-                                  • {item}
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      <div className="callout mt-4 flex items-start gap-2">
-                        <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
-                        <div className="text-xs text-ink-soft">{evaluation.nextHint}</div>
-                      </div>
-
-                      {evaluation.aiFeedback ? (
-                        <div className="mt-4">
-                          <div className="section-title mb-2">AI feedback</div>
-                          <Markdown>{evaluation.aiFeedback}</Markdown>
-                        </div>
-                      ) : null}
-
-                      {evaluation.findings.length > 0 ? (
-                        <div className="mt-4">
-                          <div className="section-title mb-2">Rule findings on your answer</div>
-                          <FindingsList
-                            findings={evaluation.findings}
-                            compact
-                            showFilters={false}
-                            emptyTitle="No rule findings"
-                          />
-                        </div>
-                      ) : null}
-
-                      {evaluation.explain ? (
-                        <details className="mt-4 rounded-xl border border-line-soft bg-panel-2 p-3">
-                          <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
-                            EXPLAIN plan for your answer
-                          </summary>
-                          <div className="mt-2">
-                            <ExplainPanel explain={evaluation.explain} analyzing={false} />
+                      {/*
+                       * The detail sections of the evaluation form one group:
+                       * the wrapper owns the spacing (gap-4), so each section
+                       * renders the same whether its neighbours exist or not.
+                       */}
+                      <div className="mt-4 flex flex-col gap-4">
+                        {evaluation.comparison ? (
+                          <div>
+                            <div className="section-title mb-2">Result comparison</div>
+                            <ComparisonView comparison={evaluation.comparison} />
                           </div>
-                        </details>
-                      ) : null}
+                        ) : null}
 
-                      {evaluation.userResult || evaluation.referenceResult ? (
-                        <div className="mt-4 flex flex-col gap-2">
-                          {evaluation.userResult ? (
-                            <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
-                              <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
-                                Your result
-                              </summary>
-                              <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
-                                <ResultsGrid result={evaluation.userResult} />
+                        {evaluation.strengths.length > 0 || evaluation.issues.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            {evaluation.strengths.length > 0 ? (
+                              <div className="rounded-xl border border-mint/20 bg-mint/5 p-3">
+                                <div className="section-title mb-1 text-mint">What worked</div>
+                                {evaluation.strengths.map((item, index) => (
+                                  <div key={index} className="text-xs text-ink-soft">
+                                    • {item}
+                                  </div>
+                                ))}
                               </div>
-                            </details>
-                          ) : null}
-                          {evaluation.referenceResult ? (
-                            <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
-                              <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
-                                Reference result
-                              </summary>
-                              <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
-                                <ResultsGrid result={evaluation.referenceResult} />
+                            ) : null}
+                            {evaluation.issues.length > 0 ? (
+                              <div className="rounded-xl border border-warn/20 bg-warn/5 p-3">
+                                <div className="section-title mb-1 text-warn">What to fix</div>
+                                {evaluation.issues.map((item, index) => (
+                                  <div key={index} className="text-xs text-ink-soft">
+                                    • {item}
+                                  </div>
+                                ))}
                               </div>
-                            </details>
-                          ) : null}
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <div className="callout flex items-start gap-2">
+                          <Lightbulb size={14} className="mt-0.5 shrink-0 text-ember" />
+                          <div className="text-xs text-ink-soft">{evaluation.nextHint}</div>
                         </div>
-                      ) : null}
+
+                        {evaluation.aiFeedback ? (
+                          <div>
+                            <div className="section-title mb-2">AI feedback</div>
+                            <Markdown>{evaluation.aiFeedback}</Markdown>
+                          </div>
+                        ) : null}
+
+                        {evaluation.findings.length > 0 ? (
+                          <div>
+                            <div className="section-title mb-2">Rule findings on your answer</div>
+                            <FindingsList
+                              findings={evaluation.findings}
+                              compact
+                              showFilters={false}
+                              emptyTitle="No rule findings"
+                            />
+                          </div>
+                        ) : null}
+
+                        {evaluation.explain ? (
+                          <details className="rounded-xl border border-line-soft bg-panel-2 p-3">
+                            <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
+                              EXPLAIN plan for your answer
+                            </summary>
+                            <div className="mt-2">
+                              <ExplainPanel explain={evaluation.explain} analyzing={false} />
+                            </div>
+                          </details>
+                        ) : null}
+
+                        {evaluation.userResult || evaluation.referenceResult ? (
+                          <div className="flex flex-col gap-2">
+                            {evaluation.userResult ? (
+                              <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
+                                <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
+                                  Your result
+                                </summary>
+                                <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                                  <ResultsGrid result={evaluation.userResult} />
+                                </div>
+                              </details>
+                            ) : null}
+                            {evaluation.referenceResult ? (
+                              <details className="rounded-xl border border-line-soft bg-panel-2 p-2">
+                                <summary className="cursor-pointer rounded-md px-2 py-2 text-2xs font-semibold text-muted">
+                                  Reference result
+                                </summary>
+                                <div className="mt-1 max-h-[320px] overflow-auto rounded-lg border border-line-soft">
+                                  <ResultsGrid result={evaluation.referenceResult} />
+                                </div>
+                              </details>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
 
                       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
                         <Button
@@ -1610,7 +2338,7 @@ export function PracticePage() {
                           Next challenge <ArrowRight size={12} />
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="tertiary"
                           size="sm"
                           className="ml-auto"
                           onClick={() => {
