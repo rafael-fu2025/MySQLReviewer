@@ -63,54 +63,69 @@ function toSummary(parsed: StoredReport): ReportSummary {
  * from them by a later process.
  */
 let legacyChecked = false;
-async function importLegacyDirectory(document: ReportsDocument): Promise<void> {
+let legacyImport: Promise<void> | null = null;
+async function ensureLegacyImported(): Promise<void> {
+  if (legacyImport) {
+    await legacyImport;
+    return;
+  }
   if (legacyChecked) return;
-  legacyChecked = true;
-  let files: string[];
-  try {
-    files = await fs.readdir(REPORTS_DIR);
-  } catch {
-    return; // No legacy directory: nothing to import.
+  legacyImport = store
+    .update(async (document) => {
+      if (legacyChecked) return document;
+      legacyChecked = true;
+      let files: string[];
+      try {
+        files = await fs.readdir(REPORTS_DIR);
+      } catch {
+        return document;
+      }
+      const legacy = files.filter((file) => file.endsWith('.json') && !file.startsWith('.'));
+      for (const file of legacy) {
+        const id = file.slice(0, -'.json'.length);
+        if (!ID_PATTERN.test(id)) continue;
+        try {
+          const raw = await fs.readFile(path.join(REPORTS_DIR, file), 'utf8');
+          const parsed = JSON.parse(raw) as StoredReport;
+          if (!parsed || typeof parsed.id !== 'string' || document.reports[parsed.id]) continue;
+          document.reports[parsed.id] = parsed;
+          await fs.rename(path.join(REPORTS_DIR, file), path.join(REPORTS_DIR, `${file}.imported`));
+        } catch {
+          // A corrupt or unimportable legacy report is skipped, not fatal.
+        }
+      }
+      return retainNewest(document);
+    })
+    .then(() => undefined)
+    .catch((error) => {
+      legacyChecked = false;
+      legacyImport = null;
+      throw error;
+    });
+  await legacyImport;
+}
+
+function retainNewest(document: ReportsDocument): ReportsDocument {
+  const ordered = Object.values(document.reports).sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt),
+  );
+  for (const evicted of ordered.slice(0, Math.max(0, ordered.length - MAX_REPORTS))) {
+    delete document.reports[evicted.id];
   }
-  const legacy = files.filter((file) => file.endsWith('.json') && !file.startsWith('.'));
-  let imported = false;
-  for (const file of legacy) {
-    const id = file.slice(0, -'.json'.length);
-    if (!ID_PATTERN.test(id)) continue;
-    try {
-      const raw = await fs.readFile(path.join(REPORTS_DIR, file), 'utf8');
-      const parsed = JSON.parse(raw) as StoredReport;
-      if (!parsed || typeof parsed.id !== 'string' || document.reports[parsed.id]) continue;
-      document.reports[parsed.id] = parsed;
-      await fs.rename(path.join(REPORTS_DIR, file), path.join(REPORTS_DIR, `${file}.imported`));
-      imported = true;
-    } catch {
-      // A corrupt or unimportable legacy report is skipped, not fatal.
-    }
-  }
-  if (imported) {
-    // The imported set obeys the same retention cap as saved reports.
-    const ordered = Object.values(document.reports).sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
-    );
-    for (const evicted of ordered.slice(0, Math.max(0, ordered.length - MAX_REPORTS))) {
-      delete document.reports[evicted.id];
-    }
-    await store.write(document);
-  }
+  return document;
 }
 
 export async function listReports(): Promise<ReportSummary[]> {
+  await ensureLegacyImported();
   const document = await store.read();
-  await importLegacyDirectory(document);
   const summaries = Object.values(document.reports).map((report) => toSummary(report));
   return summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getReport(id: string): Promise<StoredReport> {
   assertValidId(id);
+  await ensureLegacyImported();
   const document = await store.read();
-  await importLegacyDirectory(document);
   const report = document.reports[id];
   if (!report) {
     throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
@@ -120,27 +135,24 @@ export async function getReport(id: string): Promise<StoredReport> {
 
 export async function saveReport(report: StoredReport): Promise<StoredReport> {
   assertValidId(report.id);
-  const document = await store.read();
-  await importLegacyDirectory(document);
-  document.reports[report.id] = report;
-  // Retention: keep the newest MAX_REPORTS reports by creation time.
-  const ordered = Object.values(document.reports).sort((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
-  );
-  for (const evicted of ordered.slice(0, Math.max(0, ordered.length - MAX_REPORTS))) {
-    delete document.reports[evicted.id];
-  }
-  await store.write(document);
+  await ensureLegacyImported();
+  await store.update((document) => {
+    document.reports[report.id] = report;
+    return retainNewest(document);
+  });
   return report;
 }
 
 export async function deleteReport(id: string): Promise<void> {
   assertValidId(id);
-  const document = await store.read();
-  await importLegacyDirectory(document);
-  if (!document.reports[id]) {
-    throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
-  }
-  delete document.reports[id];
-  await store.write(document);
+  await ensureLegacyImported();
+  await store.update((document) => {
+    if (!document.reports[id]) {
+      throw new AppError('REPORT_NOT_FOUND', 'Report not found.', 404);
+    }
+    delete document.reports[id];
+    return document;
+  });
 }
+
+export { store as reportsStore };

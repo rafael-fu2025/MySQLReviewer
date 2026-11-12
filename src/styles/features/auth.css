@@ -280,11 +280,34 @@
 }
 
 .auth-panel {
+  position: relative;
   width: 100%;
   max-width: 360px;
   margin: auto;
   padding: 16px 0;
   animation: auth-panel-enter 0.8s 0.15s ease-out both;
+}
+
+/*
+ * Theme toggle, pinned to the panel's top-right corner. Absolutely positioned
+ * so it never shifts the form layout, and a fixed-size box so swapping the
+ * sun/moon glyph cannot reflow anything either. Surface and line reuse the
+ * form-field recipe, and since the auth tokens re-declare per theme this one
+ * rule reads correctly in both.
+ */
+.auth-theme-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border-color: var(--auth-panel-line);
+  background: color-mix(in oklab, var(--color-panel-2) 58%, var(--auth-panel-bg));
+  color: var(--auth-panel-muted);
+}
+
+.auth-theme-toggle:hover {
+  border-color: color-mix(in oklab, var(--auth-panel-muted) 55%, var(--auth-panel-line));
 }
 
 .auth-form-kicker {

@@ -56,9 +56,6 @@ const store = new JsonStore<ProfileFile>(path.join(DATA_DIR, 'profiles.json'), (
   profiles: [{ ...XAMPP_SEED }],
 }));
 
-/** Passwords explicitly not saved to disk live only for this server process. */
-const sessionPasswords = new Map<string, string>();
-
 function now(): string {
   return new Date().toISOString();
 }
@@ -106,7 +103,10 @@ function validate(input: ConnectionInput): ConnectionInput {
     user: user.slice(0, 128),
     database,
     socketPath: input.socketPath?.trim() || undefined,
-    rememberPassword: input.rememberPassword !== false,
+    // Connection credentials are always persisted through the admin-only
+    // profile save path and encrypted at rest. The legacy flag is normalized
+    // so old clients cannot reintroduce process-global runtime credentials.
+    rememberPassword: true,
     databaseScope,
     allowedDatabases,
     allowServerWideInsights: input.allowServerWideInsights !== false,
@@ -126,7 +126,6 @@ function validate(input: ConnectionInput): ConnectionInput {
  */
 function toPublic(profile: StoredProfile): ConnectionProfile {
   const saved = Boolean(profile.passwordEnc);
-  const session = sessionPasswords.has(profile.id);
   return {
     id: profile.id,
     name: profile.name,
@@ -138,9 +137,9 @@ function toPublic(profile: StoredProfile): ConnectionProfile {
     ssl: profile.ssl
       ? { enabled: true, rejectUnauthorized: profile.ssl.rejectUnauthorized !== false }
       : null,
-    rememberPassword: profile.rememberPassword,
-    hasPassword: saved || session,
-    passwordSource: saved ? 'saved' : session ? 'session' : 'none',
+    rememberPassword: true,
+    hasPassword: saved,
+    passwordSource: saved ? 'saved' : 'none',
     color: profile.color ?? null,
     databaseScope: profile.databaseScope === 'selected' ? 'selected' : 'all',
     allowedDatabases: profile.allowedDatabases ?? [],
@@ -172,12 +171,10 @@ export async function createProfile(input: ConnectionInput): Promise<ConnectionP
   const clean = validate(input);
   const timestamp = now();
   const id = crypto.randomUUID();
-  const remember = clean.rememberPassword !== false;
-  let passwordEnc: string | null = null;
-  if (typeof clean.password === 'string' && clean.password.length > 0) {
-    if (remember) passwordEnc = await encryptSecret(clean.password);
-    else sessionPasswords.set(id, clean.password);
-  }
+  const passwordEnc =
+    typeof clean.password === 'string' && clean.password.length > 0
+      ? await encryptSecret(clean.password)
+      : null;
 
   const stored: StoredProfile = {
     id,
@@ -188,7 +185,7 @@ export async function createProfile(input: ConnectionInput): Promise<ConnectionP
     database: clean.database ?? null,
     socketPath: clean.socketPath ?? null,
     ssl: cleanSsl(clean.ssl),
-    rememberPassword: remember,
+    rememberPassword: true,
     passwordEnc,
     color: clean.color ?? '#ff8a3d',
     databaseScope: clean.databaseScope === 'selected' ? 'selected' : 'all',
@@ -215,27 +212,10 @@ export async function updateProfile(
     const index = current.profiles.findIndex((item) => item.id === id);
     if (index < 0) throw new AppError('PROFILE_NOT_FOUND', 'Connection profile not found.', 404);
     const previous = current.profiles[index];
-    const remember = clean.rememberPassword !== false;
     let passwordEnc = previous.passwordEnc ?? null;
 
     if (typeof clean.password === 'string') {
-      if (remember) {
-        passwordEnc = clean.password.length > 0 ? await encryptSecret(clean.password) : null;
-        sessionPasswords.delete(id);
-      } else {
-        passwordEnc = null;
-        sessionPasswords.set(id, clean.password);
-      }
-    } else if (remember && !previous.rememberPassword) {
-      const session = sessionPasswords.get(id);
-      if (session !== undefined) {
-        passwordEnc = session.length > 0 ? await encryptSecret(session) : null;
-        sessionPasswords.delete(id);
-      }
-    } else if (!remember && previous.rememberPassword && previous.passwordEnc) {
-      const saved = await decryptSecret(previous.passwordEnc);
-      if (saved !== null) sessionPasswords.set(id, saved);
-      passwordEnc = null;
+      passwordEnc = clean.password.length > 0 ? await encryptSecret(clean.password) : null;
     }
 
     updated = {
@@ -247,7 +227,7 @@ export async function updateProfile(
       database: clean.database ?? null,
       socketPath: clean.socketPath ?? null,
       ssl: cleanSsl(clean.ssl),
-      rememberPassword: remember,
+      rememberPassword: true,
       passwordEnc,
       color: clean.color ?? previous.color ?? '#ff8a3d',
       databaseScope: clean.databaseScope === 'selected' ? 'selected' : 'all',
@@ -275,7 +255,6 @@ export async function deleteProfile(id: string): Promise<void> {
     }
     return { profiles: current.profiles.filter((profile) => profile.id !== id) };
   });
-  sessionPasswords.delete(id);
 }
 
 export async function touchProfile(id: string): Promise<void> {
@@ -302,13 +281,8 @@ export async function addDatabaseToScope(id: string, database: string): Promise<
 }
 
 export async function getProfilePassword(profile: StoredProfile): Promise<string | null> {
-  if (sessionPasswords.has(profile.id)) return sessionPasswords.get(profile.id) ?? null;
   if (profile.passwordEnc) return decryptSecret(profile.passwordEnc);
   return null;
-}
-
-export function setSessionPassword(id: string, password: string): void {
-  sessionPasswords.set(id, password);
 }
 
 export async function resolveProfilePassword(id: string): Promise<string> {
@@ -317,15 +291,8 @@ export async function resolveProfilePassword(id: string): Promise<string> {
   return password ?? '';
 }
 
-/**
- * Used by the connection manager so it can recreate pools after edits.
- *
- * The hash must cover every setting that changes how a pool authenticates,
- * including the in-memory session password: without it a new session password
- * is ignored while the old pool is still alive.
- */
+/** Used by the connection manager so it can recreate pools after saved edits. */
 export function profileConfigHash(profile: StoredProfile): string {
-  const sessionPassword = sessionPasswords.get(profile.id);
   return crypto
     .createHash('sha256')
     .update(
@@ -336,10 +303,6 @@ export function profileConfigHash(profile: StoredProfile): string {
         socketPath: profile.socketPath,
         ssl: profile.ssl,
         passwordEnc: profile.passwordEnc,
-        sessionPassword:
-          sessionPassword === undefined
-            ? null
-            : crypto.createHash('sha256').update(sessionPassword).digest('hex'),
       }),
     )
     .digest('hex');

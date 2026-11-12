@@ -13,8 +13,10 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Concurrent event streams one session may hold. */
-export const MAX_SSE_PER_SESSION = envInt('MYLENS_SSE_PER_SESSION', 5);
+/** Concurrent event streams one account may hold across all of its sessions. */
+export const MAX_SSE_PER_USER = envInt('MYLENS_SSE_PER_USER', envInt('MYLENS_SSE_PER_SESSION', 5));
+/** Backward-compatible name for callers/tests that configured the old limit. */
+export const MAX_SSE_PER_SESSION = MAX_SSE_PER_USER;
 /** Concurrent event streams the server hands out in total. */
 export const MAX_SSE_TOTAL = envInt('MYLENS_SSE_TOTAL', 50);
 /** A peer that stops reading is disconnected once this much is buffered. */
@@ -28,9 +30,9 @@ const perSessionStreams = new Map<string, number>();
 let totalStreams = 0;
 
 function streamKey(req: Request): string {
+  if (req.user?.id) return `user:${req.user.id}`;
   const sessionId = parseSessionCookie(req.headers.cookie);
   if (sessionId) return `session:${sessionId}`;
-  if (req.user?.id) return `user:${req.user.id}`;
   return `anon:${req.socket?.remoteAddress ?? 'unknown'}`;
 }
 
@@ -51,7 +53,7 @@ export function sseTotalStreamCount(): number {
  */
 export function openSse(req: Request, res: Response): SseClient {
   const key = streamKey(req);
-  if ((perSessionStreams.get(key) ?? 0) >= MAX_SSE_PER_SESSION || totalStreams >= MAX_SSE_TOTAL) {
+  if ((perSessionStreams.get(key) ?? 0) >= MAX_SSE_PER_USER || totalStreams >= MAX_SSE_TOTAL) {
     throw new AppError(
       'TOO_MANY_STREAMS',
       'Too many open event streams. Close the running ones before starting a new one.',

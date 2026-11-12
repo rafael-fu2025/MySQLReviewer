@@ -16,7 +16,13 @@ import {
   UserCog,
   UserRound,
 } from 'lucide-react';
-import type { ActivityEntry, ActivityPage, ConnectionProfile, PublicUser } from '@shared/types';
+import type {
+  ActivityEntry,
+  ActivityPage,
+  ConnectionProfile,
+  PublicUser,
+  PublishResult,
+} from '@shared/types';
 import { useAppStore } from '@/store/app-store';
 import { api } from '@/lib/api';
 import { Combobox } from '@/components/Combobox';
@@ -393,6 +399,41 @@ export function AdminPage() {
     }
   };
 
+  /**
+   * Clones the connection's published databases for the members who do not
+   * have a copy yet. The save already does this for a database that was just
+   * published; this catches up a member who was added afterwards.
+   */
+  const publishToMembers = async (profile: ConnectionProfile): Promise<void> => {
+    setBusy(`publish-${profile.id}`);
+    try {
+      const result = await api.post<{ results: PublishResult[] }>(
+        `/api/connections/${profile.id}/publish`,
+        {},
+      );
+      const clones = result.results.flatMap((entry) => entry.sandboxes);
+      const errors = result.results.flatMap((entry) => entry.errors);
+      await loadUsers();
+      if (clones.length > 0) {
+        toast(
+          `Cloned ${clones.length} database${clones.length === 1 ? '' : 's'}: ${clones
+            .map((entry) => `${entry.username} → ${entry.sandbox}`)
+            .join(', ')}.`,
+          'success',
+        );
+      } else {
+        toast('Every member already has a copy of the published databases.', 'info');
+      }
+      if (errors.length > 0) {
+        toast(errors.join('; '), 'error');
+      }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const resetSandbox = async (user: PublicUser, assignmentId: string): Promise<void> => {
     setBusy(`reset-${assignmentId}`);
     try {
@@ -620,6 +661,17 @@ export function AdminPage() {
                     >
                       Browse
                     </Button>
+                    {profile.databaseScope === 'selected' ? (
+                      <Button
+                        variant="tertiary"
+                        size="sm"
+                        loading={busy === `publish-${profile.id}`}
+                        onClick={() => void publishToMembers(profile)}
+                        tooltip="Clone the published databases for every member"
+                      >
+                        Publish
+                      </Button>
+                    ) : null}
                     <Button
                       variant="tertiary"
                       size="sm"

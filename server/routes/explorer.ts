@@ -79,6 +79,29 @@ explorerRouter.use('/:profileId', (req, _res, next) => {
   }
 });
 
+// Register the schema cache-control route before the generic
+// `/:profileId/databases/:database` middleware. A member may refresh only an
+// assigned database key; invalidating every database cached for a profile is
+// an administrator-only shared-runtime operation.
+explorerRouter.post(
+  '/:profileId/schema/refresh',
+  asyncHandler(async (req, res) => {
+    const profileId = param(req, 'profileId');
+    const body = parseBody(RefreshBody, req);
+    if (body.database) {
+      await assertDatabaseAllowed(
+        profileId,
+        body.database,
+        sandboxScopeOverride(req.user, profileId),
+      );
+    } else {
+      requireAdmin(req);
+    }
+    invalidateSchemaCache(profileId, body.database);
+    res.json({ data: { refreshed: true } });
+  }),
+);
+
 explorerRouter.use(
   '/:profileId/databases/:database',
   asyncHandler(async (req, _res, next) => {
@@ -272,23 +295,6 @@ explorerRouter.get(
       sandboxScopeOverride(req.user, profileId),
     );
     res.json({ data: await getSchemaSnapshot(profileId, query.database) });
-  }),
-);
-
-explorerRouter.post(
-  '/:profileId/schema/refresh',
-  asyncHandler(async (req, res) => {
-    const profileId = param(req, 'profileId');
-    const body = parseBody(RefreshBody, req);
-    if (body.database) {
-      await assertDatabaseAllowed(
-        profileId,
-        body.database,
-        sandboxScopeOverride(req.user, profileId),
-      );
-    }
-    invalidateSchemaCache(profileId, body.database);
-    res.json({ data: { refreshed: true } });
   }),
 );
 

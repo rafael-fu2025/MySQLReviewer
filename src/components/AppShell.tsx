@@ -149,6 +149,7 @@ export function AppShell() {
   const setPaletteOpen = useAppStore((state) => state.setPaletteOpen);
   const currentUser = useAppStore((state) => state.currentUser);
   const logout = useAppStore((state) => state.logout);
+  const toast = useAppStore((state) => state.toast);
   const version = useAppStore((state) => state.boot?.version ?? APP_VERSION);
   const now = useNow(1000);
   const [refreshing, setRefreshing] = useState(false);
@@ -519,14 +520,17 @@ export function AppShell() {
         onClose={() => {
           if (!signingOut) setConfirmSignOut(false);
         }}
-        onConfirm={() => {
+        onConfirm={async () => {
           setSigningOut(true);
-          void logout()
-            .then(() => navigate('/login'))
-            .finally(() => {
-              setSigningOut(false);
-              setConfirmSignOut(false);
-            });
+          try {
+            await logout();
+            navigate('/login');
+            setConfirmSignOut(false);
+          } catch (error) {
+            toast(error instanceof Error ? error.message : String(error), 'error');
+          } finally {
+            setSigningOut(false);
+          }
         }}
         title="Sign out?"
         message={

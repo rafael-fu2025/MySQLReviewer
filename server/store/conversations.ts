@@ -40,8 +40,8 @@ const MAX_THINKING_CHARS = 32_000;
 const MAX_TOOL_CALLS_PER_TURN = 12;
 const MAX_TOOL_OUTPUT_CHARS = 2_000;
 const MAX_TITLE_CHARS = 80;
-const MAX_PER_USER = 50;
-const MAX_TOTAL = 2_000;
+/** Each account owns an independent bounded conversation partition. */
+export const MAX_CONVERSATIONS_PER_USER = 50;
 
 /** Clamps one turn to the persisted shape — the display data, not the wire. */
 function sanitizeTurn(turn: AiChatMessage): AiChatMessage {
@@ -90,11 +90,12 @@ export async function saveConversationTurns(input: {
   const now = new Date().toISOString();
 
   await store.update((current) => {
-    const existing = current.conversations.find((record) => record.id === id);
-    if (existing && existing.userId !== input.userId) {
-      // Not a leak channel: a foreign id is indistinguishable from a missing one.
-      throw new AppError('CONVERSATION_NOT_FOUND', 'Conversation not found.', 404);
-    }
+    // Conversation ids are a namespace local to an account. Two users may have
+    // the same client-generated tab id without colliding or learning that the
+    // other record exists.
+    const existing = current.conversations.find(
+      (record) => record.id === id && record.userId === input.userId,
+    );
     const record: ConversationRecord = existing
       ? { ...existing, profileId: input.profileId, mode: input.mode, title, turns, updatedAt: now }
       : {
@@ -107,27 +108,32 @@ export async function saveConversationTurns(input: {
           createdAt: now,
           updatedAt: now,
         };
-    const rest = current.conversations.filter((entry) => entry.id !== id);
-    // Keep at most MAX_PER_USER conversations per account, then a global cap,
-    // both dropping the oldest first.
-    const mineOthers = rest
+    const others = current.conversations.filter(
+      (entry) => !(entry.id === id && entry.userId === input.userId),
+    );
+    // Retention is enforced only inside the caller's partition. No global cap
+    // is applied here: one account can never make another account lose data.
+    const mineOthers = others
       .filter((entry) => entry.userId === input.userId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, MAX_PER_USER - 1);
-    const keptMineIds = new Set([id, ...mineOthers.map((entry) => entry.id)]);
-    const others = rest
-      .filter((entry) => entry.userId !== input.userId)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, Math.max(0, MAX_TOTAL - keptMineIds.size));
-    return { conversations: [record, ...mineOthers, ...others] };
+      .slice(0, MAX_CONVERSATIONS_PER_USER - 1);
+    const foreign = others.filter((entry) => entry.userId !== input.userId);
+    return { conversations: [record, ...mineOthers, ...foreign] };
   });
 }
 
-export async function getConversation(id: string, userId: string): Promise<ConversationRecord> {
+export async function findConversation(
+  id: string,
+  userId: string,
+): Promise<ConversationRecord | null> {
   const clean = assertValidId(id);
   const file = await store.read();
-  const record = file.conversations.find((entry) => entry.id === clean);
-  if (!record || record.userId !== userId) {
+  return file.conversations.find((entry) => entry.id === clean && entry.userId === userId) ?? null;
+}
+
+export async function getConversation(id: string, userId: string): Promise<ConversationRecord> {
+  const record = await findConversation(id, userId);
+  if (!record) {
     throw new AppError('CONVERSATION_NOT_FOUND', 'Conversation not found.', 404);
   }
   return record;
@@ -136,10 +142,25 @@ export async function getConversation(id: string, userId: string): Promise<Conve
 export async function deleteConversation(id: string, userId: string): Promise<void> {
   const clean = assertValidId(id);
   await store.update((current) => {
-    const record = current.conversations.find((entry) => entry.id === clean);
-    if (!record || record.userId !== userId) {
+    const record = current.conversations.find(
+      (entry) => entry.id === clean && entry.userId === userId,
+    );
+    if (!record) {
       throw new AppError('CONVERSATION_NOT_FOUND', 'Conversation not found.', 404);
     }
-    return { conversations: current.conversations.filter((entry) => entry.id !== clean) };
+    return {
+      conversations: current.conversations.filter(
+        (entry) => !(entry.id === clean && entry.userId === userId),
+      ),
+    };
   });
 }
+
+/** Removes every transcript owned by one deleted account. */
+export async function deleteConversationsForUser(userId: string): Promise<void> {
+  await store.update((current) => ({
+    conversations: current.conversations.filter((entry) => entry.userId !== userId),
+  }));
+}
+
+export { store as conversationsStore };

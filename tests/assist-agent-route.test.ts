@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   runAgentTurn: vi.fn(),
   buildWorkspaceTools: vi.fn(),
+  buildMcpTools: vi.fn(),
+  listMcpTools: vi.fn(),
+  getSettings: vi.fn().mockResolvedValue({ mcpServers: [], disabledAgentTools: [] }),
 }));
 
 vi.mock('../server/store/providers', () => ({
@@ -67,6 +70,11 @@ vi.mock('../server/ai/index', () => ({
   stream: vi.fn(),
 }));
 vi.mock('../server/ai/agent', () => ({ runAgentTurn: h.runAgentTurn }));
+vi.mock('../server/ai/agent-mcp', () => ({
+  buildMcpTools: h.buildMcpTools,
+  listMcpTools: h.listMcpTools,
+}));
+vi.mock('../server/store/settings', () => ({ getSettings: h.getSettings }));
 vi.mock('../server/ai/agent-tools', () => ({
   buildWorkspaceTools: h.buildWorkspaceTools,
   // The coach toolset is exercised in agent-tools.test.ts; here both modes
@@ -78,9 +86,10 @@ vi.mock('../server/ai/agent-tools', () => ({
 }));
 
 import { aiRouter } from '../server/routes/ai';
+import { saveConversationTurns } from '../server/store/conversations';
 import type { PublicUser } from '../shared/types';
 
-const user: PublicUser = {
+const adminUser: PublicUser = {
   id: 'u1',
   username: 'tester',
   displayName: 'Tester',
@@ -90,7 +99,25 @@ const user: PublicUser = {
   disabledAt: null,
 };
 
-function appWithUser(): express.Express {
+const memberUser: PublicUser = {
+  ...adminUser,
+  id: 'u-member',
+  username: 'member',
+  displayName: 'Member',
+  role: 'member',
+  assignments: [
+    {
+      id: 'assignment-1',
+      profileId: 'p1',
+      source: 'shop',
+      sandbox: 'shop',
+      includeData: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
+  ],
+};
+
+function appWithUser(user: PublicUser = adminUser): express.Express {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -141,6 +168,7 @@ describe('POST /api/ai/assist — agent path', () => {
     server?.close();
     server = null;
     vi.clearAllMocks();
+    h.getSettings.mockResolvedValue({ mcpServers: [], disabledAgentTools: [] });
   });
 
   it('streams thinking, tool_call and tool_result events and announces the toolkit', async () => {
@@ -190,6 +218,53 @@ describe('POST /api/ai/assist — agent path', () => {
       usage: { totalTokens: 15 },
     });
     expect(frames[frames.length - 1].event).toBe('done');
+  });
+
+  it('keeps configured MCP tools out of member assist without building or starting them', async () => {
+    h.getSettings.mockResolvedValue({
+      mcpServers: [{ name: 'private-docs', command: 'mcp-private-docs' }],
+      disabledAgentTools: [],
+    });
+    h.buildWorkspaceTools.mockReturnValue({
+      definitions: [{ name: 'list_tables', description: 'd', parameters: { type: 'object' } }],
+      handlers: new Map(),
+    });
+    h.runAgentTurn.mockResolvedValue({ text: 'Member answer.', usage: null, toolCalls: [] });
+
+    server = appWithUser(memberUser).listen(0);
+    const frames = await postAssist(server);
+
+    expect(h.buildMcpTools).not.toHaveBeenCalled();
+    expect(h.runAgentTurn).toHaveBeenCalledOnce();
+    const toolset = h.runAgentTurn.mock.calls[0][0].tools as {
+      definitions: Array<{ name: string }>;
+    };
+    expect(toolset.definitions.map((definition) => definition.name)).toEqual(['list_tables']);
+    expect(frames.find((frame) => frame.event === 'meta')?.data).toMatchObject({
+      tools: ['list_tables'],
+    });
+  });
+
+  it('builds and advertises configured MCP tools for an administrator assist', async () => {
+    const config = [{ name: 'private-docs', command: 'mcp-private-docs' }];
+    h.getSettings.mockResolvedValue({ mcpServers: config, disabledAgentTools: [] });
+    h.buildWorkspaceTools.mockReturnValue({
+      definitions: [{ name: 'list_tables', description: 'd', parameters: { type: 'object' } }],
+      handlers: new Map(),
+    });
+    h.buildMcpTools.mockResolvedValue({
+      definitions: [{ name: 'mcp_private_docs_search', description: 'd', parameters: {} }],
+      handlers: new Map([['mcp_private_docs_search', vi.fn()]]),
+    });
+    h.runAgentTurn.mockResolvedValue({ text: 'Admin answer.', usage: null, toolCalls: [] });
+
+    server = appWithUser(adminUser).listen(0);
+    const frames = await postAssist(server);
+
+    expect(h.buildMcpTools).toHaveBeenCalledWith(config, { userId: adminUser.id });
+    expect(frames.find((frame) => frame.event === 'meta')?.data).toMatchObject({
+      tools: ['list_tables', 'mcp_private_docs_search'],
+    });
   });
 
   it('screens the challenge coach: a leaking answer is replaced by the guard message', async () => {
@@ -263,6 +338,56 @@ describe('POST /api/ai/assist — agent path', () => {
     expect(text).toContain('event: tool_call');
     const result = text.split('\n\n').find((block) => block.startsWith('event: result'));
     expect(result).toContain('"guarded":null');
+  });
+
+  it('returns a quiet empty lookup for a fresh or foreign conversation', async () => {
+    await saveConversationTurns({
+      id: 'ctx-owned-by-someone-else',
+      userId: 'u2',
+      profileId: null,
+      mode: 'workspace',
+      turns: [
+        { role: 'user', content: 'private question' },
+        { role: 'assistant', content: 'private answer' },
+      ],
+    });
+
+    server = appWithUser().listen(0);
+    const { port } = server.address() as AddressInfo;
+    for (const id of ['ctx-fresh', 'ctx-owned-by-someone-else']) {
+      const response = await fetch(`http://127.0.0.1:${port}/api/ai/conversations/${id}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ data: null });
+    }
+  });
+
+  it("restores the signed-in account's saved conversation", async () => {
+    await saveConversationTurns({
+      id: 'ctx-owned-by-u1',
+      userId: adminUser.id,
+      profileId: 'p1',
+      mode: 'workspace',
+      turns: [
+        { role: 'user', content: 'Why is this slow?' },
+        { role: 'assistant', content: 'Inspect the execution plan.' },
+      ],
+    });
+
+    server = appWithUser().listen(0);
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/api/ai/conversations/ctx-owned-by-u1`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        id: 'ctx-owned-by-u1',
+        mode: 'workspace',
+        title: 'Why is this slow?',
+        turns: [
+          { role: 'user', content: 'Why is this slow?' },
+          { role: 'assistant', content: 'Inspect the execution plan.' },
+        ],
+      },
+    });
   });
 
   it('keeps the plain assistant path when the turn is not agent-eligible', async () => {

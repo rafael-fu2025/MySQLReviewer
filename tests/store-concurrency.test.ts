@@ -17,6 +17,7 @@ const TEST_CRED_NEW = ['new', 'test', 'cred', 'fixture'].join('_');
 import {
   addAssignment,
   countUsers,
+  createFirstAdmin,
   createUser,
   deleteUser,
   findUserByUsername,
@@ -24,10 +25,27 @@ import {
   updateUser,
   usersStore,
 } from '../server/store/users';
-import { createSession, resolveSession } from '../server/store/sessions';
+import { createSession, resolveSession, sessionsStore } from '../server/store/sessions';
+import {
+  conversationsStore,
+  getConversation,
+  saveConversationTurns,
+} from '../server/store/conversations';
+import { addHistory, historyStore, listHistory } from '../server/store/history';
+import { createSnippet, listSnippets, snippetsStore } from '../server/store/snippets';
+import { getWorkspace, saveWorkspace, workspaceStore } from '../server/store/workspace';
+import {
+  addPracticeAttempt,
+  getPracticeDailyEntry,
+  listPracticeAttemptsForSet,
+  listPracticeSets,
+  savePracticeSet,
+  setPracticeDailyEntry,
+} from '../server/store/practice';
+import { invalidateProfile, isWritesUnlocked, unlockWrites } from '../server/db/manager';
 import { getSettings, updateSettings } from '../server/store/settings';
 import { MAX_SSE_PER_SESSION, MAX_SSE_TOTAL, openSse } from '../server/sse';
-import type { SandboxAssignment } from '../shared/types';
+import type { PracticeAttempt, PracticeSet, SandboxAssignment } from '../shared/types';
 
 function assignment(sandbox: string, source = 'northwind'): SandboxAssignment {
   return {
@@ -38,6 +56,55 @@ function assignment(sandbox: string, source = 'northwind'): SandboxAssignment {
     includeData: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastResetAt: null,
+  };
+}
+
+function cleanupPracticeSet(id: string, userId: string, profileId: string): PracticeSet {
+  return {
+    id,
+    userId,
+    profileId,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    database: 'shop',
+    providerId: 'provider',
+    model: 'model',
+    summary: 'cleanup',
+    questions: [],
+  };
+}
+
+function cleanupPracticeAttempt(id: string, userId: string, set: PracticeSet): PracticeAttempt {
+  return {
+    id,
+    userId,
+    profileId: set.profileId,
+    setId: set.id,
+    questionId: 'question',
+    database: set.database,
+    topics: ['select'],
+    difficulty: 'easy',
+    userSql: 'SELECT 1',
+    userAnswer: '',
+    evaluation: {
+      questionId: 'question',
+      executed: true,
+      verdict: 'correct',
+      scores: { correctness: 100, performance: 100, style: 100, overall: 100 },
+      summary: 'ok',
+      strengths: [],
+      issues: [],
+      nextHint: '',
+      comparison: null,
+      findings: [],
+      explain: null,
+      aiFeedback: null,
+      referenceSql: 'SELECT 1',
+      userSql: 'SELECT 1',
+      userAnswer: null,
+      userResult: null,
+      referenceResult: null,
+    },
+    createdAt: '2026-01-01T00:00:00.000Z',
   };
 }
 
@@ -95,6 +162,39 @@ describe('F-08 — the users store serializes its read-modify-write', () => {
   });
 });
 
+describe('first-admin setup is atomic', () => {
+  it('allows exactly one winner across concurrent setup attempts', async () => {
+    const file = path.join(DATA_DIR, 'users.json');
+    await fs.writeFile(file, `${JSON.stringify({ users: [] }, null, 2)}\n`, 'utf8');
+    usersStore.invalidate();
+    try {
+      const attempts = await Promise.allSettled([
+        createFirstAdmin({
+          username: `setup-a-${randomUUID().slice(0, 8)}`,
+          displayName: 'Setup A',
+          password: TEST_CRED,
+        }),
+        createFirstAdmin({
+          username: `setup-b-${randomUUID().slice(0, 8)}`,
+          displayName: 'Setup B',
+          password: TEST_CRED,
+        }),
+      ]);
+      expect(attempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = attempts.find((result) => result.status === 'rejected');
+      expect(rejected?.status).toBe('rejected');
+      expect((rejected as PromiseRejectedResult).reason).toMatchObject({
+        code: 'SETUP_DONE',
+        status: 403,
+      });
+      expect(await countUsers()).toBe(1);
+    } finally {
+      await fs.writeFile(file, `${JSON.stringify({ users: [] }, null, 2)}\n`, 'utf8');
+      usersStore.invalidate();
+    }
+  });
+});
+
 describe('F-09 — the account cap never reports a phantom account', () => {
   it('rejects the account that would exceed the cap', async () => {
     const file = path.join(DATA_DIR, 'users.json');
@@ -131,6 +231,124 @@ describe('F-09 — the account cap never reports a phantom account', () => {
       await fs.writeFile(file, `${JSON.stringify({ users: [] }, null, 2)}\n`, 'utf8');
       usersStore.invalidate();
     }
+  });
+});
+
+describe('personal retention partitions', () => {
+  it('a session-heavy account cannot evict another account session', async () => {
+    const quiet = `quiet-${randomUUID()}`;
+    const quietSession = await createSession(quiet);
+    const noisy = `noisy-${randomUUID()}`;
+    for (let index = 0; index < 25; index += 1) await createSession(noisy);
+    expect(await resolveSession(quietSession.id)).not.toBeNull();
+  });
+
+  it('a snippet-heavy account cannot evict another account snippet', async () => {
+    const quiet = `quiet-${randomUUID()}`;
+    const noisy = `noisy-${randomUUID()}`;
+    await createSnippet({ title: 'Quiet', sql: 'SELECT quiet' }, quiet);
+    for (let index = 0; index < 505; index += 1) {
+      await createSnippet({ title: `Noisy ${index}`, sql: `SELECT ${index}` }, noisy);
+    }
+    expect((await listSnippets(quiet)).map((snippet) => snippet.title)).toEqual(['Quiet']);
+    expect(await listSnippets(noisy)).toHaveLength(500);
+  });
+});
+
+describe('account deletion cleanup', () => {
+  it('removes personal documents, sessions, and grants without dropping assignments', async () => {
+    const user = await createUser({
+      username: `cleanup-${randomUUID().slice(0, 8)}`,
+      displayName: 'Cleanup',
+      password: TEST_CRED,
+      role: 'member',
+    });
+    const profileId = `cleanup-profile-${randomUUID().slice(0, 8)}`;
+    const survivorId = `cleanup-survivor-${randomUUID().slice(0, 8)}`;
+    const deletedPracticeSet = cleanupPracticeSet('cleanup-practice-deleted', user.id, profileId);
+    const survivingPracticeSet = cleanupPracticeSet(
+      'cleanup-practice-survivor',
+      survivorId,
+      profileId,
+    );
+    await Promise.all([
+      savePracticeSet(deletedPracticeSet),
+      savePracticeSet(survivingPracticeSet),
+      addPracticeAttempt(
+        cleanupPracticeAttempt('cleanup-attempt-deleted', user.id, deletedPracticeSet),
+      ),
+      addPracticeAttempt(
+        cleanupPracticeAttempt('cleanup-attempt-survivor', survivorId, survivingPracticeSet),
+      ),
+      setPracticeDailyEntry(user.id, profileId, {
+        date: '2026-01-01',
+        setId: deletedPracticeSet.id,
+      }),
+      setPracticeDailyEntry(survivorId, profileId, {
+        date: '2026-01-01',
+        setId: survivingPracticeSet.id,
+      }),
+    ]);
+    await saveWorkspace(user.id, {
+      tabs: [{ id: 'tab', title: 'Private', sql: 'SELECT private_data' }],
+      activeId: 'tab',
+    });
+    await saveConversationTurns({
+      id: 'cleanup-conversation',
+      userId: user.id,
+      profileId,
+      mode: 'workspace',
+      turns: [{ role: 'user', content: 'private conversation' }],
+    });
+    await addHistory({
+      userId: user.id,
+      profileId,
+      database: 'db',
+      sql: 'SELECT private_history',
+      kind: 'read',
+      success: true,
+      executionMs: 1,
+      rowCount: 1,
+    });
+    await createSnippet({ title: 'Private', sql: 'SELECT private_snippet' }, user.id);
+    const session = await createSession(user.id);
+    unlockWrites(profileId, user.id, 'UNLOCK WRITES');
+
+    expect(await deleteUser(user.id)).toBe(true);
+
+    expect(await resolveSession(session.id)).toBeNull();
+    expect(await getWorkspace(user.id)).toEqual({ tabs: [], activeId: '' });
+    await expect(getConversation('cleanup-conversation', user.id)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(await listHistory(undefined, 100, user.id)).toEqual([]);
+    expect(await listSnippets(user.id)).toEqual([]);
+    expect(await listPracticeSets(profileId, 50, user.id)).toEqual([]);
+    expect(await listPracticeAttemptsForSet(profileId, deletedPracticeSet.id, user.id)).toEqual([]);
+    expect(await getPracticeDailyEntry(user.id, profileId)).toBeNull();
+    expect((await listPracticeSets(profileId, 50, survivorId)).map((set) => set.id)).toContain(
+      survivingPracticeSet.id,
+    );
+    expect(
+      (await listPracticeAttemptsForSet(profileId, survivingPracticeSet.id, survivorId)).map(
+        (attempt) => attempt.id,
+      ),
+    ).toContain('cleanup-attempt-survivor');
+    expect(await getPracticeDailyEntry(survivorId, profileId)).toEqual({
+      date: '2026-01-01',
+      setId: survivingPracticeSet.id,
+    });
+    expect(isWritesUnlocked(profileId, user.id)).toBe(false);
+    await invalidateProfile(profileId);
+
+    // Explicitly invalidate the caches so this assertion also confirms each
+    // cleanup was persisted, not merely hidden by an in-memory copy.
+    workspaceStore.invalidate();
+    conversationsStore.invalidate();
+    historyStore.invalidate();
+    snippetsStore.invalidate();
+    sessionsStore.invalidate();
+    expect(await getWorkspace(user.id)).toEqual({ tabs: [], activeId: '' });
   });
 });
 
@@ -247,11 +465,24 @@ class FakeResponse extends EventEmitter {
   }
 }
 
-function fakeRequest(cookie: string): Request {
+function fakeRequest(cookie: string, userId?: string): Request {
   const req = new EventEmitter() as unknown as Request;
   Object.assign(req, {
     headers: { cookie },
     socket: { remoteAddress: '127.0.0.1' },
+    ...(userId
+      ? {
+          user: {
+            id: userId,
+            username: userId,
+            displayName: userId,
+            role: 'member',
+            assignments: [],
+            createdAt: '2026-01-01T00:00:00.000Z',
+            disabledAt: null,
+          },
+        }
+      : {}),
   });
   return req;
 }
@@ -279,6 +510,28 @@ describe('F-21 — the event stream count is capped', () => {
       expect(failure).toBeInstanceOf(AppError);
       expect(failure?.code).toBe('TOO_MANY_STREAMS');
       expect(failure?.status).toBe(429);
+    } finally {
+      clients.forEach((client) => client.close());
+    }
+  });
+
+  it('caps streams across multiple sessions of the same account', () => {
+    const clients = [];
+    for (let index = 0; index < MAX_SSE_PER_SESSION; index += 1) {
+      clients.push(
+        openSse(
+          fakeRequest(`mylens_session=session-${index}`, 'same-user'),
+          new FakeResponse() as unknown as Response,
+        ),
+      );
+    }
+    try {
+      expect(() =>
+        openSse(
+          fakeRequest('mylens_session=another-session', 'same-user'),
+          new FakeResponse() as unknown as Response,
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'TOO_MANY_STREAMS', status: 429 }));
     } finally {
       clients.forEach((client) => client.close());
     }

@@ -11,6 +11,8 @@ rem per-user workspace) lives in a `mylens` schema on this machine's
 rem MySQL server, so it survives restarts and follows accounts across
 rem devices. The database and its tables are created automatically on
 rem first boot; existing data/ JSON files are imported once.
+rem Starts a managed loopback bridge for developer tunnels as well as the
+rem LAN listener. Both processes stop together when this launcher exits.
 rem ------------------------------------------------------------------
 
 rem Node gate (same as start.bat): a clear error beats an opaque one.
@@ -23,6 +25,11 @@ node -e "const [maj,min]=process.versions.node.split('.').map(Number); if(maj<20
 if errorlevel 1 exit /b 1
 
 rem Build the UI once if it has not been built yet.
+if not exist node_modules (
+  echo Installing dependencies...
+  call npm ci
+  if errorlevel 1 exit /b 1
+)
 if not exist dist\index.html (
   echo Building the UI...
   call npm run build
@@ -49,9 +56,9 @@ echo.
 echo ================================================================
 echo   MyLens is sharing on your WiFi with MySQL storage:
 echo.
-echo       http://%LAN_IP%:8787
-echo.
-echo   Storage database : mylens (auto-created on your MySQL server)
+echo   LAN address      : http://%LAN_IP%:8787
+echo   Tunnel target   : http://127.0.0.1:8787 (automatic bridge)
+echo   Storage database: mylens (auto-created on your MySQL server)
 echo   Prerequisite     : MySQL running in the XAMPP control panel
 echo.
 echo   Classmates: open that address and sign in with the member
@@ -59,7 +66,9 @@ echo   account created on the Admin page. Their tabs, history and
 echo   AI chats follow their account to any device.
 echo.
 echo   First launch: allow Node.js through the Windows firewall
-echo   prompt. Keep this window open while sharing. Ctrl+C stops it.
+echo   prompt. Keep this window open while sharing. Ctrl+C stops both
+echo   MyLens and the tunnel bridge.
 echo ================================================================
 echo.
-call npm start
+node scripts\start-mysql.mjs "%LAN_IP%"
+exit /b %errorlevel%

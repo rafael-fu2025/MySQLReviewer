@@ -8,10 +8,16 @@ import type { NextFunction, Request, Response } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppError } from '../server/errors';
 import { DATA_DIR } from '../server/config';
-import { invalidateProfile, isWritesUnlocked } from '../server/db/manager';
+import { invalidateProfile, isWritesUnlocked, unlockWrites } from '../server/db/manager';
 
 /** Placeholder credential used by test fixtures — not a real password. */
 const TEST_CRED = ['test', 'cred', 'fixture'].join('_');
+
+/**
+ * Placeholder body value proving a request-scoped password is refused before
+ * the shared pool is touched — it is never a real credential.
+ */
+const FORBIDDEN_REQUEST_PASSWORD = ['request-scoped', 'override', 'is-forbidden'].join('-');
 import { connectionsRouter } from '../server/routes/connections';
 import { queryRouter } from '../server/routes/query';
 import { adminRouter } from '../server/routes/admin';
@@ -369,6 +375,37 @@ describe('the per-connection write lock', () => {
       user: current.user,
     });
     expect((await getProfile(profileId)).writeAccess).toBe('locked');
+  });
+});
+
+describe('member connection runtime isolation', () => {
+  it.each(['admin', 'member'] as const)(
+    'rejects %s password fields before touching the shared pool',
+    async (role) => {
+      const profileId = await makeProfile('northwind_1');
+      const user = await makeUser(role, profileId);
+
+      const response = await call(user, 'POST', `/api/connections/${profileId}/connect`, {
+        password: FORBIDDEN_REQUEST_PASSWORD,
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error?.code).toBe('VALIDATION');
+    },
+  );
+
+  it('member disconnect revokes only that member grant', async () => {
+    const profileId = await makeProfile('northwind_1');
+    const memberA = await makeUser('member', profileId);
+    const memberB = await makeUser('member', profileId);
+    unlockWrites(profileId, memberA.id, 'UNLOCK WRITES');
+    unlockWrites(profileId, memberB.id, 'UNLOCK WRITES');
+
+    const response = await call(memberA, 'POST', `/api/connections/${profileId}/disconnect`);
+
+    expect(response.status).toBe(200);
+    expect(isWritesUnlocked(profileId, memberA.id)).toBe(false);
+    expect(isWritesUnlocked(profileId, memberB.id)).toBe(true);
   });
 });
 

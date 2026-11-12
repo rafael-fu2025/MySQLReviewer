@@ -1,7 +1,8 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AlertTriangle, Database, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
+import { getApiSessionSnapshot, subscribeSessionSignals } from '@/lib/api';
 import { AppShell } from '@/components/AppShell';
 import { ToastViewport, Button, Card, Spinner } from '@/components/ui';
 
@@ -230,10 +231,48 @@ export default function App() {
   const activeProfileId = useAppStore((state) => state.activeProfileId);
   const server = useAppStore((state) => state.server);
   const init = useAppStore((state) => state.init);
+  const revalidateSession = useAppStore((state) => state.revalidateSession);
+  const handleSessionSignal = useAppStore((state) => state.handleSessionSignal);
+  const lastRevalidationRef = useRef(0);
 
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    const revalidate = (immediate = false): void => {
+      // Focus and visibility commonly fire together. Collapse that pair without
+      // weakening the pageshow/cross-tab backstop.
+      const now = Date.now();
+      if (!immediate && now - lastRevalidationRef.current < 250) return;
+      lastRevalidationRef.current = now;
+      void revalidateSession().catch(() => undefined);
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') revalidate();
+    };
+    const onFocus = (): void => revalidate();
+    const onPageShow = (): void => revalidate();
+    const unsubscribe = subscribeSessionSignals((signal) => {
+      const current = getApiSessionSnapshot();
+      if (signal.userId !== current.userId) {
+        // Hide and abort synchronously, but leave account stores untouched until
+        // bootstrap verifies whether this hint reflects the shared cookie.
+        handleSessionSignal(signal.userId);
+        return;
+      }
+      revalidate(true);
+    });
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('pageshow', onPageShow);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('pageshow', onPageShow);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [handleSessionSignal, revalidateSession]);
 
   if (!ready) return <Splash />;
   if (bootError) return <BootError message={bootError} />;

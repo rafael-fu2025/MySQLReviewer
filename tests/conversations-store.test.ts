@@ -61,7 +61,7 @@ describe('conversation store', () => {
     expect(record.turns[1].usage?.totalTokens).toBe(15);
   });
 
-  it('hides conversations from other accounts, even administrators', async () => {
+  it('scopes equal conversation ids to their owning accounts', async () => {
     await saveConversationTurns({
       id: 'ctx-abc-3',
       userId: 'u1',
@@ -70,19 +70,23 @@ describe('conversation store', () => {
       turns: turns('hello'),
     });
     await expect(getConversation('ctx-abc-3', 'u2')).rejects.toMatchObject({ status: 404 });
-    await expect(
-      saveConversationTurns({
-        id: 'ctx-abc-3',
-        userId: 'u2',
-        profileId: null,
-        mode: 'workspace',
-        turns: turns('hijack'),
-      }),
-    ).rejects.toMatchObject({ status: 404 });
-    await expect(deleteConversation('ctx-abc-3', 'u2')).rejects.toMatchObject({ status: 404 });
-    // The owner's copy is untouched by the foreign attempts.
-    const record = await getConversation('ctx-abc-3', 'u1');
-    expect(record.turns[0].content).toBe('hello');
+
+    await saveConversationTurns({
+      id: 'ctx-abc-3',
+      userId: 'u2',
+      profileId: null,
+      mode: 'workspace',
+      turns: turns('my own same-id thread'),
+    });
+
+    expect((await getConversation('ctx-abc-3', 'u1')).turns[0].content).toBe('hello');
+    expect((await getConversation('ctx-abc-3', 'u2')).turns[0].content).toBe(
+      'my own same-id thread',
+    );
+    await deleteConversation('ctx-abc-3', 'u2');
+    await expect(getConversation('ctx-abc-3', 'u2')).rejects.toMatchObject({ status: 404 });
+    // Deleting one composite identity leaves the other owner's copy untouched.
+    expect((await getConversation('ctx-abc-3', 'u1')).turns[0].content).toBe('hello');
   });
 
   it('keeps at most 50 conversations per account', async () => {
@@ -107,6 +111,28 @@ describe('conversation store', () => {
     });
     const kept = await getConversation('ctx-prune-51', 'u-prune');
     expect(kept.turns[0].content).toBe('conv 51');
+  });
+
+  it('one account reaching retention never evicts another account', async () => {
+    await saveConversationTurns({
+      id: 'ctx-quiet-owner',
+      userId: 'u-quiet',
+      profileId: null,
+      mode: 'workspace',
+      turns: turns('keep me'),
+    });
+    for (let index = 0; index < 55; index += 1) {
+      await saveConversationTurns({
+        id: `ctx-noisy-${index}`,
+        userId: 'u-noisy',
+        profileId: null,
+        mode: 'workspace',
+        turns: turns(`noisy ${index}`),
+      });
+    }
+    await expect(getConversation('ctx-quiet-owner', 'u-quiet')).resolves.toMatchObject({
+      id: 'ctx-quiet-owner',
+    });
   });
 
   it('deletes on request', async () => {

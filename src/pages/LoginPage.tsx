@@ -1,4 +1,4 @@
-import { useId, useState, type InputHTMLAttributes } from 'react';
+import { useEffect, useId, useState, type InputHTMLAttributes } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
@@ -6,12 +6,15 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Moon,
   ShieldCheck,
+  Sun,
   UserRound,
 } from 'lucide-react';
 import { useAppStore } from '@/store/app-store';
 import { ObservatoryAtom } from '@/components/ObservatoryAtom';
 import { Button, Field, IconButton, Input } from '@/components/ui';
+import { flipAuthTheme, readAuthTheme, writeAuthTheme, type AuthTheme } from '@/lib/auth-theme';
 import workspaceShot from '../assets/workspace.png';
 
 /**
@@ -22,6 +25,48 @@ import workspaceShot from '../assets/workspace.png';
  */
 const AUTOCOMPLETE_NEW_PASSWORD = ['new', 'password'].join('-');
 const AUTOCOMPLETE_CURRENT_PASSWORD = ['current', 'password'].join('-');
+
+/**
+ * The auth screen renders before any account exists, so its theme preference
+ * is a browser-level choice (localStorage) rather than the per-user theme the
+ * workspace stores on the server. Dark stays the anonymous default; an
+ * account theme is never used as the fallback after sign-out.
+ */
+function initialAuthTheme(): AuthTheme {
+  if (typeof window === 'undefined') return 'dark'; // static SSR render (tests)
+  const theme = readAuthTheme(window.localStorage) ?? 'dark';
+  // Applied synchronously so the first auth paint already matches the
+  // anonymous preference instead of flashing the outgoing account's theme.
+  document.documentElement.dataset.theme = theme;
+  return theme;
+}
+
+function AuthThemeToggle() {
+  const [authTheme, setAuthTheme] = useState<AuthTheme>(initialAuthTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = authTheme;
+  }, [authTheme]);
+
+  const toggle = (): void => {
+    const next = flipAuthTheme(authTheme);
+    setAuthTheme(next);
+    if (typeof window !== 'undefined') writeAuthTheme(window.localStorage, next);
+  };
+
+  const toLight = authTheme === 'dark';
+  return (
+    <IconButton
+      type="button"
+      className="auth-theme-toggle"
+      label={toLight ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-pressed={toLight}
+      onClick={toggle}
+    >
+      {toLight ? <Sun size={16} /> : <Moon size={16} />}
+    </IconButton>
+  );
+}
 
 function QueryObservatory() {
   return (
@@ -162,6 +207,8 @@ export function LoginPage({ mode }: { mode: 'login' | 'setup' }) {
         </div>
 
         <div className="auth-panel">
+          <AuthThemeToggle />
+
           <div className="auth-heading">
             <div className="auth-form-kicker">{isSetup ? 'First-run setup' : 'Member sign in'}</div>
             <h1>{isSetup ? 'Start with the essentials.' : 'Welcome back.'}</h1>

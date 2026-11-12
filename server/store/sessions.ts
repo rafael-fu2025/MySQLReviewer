@@ -16,7 +16,8 @@ export interface StoredSession {
 }
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_SESSIONS = 200;
+/** Each account owns an independent bounded session partition. */
+export const MAX_SESSIONS_PER_USER = 20;
 export const SESSION_COOKIE = 'mylens_session';
 
 const store = new JsonStore<{ sessions: StoredSession[] }>(
@@ -46,10 +47,17 @@ export async function createSession(userId: string): Promise<StoredSession> {
     expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
   };
   await store.update((current) => {
-    // Drop expired sessions first so the cap never evicts live ones.
-    const live = current.sessions.filter((s) => new Date(s.expiresAt).getTime() > Date.now());
-    const trimmed = live.length >= MAX_SESSIONS ? live.slice(live.length - MAX_SESSIONS + 1) : live;
-    return { sessions: [...trimmed, session] };
+    // Drop expired sessions globally, then enforce retention only inside this
+    // account's partition. A busy account can never sign another account out.
+    const live = current.sessions.filter(
+      (entry) => new Date(entry.expiresAt).getTime() > Date.now(),
+    );
+    const mine = live
+      .filter((entry) => entry.userId === userId)
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+      .slice(0, MAX_SESSIONS_PER_USER - 1);
+    const others = live.filter((entry) => entry.userId !== userId);
+    return { sessions: [session, ...mine, ...others] };
   });
   return session;
 }
@@ -99,3 +107,5 @@ export function sessionCookieHeader(session: StoredSession): string {
 export function clearCookieHeader(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
+
+export { store as sessionsStore };

@@ -6,7 +6,15 @@ import type {
   QueryResult,
   StaticReviewResult,
 } from '@shared/types';
-import { api, getApiToken, type ApiError } from '@/lib/api';
+import {
+  api,
+  apiSessionHeaders,
+  assertApiSessionCurrent,
+  getApiSessionSnapshot,
+  isApiSessionCurrent,
+  type ApiError,
+  type ApiSessionSnapshot,
+} from '@/lib/api';
 import { randomId } from '@/lib/uuid';
 
 export type OutputTab = 'results' | 'messages' | 'explain' | 'review';
@@ -23,12 +31,9 @@ export interface QueryTab {
   aiRaw: string;
   aiStreaming: boolean;
   aiError: string | null;
-  /**
-   * The assistant conversation for this tab. Each tab keeps its own, so
-   * moving to another tab and back does not lose the thread.
-   */
+  /** The assistant conversation for this tab. */
   assistantTurns: AiChatMessage[];
-  /** The follow-up conversation under the review, kept per tab as well. */
+  /** The follow-up conversation under the review. */
   reviewChatTurns: AiChatMessage[];
   running: boolean;
   explaining: boolean;
@@ -38,38 +43,47 @@ export interface QueryTab {
   executedSql: string | null;
 }
 
-/** The persisted per-tab shape: what the server stores, nothing more. */
 interface StoredTab {
   id: string;
   title: string;
   sql: string;
 }
 
-/** The workspace document the server keeps per account. */
 interface WorkspacePayload {
   tabs: StoredTab[];
   activeId: string;
 }
 
-/** The GET response after the api client unwraps `{ data }`. */
 interface ServerWorkspace {
   tabs: Array<{ id?: string; title?: string; sql?: string }>;
   activeId: string;
 }
 
+interface WorkspaceSnapshot {
+  tabs: QueryTab[];
+  activeId: string;
+}
+
+interface PendingSave {
+  ownerId: string;
+  epoch: number;
+  snapshot: WorkspaceSnapshot;
+  revision: number;
+}
+
 interface WorkspaceState {
   tabs: QueryTab[];
   activeId: string;
-  /** The signed-in user these tabs belong to; null when signed out. */
+  /** The signed-in user these tabs belong to; null when signed out/frozen. */
   ownerId: string | null;
-  /**
-   * Swap the in-memory workspace to the given account's server-persisted
-   * tabs. Called by app-store when the session resolves or ends. Signing out
-   * clears memory — tabs and AI threads must not leak into the next account
-   * on this browser — while the owner's saved blob stays on the server for
-   * their next sign-in, on this PC or any other.
-   */
-  hydrateForUser: (userId: string | null) => void;
+  /** Account epoch that owns the current tabs. */
+  ownerEpoch: number | null;
+  /** True while the owner's server blob is being loaded. */
+  loading: boolean;
+  /** Switch to a verified account or synchronously clear for a transition. */
+  hydrateForUser: (userId: string | null, session?: ApiSessionSnapshot) => void;
+  /** Durably save one owner's queued work before logout clears its cookie. */
+  flushForUser: (userId: string, session?: ApiSessionSnapshot) => Promise<void>;
   createTab: (sql?: string) => string;
   closeTab: (id: string) => void;
   setActive: (id: string) => void;
@@ -80,22 +94,17 @@ interface WorkspaceState {
 
 const LEGACY_STORAGE_KEY = 'mylens.workspace.v1';
 const SAVE_DELAY_MS = 400;
+const RETRY_DELAY_MS = 1_200;
 const MAX_TABS = 30;
 
-/**
- * Workspace persistence lives on the server, scoped per signed-in user: tabs,
- * their SQL and their per-tab AI threads belong to an account, not to a
- * browser, so the workspace follows the account across devices. The owner is
- * set by the session (app-store) on bootstrap, sign-in and sign-out.
- */
-
-/** The signed-in user whose tabs are in memory and on the server; null when out. */
 let ownerUserId: string | null = null;
-let pendingSave: { tabs: QueryTab[]; activeId: string } | null = null;
+let ownerEpoch: number | null = null;
+let pendingSave: PendingSave | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-/** One failed GET is reported once per session, not once per retry. */
+let activeFlush: { session: ApiSessionSnapshot; promise: Promise<void> } | null = null;
+let saveRevision = 0;
+let hydrateGeneration = 0;
 let warnedLoadFailure = false;
-/** The leaked pre-multiuser localStorage blob is deleted on the first hydrate. */
 let legacyCleanupDone = false;
 
 const STARTER_SQL = `-- Press Ctrl+Enter to run, Ctrl+Shift+Enter for the selection.
@@ -128,13 +137,12 @@ function blankTab(overrides: Partial<QueryTab> = {}): QueryTab {
   };
 }
 
-/**
- * Maps the server blob onto live tabs exactly like the old localStorage
- * loader: well-formed tabs are rebuilt through blankTab (every derived field
- * starts fresh), over-long lists are capped, and the active id must name a
- * kept tab. Null when the server has no workspace for this account yet.
- */
-function rebuildFromServer(data: ServerWorkspace): { tabs: QueryTab[]; activeId: string } | null {
+function blankWorkspace(): WorkspaceSnapshot {
+  const tab = blankTab({ title: 'Query 1' });
+  return { tabs: [tab], activeId: tab.id };
+}
+
+function rebuildFromServer(data: ServerWorkspace): WorkspaceSnapshot | null {
   const tabs = data.tabs
     .filter(
       (tab): tab is { id?: string; title?: string; sql: string } =>
@@ -153,76 +161,121 @@ function rebuildFromServer(data: ServerWorkspace): { tabs: QueryTab[]; activeId:
   return { tabs, activeId };
 }
 
-/** The wire shape: only what the server stores, exactly what flush serialized. */
-function toPayload(state: { tabs: QueryTab[]; activeId: string }): WorkspacePayload {
+function toPayload(state: WorkspaceSnapshot): WorkspacePayload {
   return {
     tabs: state.tabs.map((tab) => ({ id: tab.id, title: tab.title, sql: tab.sql })),
     activeId: state.activeId,
   };
 }
 
-/** Takes the pending snapshot now, clearing the debounce; null when idle. */
-function takePending(): { tabs: QueryTab[]; activeId: string } | null {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
+function clearSaveTimer(): void {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+}
+
+function pendingBelongsTo(pending: PendingSave, session: ApiSessionSnapshot): boolean {
+  return pending.ownerId === session.userId && pending.epoch === session.epoch;
+}
+
+function currentOwnerSession(): ApiSessionSnapshot | null {
+  if (!ownerUserId || ownerEpoch === null) return null;
+  return { userId: ownerUserId, epoch: ownerEpoch };
+}
+
+function scheduleFlush(delay = SAVE_DELAY_MS): void {
+  clearSaveTimer();
+  saveTimer = setTimeout(() => {
     saveTimer = null;
-  }
-  const state = pendingSave;
-  pendingSave = null;
-  return state;
+    void flushPending().catch(() => undefined);
+  }, delay);
 }
 
 /**
- * Immediate PUT of the pending snapshot. Awaitable for callers that need the
- * round trip; owner switches call it fire-and-forget (`void flush()`) since
- * hydrateForUser must stay synchronous. A failed PUT keeps the in-memory
- * state as the source of truth — the next save retries with fresh state.
+ * Flushes the exact owner+epoch tagged snapshot. Failed writes stay queued for
+ * retry; a newer edit wins over an older failed request and is never erased by
+ * its completion.
  */
-async function flush(): Promise<void> {
-  const state = takePending();
-  // Signed out: there is no owner to write under.
-  if (!state || !ownerUserId) return;
+async function flushPending(explicitSession?: ApiSessionSnapshot): Promise<void> {
+  clearSaveTimer();
+  const session = explicitSession ?? currentOwnerSession();
+  if (!session) return;
+  if (
+    activeFlush &&
+    activeFlush.session.epoch === session.epoch &&
+    activeFlush.session.userId === session.userId
+  ) {
+    await activeFlush.promise;
+  }
+
+  const pending = pendingSave;
+  if (!pending || !pendingBelongsTo(pending, session)) return;
+  assertApiSessionCurrent(session);
+
+  const run = (async () => {
+    try {
+      await api.put('/api/workspace', toPayload(pending.snapshot), { session });
+      // Clear only what was actually sent. An edit made during the PUT has a
+      // greater revision and remains queued for a second round below. A same-user
+      // session revalidation may also retag this revision to a newer epoch while
+      // the old request is unwinding; that preserved revision must not be erased.
+      if (pendingSave?.revision === pending.revision && pendingBelongsTo(pendingSave, session)) {
+        pendingSave = null;
+      }
+    } catch (error) {
+      if (pendingSave?.revision === pending.revision && isApiSessionCurrent(session)) {
+        scheduleFlush(RETRY_DELAY_MS);
+      }
+      throw error;
+    }
+  })();
+  activeFlush = { session, promise: run };
   try {
-    await api.put('/api/workspace', toPayload(state));
-  } catch {
-    // No toast spam: the in-memory workspace keeps working, and the next
-    // save retries with fresh state.
+    await run;
+  } finally {
+    if (activeFlush?.promise === run) activeFlush = null;
+  }
+
+  // Logout needs every edit through the point of sign-out, including one made
+  // while a debounce PUT was already in flight. Drain that newer revision too.
+  if (explicitSession && pendingSave && pendingBelongsTo(pendingSave, session)) {
+    await flushPending(session);
   }
 }
 
-/**
- * The unload-path flush: pagehide/visibilitychange/beforeunload cannot rely
- * on the page living long enough for the api client's request, so this PUT
- * goes out through a raw fetch with `keepalive: true` — api.ts has no
- * keepalive option, so its headers are mirrored here (its token accessor is
- * reused rather than replicated).
- */
+/** The unload path cannot await, but it still asserts both owner and epoch. */
 function flushKeepalive(): void {
-  const state = takePending();
-  if (!state || !ownerUserId) return;
+  clearSaveTimer();
+  const pending = pendingSave;
+  const session = currentOwnerSession();
+  if (!pending || !session || !pendingBelongsTo(pending, session)) return;
+  if (!isApiSessionCurrent(session)) return;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
+    ...apiSessionHeaders(session, { expectedUserId: pending.ownerId }),
   };
-  const token = getApiToken();
-  if (token) headers['x-mylens-token'] = token;
   void fetch('/api/workspace', {
     method: 'PUT',
     keepalive: true,
     headers,
-    body: JSON.stringify(toPayload(state)),
+    body: JSON.stringify(toPayload(pending.snapshot)),
   }).catch(() => {
-    // Nothing can be done at unload; the next save re-syncs.
+    // The pending snapshot intentionally remains queued for the next live save.
   });
 }
 
-/** Debounced write: editing must not PUT on every keystroke. */
-function save(state: { tabs: QueryTab[]; activeId: string }): void {
-  // Signed out: no server calls — nowhere to persist, nothing to queue.
-  if (!ownerUserId) return;
-  pendingSave = state;
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void flush(), SAVE_DELAY_MS);
+function save(state: WorkspaceSnapshot): void {
+  const session = currentOwnerSession();
+  if (!session || !isApiSessionCurrent(session)) return;
+  saveRevision += 1;
+  pendingSave = {
+    ownerId: session.userId as string,
+    epoch: session.epoch,
+    snapshot: state,
+    revision: saveRevision,
+  };
+  scheduleFlush();
 }
 
 if (typeof window !== 'undefined') {
@@ -233,33 +286,47 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// The opening workspace is a single blank tab. Real per-user state arrives
-// when the session resolves (hydrateForUser, called by app-store) — loading
-// before the user is known would share one browser's workspace across every
-// account that signs into it.
-const openingTab = blankTab({ title: 'Query 1' });
+const opening = blankWorkspace();
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
-  /**
-   * Loads the signed-in owner's saved workspace from the server and swaps it
-   * into memory. A stale response — the owner moved on before it arrived —
-   * is dropped, so it can never overwrite another account's tabs.
-   */
-  async function loadWorkspace(userId: string): Promise<void> {
+  async function loadWorkspace(
+    userId: string,
+    session: ApiSessionSnapshot,
+    generation: number,
+  ): Promise<void> {
     try {
-      const data = await api.get<ServerWorkspace>('/api/workspace');
-      if (ownerUserId !== userId) return;
-      const loaded = rebuildFromServer(data);
-      if (loaded) {
-        set({ tabs: loaded.tabs, activeId: loaded.activeId, ownerId: userId });
+      const data = await api.get<ServerWorkspace>('/api/workspace', { session });
+      if (
+        generation !== hydrateGeneration ||
+        ownerUserId !== userId ||
+        ownerEpoch !== session.epoch ||
+        !isApiSessionCurrent(session)
+      ) {
         return;
       }
-      // The account has no workspace on the server yet: keep the blank tab —
-      // its id is the identity every per-tab feature hangs off — and queue a
-      // save so that id exists server-side before the first edit.
+      const loaded = rebuildFromServer(data);
+      if (loaded) {
+        set({
+          tabs: loaded.tabs,
+          activeId: loaded.activeId,
+          ownerId: userId,
+          ownerEpoch: session.epoch,
+          loading: false,
+        });
+        return;
+      }
+      set({ loading: false });
       save({ tabs: get().tabs, activeId: get().activeId });
     } catch {
-      // Keep the blank workspace and stay usable; warn once, not per retry.
+      if (
+        generation !== hydrateGeneration ||
+        ownerUserId !== userId ||
+        ownerEpoch !== session.epoch ||
+        !isApiSessionCurrent(session)
+      ) {
+        return;
+      }
+      set({ loading: false });
       if (!warnedLoadFailure) {
         warnedLoadFailure = true;
         console.warn('[mylens] Could not load the saved workspace; starting blank.');
@@ -268,20 +335,42 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   }
 
   return {
-    tabs: [openingTab],
-    activeId: openingTab.id,
+    tabs: opening.tabs,
+    activeId: opening.activeId,
     ownerId: null,
+    ownerEpoch: null,
+    loading: false,
 
-    hydrateForUser: (userId) => {
-      if (userId === ownerUserId) return;
-      // A pending edit belongs to the outgoing owner: put it on the wire
-      // before the owner changes. Fire-and-forget — this must stay
-      // synchronous (app-store calls it without awaiting).
-      void flush();
+    hydrateForUser: (userId, suppliedSession) => {
+      const session = suppliedSession ?? getApiSessionSnapshot();
+      const sameOwner = userId !== null && userId === ownerUserId;
+      if (sameOwner && session.epoch === ownerEpoch && isApiSessionCurrent(session)) return;
+      if (sameOwner) {
+        // Identity verification can advance the transport epoch even when the
+        // cookie still belongs to A (a stale cross-tab signal, failed login, or
+        // logout mismatch). Keep A's exact live workspace and pending revision;
+        // only retag them so future saves assert the newly verified epoch.
+        hydrateGeneration += 1;
+        clearSaveTimer();
+        activeFlush = null;
+        ownerEpoch = session.epoch;
+        if (pendingSave) {
+          pendingSave = { ...pendingSave, epoch: session.epoch };
+          scheduleFlush();
+        }
+        set({ ownerId: userId, ownerEpoch: session.epoch, loading: false });
+        return;
+      }
+
+      hydrateGeneration += 1;
+      clearSaveTimer();
+      // A pending snapshot is meaningful only to its owner. A verified account
+      // switch clears it; same-owner epoch changes are handled above.
+      pendingSave = null;
+      activeFlush = null;
       ownerUserId = userId;
-      // One-time cleanup: the pre-multiuser build persisted every account's
-      // tabs under one global key — drop it rather than adopt it, so one
-      // account's workspace can never surface under another.
+      ownerEpoch = userId ? session.epoch : null;
+
       if (!legacyCleanupDone) {
         legacyCleanupDone = true;
         try {
@@ -290,16 +379,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           // Storage unavailable; nothing to clean up.
         }
       }
-      // Blank the in-memory workspace for whoever holds the session now —
-      // including a signed-in owner: their saved tabs arrive with the server
-      // response below, and the previous account's tabs must never flash
-      // meanwhile.
-      const tab = blankTab({ title: 'Query 1' });
-      set({ tabs: [tab], activeId: tab.id, ownerId: userId });
-      if (userId === null) return;
-      // Dispatched on a microtask so the outgoing owner's flush has been put
-      // on the wire before the load request leaves.
-      queueMicrotask(() => void loadWorkspace(userId));
+
+      const blank = blankWorkspace();
+      set({
+        tabs: blank.tabs,
+        activeId: blank.activeId,
+        ownerId: userId,
+        ownerEpoch: userId ? session.epoch : null,
+        loading: userId !== null,
+      });
+      if (!userId) return;
+      const generation = hydrateGeneration;
+      queueMicrotask(() => void loadWorkspace(userId, session, generation));
+    },
+
+    flushForUser: async (userId, suppliedSession) => {
+      const session = suppliedSession ?? getApiSessionSnapshot();
+      if (session.userId !== userId || ownerUserId !== userId || ownerEpoch !== session.epoch) {
+        throw new Error('The workspace no longer belongs to this account session.');
+      }
+      await flushPending(session);
     },
 
     createTab: (sql) => {
@@ -340,12 +439,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     updateSql: (id, sql) => {
       const tabs = get().tabs.map((tab) => {
         if (tab.id !== id) return tab;
-        // Nothing changed: keep the derived state (and object identity) intact.
         if (tab.sql === sql) return tab;
         return {
           ...tab,
           sql,
-          // Everything below describes the *previous* text, so it is stale now.
           result: null,
           error: null,
           explain: null,
@@ -362,6 +459,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     patchTab: (id, patch) => {
+      // Account-derived/transient results are intentionally not persisted.
       set((state) => ({
         tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)),
       }));

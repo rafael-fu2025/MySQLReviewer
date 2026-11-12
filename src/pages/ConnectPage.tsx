@@ -20,6 +20,7 @@ import { useAppStore } from '@/store/app-store';
 import { api, ApiError } from '@/lib/api';
 import {
   compatLine,
+  connectionAccessDeniedMessage,
   deleteConnectionConfirmLabel,
   deleteConnectionMessage,
   deleteConnectionTitle,
@@ -31,9 +32,7 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  Field,
   IconButton,
-  Input,
   Modal,
   PageHeader,
   Spinner,
@@ -134,11 +133,7 @@ export function ConnectionCard({
         </div>
       ) : (
         <div className="mt-2 font-mono text-2xs text-muted">
-          {profile.passwordSource === 'saved'
-            ? 'saved password'
-            : profile.passwordSource === 'session'
-              ? 'session password'
-              : 'no saved password'}
+          {profile.hasPassword ? 'encrypted saved password' : 'passwordless connection'}
           {' · '}
           {profile.lastUsedAt ? `used ${formatRelative(profile.lastUsedAt)}` : 'never used'}
           {' · '}
@@ -466,9 +461,6 @@ export function ConnectPage() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [passwordFor, setPasswordFor] = useState<ConnectionProfile | null>(null);
-  const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ConnectionProfile | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -478,29 +470,22 @@ export function ConnectPage() {
    * Connect to a profile. Returns the failure message instead of throwing so callers
    * that fire it from a click handler cannot produce an unhandled rejection.
    */
-  const attempt = async (
-    profile: ConnectionProfile,
-    suppliedPassword?: string,
-  ): Promise<string | null> => {
+  const attempt = async (profile: ConnectionProfile): Promise<string | null> => {
     setConnectingId(profile.id);
     setError(null);
     try {
-      await connect(profile.id, suppliedPassword);
+      await connect(profile.id);
       toast(`Connected to ${profile.name}.`, 'success');
       navigate('/workspace');
       return null;
     } catch (err) {
       const apiError = err instanceof ApiError ? err : null;
       const message = apiError?.message ?? (err instanceof Error ? err.message : String(err));
-      if (apiError?.code === 'ACCESS_DENIED') {
-        if (suppliedPassword === undefined) {
-          setPasswordFor(profile);
-          setPassword('');
-        }
-        setPasswordError(message);
-      } else {
-        setError(message);
-      }
+      setError(
+        apiError?.code === 'ACCESS_DENIED'
+          ? connectionAccessDeniedMessage(currentUser?.role)
+          : message,
+      );
       return message;
     } finally {
       setConnectingId(null);
@@ -682,75 +667,6 @@ export function ConnectPage() {
         />
       </Modal>
 
-      <Modal
-        open={Boolean(passwordFor)}
-        onClose={() => {
-          setPasswordFor(null);
-          setPassword('');
-          setPasswordError(null);
-        }}
-        title="Password required"
-        subtitle={passwordFor ? `${passwordFor.user}@${passwordFor.host}:${passwordFor.port}` : ''}
-        size="narrow"
-        footer={
-          <>
-            <Button
-              variant="tertiary"
-              onClick={() => {
-                setPasswordFor(null);
-                setPassword('');
-                setPasswordError(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              loading={Boolean(connectingId)}
-              onClick={async () => {
-                if (!passwordFor) return;
-                setPasswordError(null);
-                const failure = await attempt(passwordFor, password);
-                if (!failure) {
-                  setPasswordFor(null);
-                  setPassword('');
-                }
-              }}
-            >
-              Connect
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <Field label="Password" error={passwordError}>
-            <Input
-              type="password"
-              name="mylens-session-password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  void (async () => {
-                    if (!passwordFor) return;
-                    setPasswordError(null);
-                    const failure = await attempt(passwordFor, password);
-                    if (!failure) {
-                      setPasswordFor(null);
-                      setPassword('');
-                    }
-                  })();
-                }
-              }}
-              autoFocus
-            />
-          </Field>
-          {passwordError ? <div className="callout danger">{passwordError}</div> : null}
-        </div>
-      </Modal>
-
       <ConfirmDialog
         open={Boolean(deleting)}
         onClose={() => setDeleting(null)}
@@ -770,10 +686,17 @@ export function ConnectPage() {
         onConfirm={() => {
           setSigningOut(true);
           void logout()
-            .then(() => navigate('/login'))
+            .then(() => {
+              setConfirmSignOut(false);
+              navigate('/login');
+            })
+            .catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              setError(message);
+              toast(message, 'error');
+            })
             .finally(() => {
               setSigningOut(false);
-              setConfirmSignOut(false);
             });
         }}
         title="Sign out?"

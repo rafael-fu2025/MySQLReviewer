@@ -2,7 +2,9 @@ import { useId, useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, PlugZap, XCircle } from 'lucide-react';
 import type {
   ConnectionProfile,
+  ConnectionSaveResult,
   DatabaseInfo,
+  PublishResult,
   SslConfig,
   TestConnectionResult,
 } from '@shared/types';
@@ -20,7 +22,6 @@ interface FormState {
   password: string;
   database: string;
   socketPath: string;
-  rememberPassword: boolean;
   clearPassword: boolean;
   sslEnabled: boolean;
   rejectUnauthorized: boolean;
@@ -42,7 +43,6 @@ function initialState(profile?: ConnectionProfile | null): FormState {
     password: '',
     database: profile?.database ?? '',
     socketPath: profile?.socketPath ?? '',
-    rememberPassword: profile?.rememberPassword ?? true,
     clearPassword: false,
     sslEnabled: Boolean(profile?.ssl?.enabled),
     rejectUnauthorized: profile?.ssl?.rejectUnauthorized !== false,
@@ -114,6 +114,12 @@ export function ConnectionForm({
   const [grantBusy, setGrantBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  /**
+   * The clones the last save produced. A published database reaches every
+   * member as their own copy, and the administrator should see that it
+   * happened — and which clones it made.
+   */
+  const [clones, setClones] = useState<PublishResult[]>([]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]): void => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -156,7 +162,9 @@ export function ConnectionForm({
     database: form.database.trim() || undefined,
     socketPath: form.socketPath.trim() || undefined,
     ssl: ssl(),
-    rememberPassword: form.rememberPassword,
+    // A password entered in the connection editor is always encrypted and saved.
+    // Live connect actions use only that saved credential.
+    rememberPassword: true,
     databaseScope: form.databaseScope,
     allowedDatabases: form.databaseScope === 'selected' ? form.allowedDatabases : [],
     allowServerWideInsights: serverWideInsights,
@@ -237,12 +245,22 @@ export function ConnectionForm({
     }
     setSaving(true);
     setError(null);
+    setClones([]);
     try {
       const payload = buildPayload(validation.port);
-      const saved = profile
-        ? await api.put<ConnectionProfile>(`/api/connections/${profile.id}`, payload)
-        : await api.post<ConnectionProfile>('/api/connections', payload);
-      onSaved(saved);
+      if (profile) {
+        // A published database is cloned for every member of the connection.
+        // The clones are reported so the administrator sees who received one.
+        const saved = await api.put<ConnectionSaveResult>(
+          `/api/connections/${profile.id}`,
+          payload,
+        );
+        setClones(saved.clones);
+        onSaved(saved);
+      } else {
+        const saved = await api.post<ConnectionProfile>('/api/connections', payload);
+        onSaved(saved);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -357,12 +375,11 @@ export function ConnectionForm({
             placeholder="(none)"
           />
         </Field>
-        <div className="flex flex-col justify-end gap-2">
-          <Checkbox
-            label="Remember password (encrypted with a local key)"
-            checked={form.rememberPassword}
-            onChange={(value) => set('rememberPassword', value)}
-          />
+        <div className="flex flex-col justify-end gap-2 text-2xs leading-4 text-muted">
+          <span>
+            Passwords entered here are encrypted with a local key and saved with the connection.
+            Passwordless MySQL accounts can leave this field empty.
+          </span>
           {profile?.hasPassword ? (
             <Checkbox
               label="Clear the saved password"
@@ -427,6 +444,10 @@ export function ConnectionForm({
                 Test the connection to load the server’s databases.
               </div>
             ) : null}
+            <div className="text-2xs leading-4 text-muted">
+              A published database is cloned for every member of this connection. They work in their
+              own copy, so their writes never touch the source.
+            </div>
           </div>
         ) : null}
       </div>
@@ -561,6 +582,39 @@ export function ConnectionForm({
         <div className="callout danger flex items-start gap-2">
           <XCircle size={14} className="mt-0.5 shrink-0" />
           <span>{error}</span>
+        </div>
+      ) : null}
+
+      {clones.length > 0 ? (
+        <div className="callout info flex flex-col gap-2">
+          <div className="flex items-start gap-2">
+            <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-mint" />
+            <span className="font-semibold">Published to members</span>
+          </div>
+          {clones.map((result) => (
+            <div key={result.source} className="flex flex-col gap-1 text-2xs">
+              <span className="font-mono">
+                {result.source} →{' '}
+                {result.sandboxes.length > 0
+                  ? result.sandboxes.map((entry) => entry.sandbox).join(', ')
+                  : 'no clones'}
+              </span>
+              {result.sandboxes.length > 0 ? (
+                <span className="text-muted">
+                  Each member works in their own copy, so their writes never touch the source
+                  database.
+                </span>
+              ) : null}
+              {result.skipped.length > 0 ? (
+                <span className="text-muted">Already had a copy: {result.skipped.join(', ')}.</span>
+              ) : null}
+              {result.errors.map((message) => (
+                <span key={message} className="text-danger">
+                  {message}
+                </span>
+              ))}
+            </div>
+          ))}
         </div>
       ) : null}
 

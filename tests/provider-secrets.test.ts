@@ -15,6 +15,12 @@ process.env.MYLENS_NO_LISTEN = '1';
 const FIXTURE_API_KEY = ['sk', 'secret'].join('-');
 const FIXTURE_HEADER_SECRET = ['gateway', 'secret'].join('-');
 
+/**
+ * Placeholder password for the saved-only credential fixtures. It is never a
+ * real credential — the test only checks that it is encrypted at rest.
+ */
+const FIXTURE_SAVED_PASSWORD = ['saved-only', 'profile', 'password'].join('-');
+
 const { buildBootstrapPayload, evaluateBindHost, isLoopbackAddress, isLoopbackHost } =
   await import('../server/index');
 const { errorFromResponse } = await import('../server/ai/http');
@@ -26,8 +32,7 @@ const {
   resolveProvider,
   updateProvider,
 } = await import('../server/store/providers');
-const { createProfile, listProfiles, getStoredProfile, profileConfigHash, setSessionPassword } =
-  await import('../server/store/profiles');
+const { createProfile, listProfiles } = await import('../server/store/profiles');
 const {
   assertReadableSslPath,
   connectProfile,
@@ -409,14 +414,24 @@ describe('D-09 SSL material is only read from the data directory', () => {
   });
 });
 
-describe('D-10 a new session password is not ignored by a live pool', () => {
-  it('changes the pool configuration hash', async () => {
-    const profile = await getStoredProfile('xampp-local');
-    const before = profileConfigHash(profile);
+describe('database credentials are saved-only', () => {
+  it('encrypts a password even when a legacy client asks not to remember it', async () => {
+    const password = FIXTURE_SAVED_PASSWORD;
+    const created = await createProfile({
+      name: 'Saved credential profile',
+      host: '127.0.0.1',
+      port: 3306,
+      user: 'root',
+      password,
+      rememberPassword: false,
+    });
 
-    setSessionPassword('xampp-local', 'a-brand-new-session-password');
-
-    expect(profileConfigHash(profile)).not.toBe(before);
+    expect(created).toMatchObject({
+      rememberPassword: true,
+      hasPassword: true,
+      passwordSource: 'saved',
+    });
+    expect(JSON.stringify(created)).not.toContain(password);
   });
 });
 

@@ -107,7 +107,7 @@ export interface ConnectionProfile {
   ssl?: SslConfig | null;
   rememberPassword: boolean;
   hasPassword: boolean;
-  passwordSource: 'saved' | 'session' | 'none';
+  passwordSource: 'saved' | 'none';
   color?: string | null;
   databaseScope: 'all' | 'selected';
   allowedDatabases: string[];
@@ -189,6 +189,28 @@ export interface UnlockResult {
   unlocked: boolean;
   until: string | null;
   ttlSeconds: number;
+}
+
+/**
+ * The clones one published database produced.
+ *
+ * A member never works in a published database directly: they work in their
+ * own copy, so their writes never touch the administrator's data.
+ */
+export interface PublishResult {
+  /** The source database that was published. */
+  source: string;
+  /** The clone each member received. */
+  sandboxes: Array<{ userId: string; username: string; sandbox: string }>;
+  /** Members who already had a clone of this source; they were left alone. */
+  skipped: string[];
+  /** Databases that could not be cloned, with the reason. */
+  errors: string[];
+}
+
+/** The connection as saved, together with the clones the save produced. */
+export interface ConnectionSaveResult extends ConnectionProfile {
+  clones: PublishResult[];
 }
 
 export interface ConnectResult {
@@ -1150,6 +1172,8 @@ export type PracticeQuestionPublic = Omit<
 
 export interface PracticeSet {
   id: string;
+  /** Authenticated account that generated the set. Required for all new data. */
+  userId?: string;
   profileId: string;
   createdAt: string;
   database: string;
@@ -1157,8 +1181,6 @@ export interface PracticeSet {
   model: string;
   summary: string;
   questions: PracticeQuestion[];
-  /** Absent on sets generated before the admin layer (admin-visible only). */
-  userId?: string;
 }
 
 /** Wire shape of a practice set: questions are stripped of answer material. */
@@ -1257,6 +1279,8 @@ export interface PracticeEvaluateRequest {
 
 export interface PracticeAttempt {
   id: string;
+  /** Authenticated account that submitted the attempt. Required for all new data. */
+  userId?: string;
   profileId: string;
   setId: string;
   questionId: string;
@@ -1267,8 +1291,6 @@ export interface PracticeAttempt {
   userAnswer: string;
   evaluation: PracticeEvaluation;
   createdAt: string;
-  /** Absent on attempts recorded before the admin layer (admin-visible only). */
-  userId?: string;
 }
 
 /** Wire shape of an attempt: the embedded evaluation drops reference material. */

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { PublicUser } from '../shared/types';
 import { AppError } from './errors';
+import { runWithRuntimeUser } from './runtime-context';
 import { resolveSession, SESSION_COOKIE, parseSessionCookie } from './store/sessions';
 import { findUserById } from './store/users';
 
@@ -42,6 +43,55 @@ export async function resolveSessionUser(
         writeUnlockDisabled: user.writeUnlockDisabled === true,
       };
     }
+  }
+  next();
+}
+
+/**
+ * Carries the authenticated account through asynchronous provider work. AI
+ * helpers are shared by several routes; an async context lets their global
+ * concurrency guard schedule fairly without changing every helper signature.
+ */
+export function bindRuntimeUser(req: Request, _res: Response, next: NextFunction): void {
+  runWithRuntimeUser(req.user?.id ?? null, next);
+}
+
+/** One response contract for a missing or stale expected owner assertion. */
+export const EXPECTED_USER_ERROR = {
+  code: 'EXPECTED_USER_MISMATCH',
+  message:
+    'The expected signed-in user is missing or no longer matches this session. Reload the app.',
+} as const;
+
+/**
+ * Every authenticated app request must assert which account owns its state.
+ * Missing and mismatched assertions are intentionally indistinguishable: in
+ * either case the request may belong to a stale tab and must have no side
+ * effect. Bootstrap, login, setup and /auth/me are mounted outside this gate.
+ */
+export function rejectUnexpectedUser(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    next();
+    return;
+  }
+  const expected = req.get('x-mylens-expected-user-id');
+  if (expected !== req.user.id) {
+    res.status(409).json({ error: EXPECTED_USER_ERROR });
+    return;
+  }
+  next();
+}
+
+/** Private authenticated API data must never be reused by a shared cache. */
+export function privateAuthenticatedResponse(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (req.user) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Vary', 'Cookie, x-mylens-expected-user-id');
   }
   next();
 }

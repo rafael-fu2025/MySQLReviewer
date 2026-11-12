@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Sparkles, X } from 'lucide-react';
 import type { AssistantMode } from '@shared/types';
-import { api } from '@/lib/api';
+import { api, getApiSessionSnapshot, isApiSessionCurrent } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/app-store';
 import { ConfirmDialog } from '@/components/ui';
@@ -167,7 +167,8 @@ export function AiAssistant({
    * Silent restore. The conversation id is derived from the context key, so
    * it is stable across refreshes without storing anything client-side. On
    * the first sight of an empty host-owned transcript, the saved turns are
-   * fetched and adopted; a fresh context simply 404s and stays empty.
+   * fetched and adopted; a fresh context returns an empty lookup and stays
+   * empty without producing a failed network request in the browser console.
    */
   const conversationId = useMemo(() => (resetKey ? `ctx-${resetKey}` : null), [resetKey]);
   const historyRef = useRef(history);
@@ -187,14 +188,15 @@ export function AiAssistant({
     restoredRef.current = conversationId;
     if (host.turns.length) return;
     let cancelled = false;
+    const session = getApiSessionSnapshot();
     // `api.get` resolves the unwrapped `data` payload, so the turns sit on the
     // result itself; reading `result.data.turns` adopted nothing and the panel
     // came back empty after every refresh.
     void api
-      .get<{ turns: ChatTurn[] }>(`/api/ai/conversations/${conversationId}`)
+      .get<{ turns: ChatTurn[] } | null>(`/api/ai/conversations/${conversationId}`, { session })
       .then((result) => {
         const turns = result?.turns;
-        if (cancelled || !turns?.length) return;
+        if (cancelled || !isApiSessionCurrent(session) || !turns?.length) return;
         skipSaveRef.current = true;
         historyRef.current?.onChange(turns);
       })
@@ -231,8 +233,12 @@ export function AiAssistant({
         ...(turn.usage ? { usage: turn.usage } : {}),
       })),
     };
+    const session = getApiSessionSnapshot();
     const timer = window.setTimeout(() => {
-      void api.put(`/api/ai/conversations/${conversationId}`, body).catch(() => undefined);
+      if (!isApiSessionCurrent(session)) return;
+      void api
+        .put(`/api/ai/conversations/${conversationId}`, body, { session })
+        .catch(() => undefined);
     }, 400);
     return () => window.clearTimeout(timer);
     // The transcript array is the dependency, not the host's history object:
@@ -242,9 +248,10 @@ export function AiAssistant({
   }, [conversationId, turnsForSave, chat.streaming, mode, profileId, history]);
 
   const clearConversation = useCallback((): void => {
+    const session = getApiSessionSnapshot();
     chat.clear();
-    if (conversationId) {
-      void api.del(`/api/ai/conversations/${conversationId}`).catch(() => undefined);
+    if (conversationId && isApiSessionCurrent(session)) {
+      void api.del(`/api/ai/conversations/${conversationId}`, { session }).catch(() => undefined);
     }
     // The chat object is fresh per render; clear is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps

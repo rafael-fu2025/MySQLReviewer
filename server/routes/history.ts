@@ -17,12 +17,7 @@ historyRouter.get(
     const user = currentUser(req);
     const query = parseQuery(HistoryQuery, req);
     res.json({
-      data: await listHistory(
-        query.profileId,
-        query.limit ?? 100,
-        // Members are scoped to their own statements; admins see everything.
-        user.role === 'member' ? user.id : undefined,
-      ),
+      data: await listHistory(query.profileId, query.limit ?? 100, user.id),
     });
   }),
 );
@@ -32,7 +27,7 @@ historyRouter.delete(
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
     const query = parseQuery(HistoryQuery, req);
-    await clearHistory(query.profileId, user.role === 'member' ? user.id : undefined);
+    await clearHistory(query.profileId, user.id);
     res.json({ data: { cleared: true } });
   }),
 );

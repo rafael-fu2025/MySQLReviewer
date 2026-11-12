@@ -22,10 +22,13 @@ export interface HistoryInput {
   executionMs: number;
   rowCount: number | null;
   error?: string | null;
-  userId?: string;
+  userId: string;
 }
 
 export async function addHistory(input: HistoryInput): Promise<HistoryEntry> {
+  if (!input.userId) {
+    throw new Error('History ownership is required.');
+  }
   const entry: HistoryEntry = {
     id: crypto.randomUUID(),
     profileId: input.profileId,
@@ -37,47 +40,55 @@ export async function addHistory(input: HistoryInput): Promise<HistoryEntry> {
     rowCount: input.rowCount,
     error: input.error ? input.error.slice(0, 2_000) : null,
     createdAt: new Date().toISOString(),
-    ...(input.userId ? { userId: input.userId } : {}),
+    userId: input.userId,
   };
   const settings = await getSettings();
-  await store.update((current) => ({
-    entries: [entry, ...current.entries].slice(0, settings.historyLimit),
-  }));
+  await store.update((current) => {
+    // Retention is a per-owner partition. Keep legacy ownerless entries intact;
+    // a modern account's activity can never evict another account or legacy
+    // administrator history.
+    const mine = [entry, ...current.entries.filter((item) => item.userId === input.userId)].slice(
+      0,
+      settings.historyLimit,
+    );
+    const others = current.entries.filter((item) => item.userId !== input.userId);
+    return { entries: [...mine, ...others] };
+  });
   return entry;
 }
 
 export async function listHistory(
-  profileId?: string,
-  limit = 100,
-  userId?: string,
+  profileId: string | undefined,
+  limit: number,
+  userId: string,
 ): Promise<HistoryEntry[]> {
+  if (!userId) throw new Error('History ownership is required.');
   const file = await store.read();
   let filtered = profileId
     ? file.entries.filter((entry) => entry.profileId === profileId)
     : file.entries;
-  // Members see only their own statements. Pre-admin entries (no userId)
-  // belong to the admin and stay invisible to members.
-  if (userId) {
-    filtered = filtered.filter((entry) => entry.userId === userId);
-  }
+  filtered = filtered.filter((entry) => entry.userId === userId);
   return filtered.slice(0, Math.max(1, Math.min(500, limit)));
 }
 
 /**
- * Removes entries matching the given constraints. A member passes their own
- * userId, so clearing "their" history never touches anyone else's entries on
- * a shared connection; an admin passing only profileId clears all of it.
+ * Removes only the named owner's entries matching the optional profile.
+ * Administrator role does not imply cross-account ownership; account deletion
+ * uses the same explicit owner policy with no profile filter.
  */
-export async function clearHistory(profileId?: string, userId?: string): Promise<void> {
-  if (!profileId && !userId) {
-    await store.write({ entries: [] });
-    return;
-  }
+export async function clearHistory(profileId: string | undefined, userId: string): Promise<void> {
+  if (!userId) throw new Error('History ownership is required.');
   await store.update((current) => ({
     entries: current.entries.filter((entry) => {
       const matchesProfile = profileId ? entry.profileId === profileId : true;
-      const matchesUser = userId ? entry.userId === userId : true;
-      return !(matchesProfile && matchesUser);
+      return !(matchesProfile && entry.userId === userId);
     }),
   }));
 }
+
+/** Removes every history entry owned by one deleted account. */
+export async function deleteHistoryForUser(userId: string): Promise<void> {
+  await clearHistory(undefined, userId);
+}
+
+export { store as historyStore };

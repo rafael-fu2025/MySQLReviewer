@@ -7,7 +7,12 @@ import { JsonStore } from './json-store';
 import { deleteSessionsForUser } from './sessions';
 import { getSettings } from './settings';
 import { getStoredProfile } from './profiles';
-import { isWritesUnlocked } from '../db/manager';
+import { deleteConversationsForUser } from './conversations';
+import { deleteHistoryForUser } from './history';
+import { deleteSnippetsForUser } from './snippets';
+import { deletePracticeDataForUser } from './practice';
+import { deleteWorkspace } from './workspace';
+import { isWritesUnlocked, revokeWriteGrantsForUser } from '../db/manager';
 
 /**
  * App accounts. Roles: `admin` manages users, connections and sandboxes;
@@ -166,6 +171,31 @@ export async function createUser(input: {
   password: string;
   role: UserRole;
 }): Promise<PublicUser> {
+  return createUserInternal(input, false);
+}
+
+/**
+ * Atomically creates the installation's first account as an administrator.
+ * The empty check and insertion share one store update, so two setup requests
+ * can never both pass a separate countUsers() check.
+ */
+export async function createFirstAdmin(input: {
+  username: string;
+  displayName: string;
+  password: string;
+}): Promise<PublicUser> {
+  return createUserInternal({ ...input, role: 'admin' }, true);
+}
+
+async function createUserInternal(
+  input: {
+    username: string;
+    displayName: string;
+    password: string;
+    role: UserRole;
+  },
+  requireEmpty: boolean,
+): Promise<PublicUser> {
   const username = input.username.trim();
   const user: StoredUser = {
     id: newId(),
@@ -181,6 +211,9 @@ export async function createUser(input: {
   // serialization queue, so two concurrent sign-ups cannot both claim the
   // same name and the account cap can never be exceeded.
   await store.update((current) => {
+    if (requireEmpty && current.users.length > 0) {
+      throw new AppError('SETUP_DONE', 'The admin account already exists.', 403);
+    }
     const needle = username.toLowerCase();
     const existing = current.users.find((entry) => entry.username.toLowerCase() === needle);
     if (existing) {
@@ -218,9 +251,12 @@ export async function updateUser(
     passwordHash: patch.password !== undefined ? hashPassword(patch.password) : user.passwordHash,
   }));
   if (!updated) return null;
-  // A password change invalidates every session that was issued for the old
-  // password: a cookie minted before a compromise response must not survive.
-  if (patch.password !== undefined) await deleteSessionsForUser(id);
+  // A password change or disable takes effect immediately for every bearer
+  // credential and every personal write grant.
+  if (patch.password !== undefined || patch.disabled === true) {
+    await deleteSessionsForUser(id);
+    revokeWriteGrantsForUser(id);
+  }
   return toPublic(updated);
 }
 
@@ -231,8 +267,22 @@ export async function deleteUser(id: string): Promise<boolean> {
     removed = users.length !== current.users.length;
     return { users };
   });
-  if (removed) writeUnlockBlocked.delete(id);
-  return removed;
+  if (!removed) return false;
+
+  writeUnlockBlocked.delete(id);
+  revokeWriteGrantsForUser(id);
+  // Account deletion is logical application cleanup only. Sandboxes and source
+  // databases are never dropped here; an administrator can review and remove a
+  // physical sandbox explicitly through the assignment route.
+  await Promise.all([
+    deleteSessionsForUser(id),
+    deleteWorkspace(id),
+    deleteConversationsForUser(id),
+    deleteHistoryForUser(id),
+    deleteSnippetsForUser(id),
+    deletePracticeDataForUser(id),
+  ]);
+  return true;
 }
 
 export async function setAssignments(

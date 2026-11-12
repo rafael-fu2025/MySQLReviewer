@@ -67,10 +67,12 @@ describe('document keys', () => {
       'practice',
       'profiles',
       'providers',
+      'reports',
       'sessions',
       'settings',
       'snippets',
       'users',
+      'workspace',
     ]);
     for (const key of KNOWN_DOCUMENT_KEYS) {
       expect(documentKeyForFile(path.join(DATA_DIR, `${key}.json`))).toBe(key);
@@ -229,6 +231,18 @@ describe.skipIf(!TEST_URI)('MySqlDocumentBackend — integration', () => {
       [database, 'app_documents'],
     );
     expect(tables).toHaveLength(1);
+  });
+
+  it('refuses a second writer process for the same document schema', async () => {
+    const competing = new MySqlDocumentBackend(uri, database, {
+      legacyDataDir: null,
+      log: false,
+    });
+    try {
+      await expect(competing.ping()).rejects.toThrow(/already owned by another process/i);
+    } finally {
+      await competing.close();
+    }
   });
 
   it('describes the mysql backend with its database', () => {

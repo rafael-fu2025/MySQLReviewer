@@ -61,6 +61,7 @@ The app detects `C:\xampp` and `%USERPROFILE%\xampp` and shows the detected path
 - Passwords encrypted at rest with AES-256-GCM, or session-only if you prefer not to save them.
 - Test connection with server version, flavor, latency, uptime, and the database list.
 - **Database scope:** use all databases or restrict a profile to an allowlist. Scoped profiles hide out-of-scope schemas and reject out-of-scope queries, schema reads, table data, reviews, and audits. Server-wide Performance/Security pages are disabled unless you opt in.
+- **Publishing clones:** a database on a connection's allowlist is cloned for every member of that connection — they work in their own copy, so their writes never touch the source. The clone is recorded as their sandbox, so every scope check keeps working unchanged.
 - **Least-privilege GRANT helper:** generate reviewable `CREATE USER` / `GRANT` SQL for a dedicated account. MyLens never executes account changes; MySQL grants remain the real security boundary.
 - Friendly errors for refused connections, access denied, missing databases, parse errors, and timeouts.
 - Automatic MySQL/MariaDB version detection and feature gating.

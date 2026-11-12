@@ -1,4 +1,14 @@
-import { getApiToken, parseApiError } from './api';
+import {
+  apiSessionHeaders,
+  assertApiSessionCurrent,
+  getApiSessionSnapshot,
+  handleApiSessionError,
+  isApiSessionCurrent,
+  parseApiError,
+  registerApiSessionRequest,
+  SessionChangedError,
+  type ApiSessionSnapshot,
+} from './api';
 
 export interface SseEvent {
   event: string;
@@ -22,6 +32,8 @@ export interface SseOptions {
   totalMs?: number;
   /** Event names that mark a complete stream. */
   terminalEvents?: string[];
+  /** A caller may pin delayed work to a previously captured account epoch. */
+  session?: ApiSessionSnapshot;
 }
 
 const DEFAULT_STALL_MS = 60_000;
@@ -63,6 +75,10 @@ function isAbort(error: unknown): boolean {
  * Contract: resolves only when a terminal event (`result`/`error`/`done`) was
  * received. Every failure — network, HTTP, stall, cancellation, truncated
  * stream — is thrown, never reported through `handlers.onError`.
+ *
+ * The stream is also registered with api.ts's account epoch. A login/logout in
+ * this or another tab aborts it and every event is guarded immediately before
+ * dispatch, so bytes from A can never mutate B's UI.
  */
 export async function postSse(
   path: string,
@@ -74,8 +90,17 @@ export async function postSse(
   const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
   const totalMs = options.totalMs ?? DEFAULT_TOTAL_MS;
   const terminalEvents = options.terminalEvents ?? DEFAULT_TERMINAL_EVENTS;
+  const snapshot = options.session ?? getApiSessionSnapshot();
+  assertApiSessionCurrent(snapshot);
 
-  const token = getApiToken();
+  const controller = new AbortController();
+  const unregister = registerApiSessionRequest(controller, snapshot);
+  const onCallerAbort = (): void => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onCallerAbort, { once: true });
+  }
+
   let response: Response;
   try {
     response = await fetch(path, {
@@ -83,18 +108,43 @@ export async function postSse(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        ...(token ? { 'x-mylens-token': token } : {}),
+        ...apiSessionHeaders(snapshot),
       },
       body: JSON.stringify(body),
-      signal,
+      signal: controller.signal,
     });
+    assertApiSessionCurrent(snapshot);
   } catch (error) {
-    if (isAbort(error) || signal?.aborted) throw new SseCancelledError();
+    unregister();
+    signal?.removeEventListener('abort', onCallerAbort);
+    if (!isApiSessionCurrent(snapshot)) throw new SessionChangedError();
+    if (isAbort(error) || signal?.aborted || controller.signal.aborted) {
+      throw new SseCancelledError();
+    }
     throw error instanceof Error ? error : new Error(String(error));
   }
 
-  if (!response.ok) throw await parseApiError(response);
-  if (!response.body) throw new Error('The server returned an empty event stream.');
+  if (!response.ok) {
+    try {
+      const error = await parseApiError(response);
+      handleApiSessionError(error);
+      // A mismatch means another tab changed the cookie. Advancing the local
+      // epoch immediately prevents any sibling request from applying while App
+      // performs its focus/signal bootstrap reconciliation.
+      if (error.code === 'STALE_USER_SESSION') {
+        throw new SessionChangedError();
+      }
+      throw error;
+    } finally {
+      unregister();
+      signal?.removeEventListener('abort', onCallerAbort);
+    }
+  }
+  if (!response.body) {
+    unregister();
+    signal?.removeEventListener('abort', onCallerAbort);
+    throw new Error('The server returned an empty event stream.');
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -122,12 +172,11 @@ export async function postSse(
   resetStall();
   const totalTimer = setTimeout(() => stop('total'), totalMs);
   const onAbort = (): void => stop('abort');
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
+  if (controller.signal.aborted) onAbort();
+  else controller.signal.addEventListener('abort', onAbort, { once: true });
 
   const dispatch = (block: string): void => {
+    assertApiSessionCurrent(snapshot);
     let event = 'message';
     const dataLines: string[] = [];
     for (const rawLine of block.split('\n')) {
@@ -152,6 +201,7 @@ export async function postSse(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      assertApiSessionCurrent(snapshot);
       resetStall();
       buffer += decoder.decode(value, { stream: true });
       let boundary = buffer.indexOf('\n\n');
@@ -165,10 +215,15 @@ export async function postSse(
     buffer += decoder.decode();
     // A stopped stream may end mid-event; only a clean end has a full block.
     if (!stopReason && buffer.trim()) dispatch(buffer);
+  } catch (error) {
+    if (!isApiSessionCurrent(snapshot)) throw new SessionChangedError();
+    throw error;
   } finally {
     if (stallTimer) clearTimeout(stallTimer);
     clearTimeout(totalTimer);
-    signal?.removeEventListener('abort', onAbort);
+    controller.signal.removeEventListener('abort', onAbort);
+    signal?.removeEventListener('abort', onCallerAbort);
+    unregister();
     try {
       reader.releaseLock();
     } catch {
@@ -176,6 +231,7 @@ export async function postSse(
     }
   }
 
+  assertApiSessionCurrent(snapshot);
   if (stopReason === 'abort') throw new SseCancelledError();
   if (stopReason === 'stall') {
     throw new SseTimeoutError(

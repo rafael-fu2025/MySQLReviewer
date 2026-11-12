@@ -160,6 +160,27 @@ describe('agent MCP client', () => {
     }
   });
 
+  it('isolates cached child processes by account and exact config', async () => {
+    const first = fakeMcpChild({ tools: [{ name: 'fetch' }] });
+    const second = fakeMcpChild({ tools: [{ name: 'fetch' }] });
+    const changed = fakeMcpChild({ tools: [{ name: 'fetch' }] });
+    spawnMock
+      .mockReturnValueOnce(first.child)
+      .mockReturnValueOnce(second.child)
+      .mockReturnValueOnce(changed.child);
+
+    const config = [{ name: 'docs', command: 'cmd', args: ['one'] }];
+    await listMcpTools(config, { userId: 'u1' });
+    await listMcpTools(config, { userId: 'u1' });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+
+    await listMcpTools(config, { userId: 'u2' });
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    await listMcpTools([{ ...config[0], args: ['two'] }], { userId: 'u1' });
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+  });
+
   it('kills every child on shutdown', async () => {
     const fake = fakeMcpChild({ tools: [{ name: 'a' }] });
     spawnMock.mockReturnValue(fake.child);

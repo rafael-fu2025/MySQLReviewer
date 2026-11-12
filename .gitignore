@@ -46,3 +46,7 @@ Thumbs.db
 *~
 *.swp
 *.swo
+
+# Local scratch space and Windows null-device artifacts
+/scratch/
+/nul

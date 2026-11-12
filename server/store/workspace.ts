@@ -110,3 +110,5 @@ export async function deleteWorkspace(userId: string): Promise<void> {
     return next;
   });
 }
+
+export { store as workspaceStore };

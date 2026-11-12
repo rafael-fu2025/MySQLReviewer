@@ -244,11 +244,30 @@ describe('agent tools', () => {
     );
   });
 
-  it('refuses server-wide tools when the connection disallows them', async () => {
-    const result = JSON.parse(await handler('security_audit', { serverWide: false })({}));
-    expect(result.error).toContain('Server-wide');
+  it('removes server-wide tools when the connection disallows them', () => {
+    const tools = buildWorkspaceTools({ ...ctx, serverWide: false });
+    for (const name of [
+      'server_status',
+      'process_list',
+      'perf_snapshot',
+      'slow_queries',
+      'security_audit',
+    ]) {
+      expect(tools.definitions.map((definition) => definition.name)).not.toContain(name);
+      expect(tools.handlers.has(name)).toBe(false);
+    }
     expect(h.runSecurityAudit).not.toHaveBeenCalled();
     expect(h.getSlowQueries).not.toHaveBeenCalled();
+  });
+
+  it('members never receive server-wide tools even if a caller sets the flag', () => {
+    const tools = buildWorkspaceTools({ ...ctx, userRole: 'member', serverWide: true });
+    const names = tools.definitions.map((definition) => definition.name);
+    expect(names).not.toContain('server_status');
+    expect(names).not.toContain('process_list');
+    expect(names).not.toContain('perf_snapshot');
+    expect(names).not.toContain('slow_queries');
+    expect(names).not.toContain('security_audit');
   });
 
   it('runs the security audit through the shared composition', async () => {

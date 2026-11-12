@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import mysql from 'mysql2/promise';
-import type { Pool, RowDataPacket } from 'mysql2/promise';
+import type { Connection, RowDataPacket } from 'mysql2/promise';
 import { DATA_DIR, storageConfig } from '../config';
 
 const execFileAsync = promisify(execFile);
@@ -24,7 +24,9 @@ export interface StorageDescription {
  * The persistence primitive behind every JsonStore: a flat space of JSON
  * documents. Keys are the store document names (`users`, `sessions`, ...),
  * values are serialized JSON strings — serialization and parsing stay at the
- * JsonStore layer, so both backends see exactly the same bytes.
+ * JsonStore layer, so both backends see exactly the same bytes. Implementations
+ * must provide one process-wide writer lease before serving writes; JsonStore's
+ * in-process queue is not a cross-process lock.
  */
 export interface DocumentBackend {
   /** Resolves when the backend can serve documents; throws otherwise. */
@@ -42,9 +44,10 @@ export interface DocumentBackend {
 /**
  * The documents every JsonStore-backed store persists. In file mode they are
  * `<key>.json` inside the data directory; in MySQL mode they are rows with
- * `document_key = <key>`. Reports are kept as individual files under
- * `data/reports/` and `.secret.key` stays a file in both modes — neither is a
- * document key.
+ * `document_key = <key>`. Reports and workspace are documents too; legacy
+ * per-report files under `data/reports/` are imported by the reports store.
+ * `.secret.key` remains a restricted file in both modes and is not a document
+ * key.
  */
 export const KNOWN_DOCUMENT_KEYS = [
   'activity',
@@ -54,10 +57,12 @@ export const KNOWN_DOCUMENT_KEYS = [
   'practice',
   'profiles',
   'providers',
+  'reports',
   'sessions',
   'settings',
   'snippets',
   'users',
+  'workspace',
 ] as const;
 
 export type DocumentKey = (typeof KNOWN_DOCUMENT_KEYS)[number];
@@ -359,6 +364,13 @@ export class FileDocumentBackend implements DocumentBackend {
 /* -------------------------------------------------------------------------- */
 
 const DOCUMENTS_TABLE = 'app_documents';
+/**
+ * The document row is an application-level JSON aggregate: read/modify/write
+ * correctness requires one writer process. This advisory lock is held on a
+ * dedicated connection for the backend lifetime and released by close().
+ */
+const WRITER_LOCK_PREFIX = 'mylens:documents:';
+const WRITER_LOCK_TIMEOUT_SECONDS = 0;
 
 const DOCUMENTS_TABLE_DDL = `CREATE TABLE IF NOT EXISTS ${DOCUMENTS_TABLE} (
   document_key VARCHAR(190) PRIMARY KEY,
@@ -424,7 +436,8 @@ export interface MySqlDocumentBackendOptions {
  */
 export class MySqlDocumentBackend implements DocumentBackend {
   private readonly uri: string;
-  private pool: Pool | null = null;
+  private writerConnection: Connection | null = null;
+  private writerLockName: string | null = null;
   private ready: Promise<void> | null = null;
   private readonly legacyDataDir: string | null;
   private readonly log: boolean;
@@ -444,7 +457,7 @@ export class MySqlDocumentBackend implements DocumentBackend {
 
   async ping(): Promise<void> {
     await this.ensureReady();
-    await this.getPool().query('SELECT 1');
+    await this.getWriterConnection().query('SELECT 1');
   }
 
   async read(key: string): Promise<string | null> {
@@ -471,20 +484,33 @@ export class MySqlDocumentBackend implements DocumentBackend {
     return { backend: 'mysql', database: this.database };
   }
 
-  /** Closes the pool (graceful shutdown and tests). */
+  /** Releases the process writer lease and its dedicated connection. */
   async close(): Promise<void> {
-    const pool = this.pool;
-    this.pool = null;
+    const writer = this.writerConnection;
+    const lockName = this.writerLockName;
+    this.writerConnection = null;
+    this.writerLockName = null;
     this.ready = null;
-    if (pool) await pool.end();
+    if (writer) {
+      if (lockName) {
+        await writer
+          .execute('SELECT RELEASE_LOCK(?) AS released', [lockName])
+          .catch(() => undefined);
+      }
+      await writer.end().catch(() => undefined);
+    }
   }
 
   private ensureReady(): Promise<void> {
     if (!this.ready) {
-      this.ready = this.initialize().catch((error) => {
+      this.ready = this.initialize().catch(async (error) => {
         // A failed first use must not poison the backend: the next call
-        // retries schema creation and the legacy import.
+        // retries schema creation, writer-lock acquisition and legacy import.
         this.ready = null;
+        const writer = this.writerConnection;
+        this.writerConnection = null;
+        this.writerLockName = null;
+        if (writer) await writer.end().catch(() => undefined);
         throw error;
       });
     }
@@ -493,7 +519,8 @@ export class MySqlDocumentBackend implements DocumentBackend {
 
   private async initialize(): Promise<void> {
     await this.ensureDatabase();
-    await this.getPool().query(DOCUMENTS_TABLE_DDL);
+    await this.acquireWriterLock();
+    await this.getWriterConnection().query(DOCUMENTS_TABLE_DDL);
     if (this.legacyDataDir !== null) {
       // The import runs through the row primitives directly: the public
       // methods await `ensureReady`, which is initializing right now.
@@ -516,6 +543,41 @@ export class MySqlDocumentBackend implements DocumentBackend {
     }
   }
 
+  private async acquireWriterLock(): Promise<void> {
+    if (this.writerConnection) return;
+    const connection = await mysql.createConnection({
+      uri: this.uri,
+      database: this.database,
+      multipleStatements: false,
+      namedPlaceholders: false,
+      charset: 'utf8mb4',
+      connectTimeout: 10_000,
+      enableKeepAlive: true,
+    });
+    const lockName = `${WRITER_LOCK_PREFIX}${crypto
+      .createHash('sha256')
+      .update(this.database)
+      .digest('hex')
+      .slice(0, 40)}`;
+    try {
+      const [rows] = await connection.execute<RowDataPacket[]>(
+        'SELECT GET_LOCK(?, ?) AS acquired',
+        [lockName, WRITER_LOCK_TIMEOUT_SECONDS],
+      );
+      if (Number(rows[0]?.acquired) !== 1) {
+        throw new Error(
+          `MyLens document storage for "${this.database}" is already owned by another process. ` +
+            'Only one MyLens server may write this JSON document schema at a time.',
+        );
+      }
+      this.writerConnection = connection;
+      this.writerLockName = lockName;
+    } catch (error) {
+      await connection.end().catch(() => undefined);
+      throw error;
+    }
+  }
+
   private async ensureDatabase(): Promise<void> {
     const database = quoteIdentifier(this.database);
     const connection = await mysql.createConnection(this.uri);
@@ -528,28 +590,15 @@ export class MySqlDocumentBackend implements DocumentBackend {
     }
   }
 
-  private getPool(): Pool {
-    if (!this.pool) {
-      this.pool = mysql.createPool({
-        uri: this.uri,
-        database: this.database,
-        waitForConnections: true,
-        connectionLimit: 5,
-        maxIdle: 5,
-        idleTimeout: 60_000,
-        queueLimit: 0,
-        connectTimeout: 10_000,
-        multipleStatements: false,
-        namedPlaceholders: false,
-        charset: 'utf8mb4',
-        enableKeepAlive: true,
-      });
+  private getWriterConnection(): Connection {
+    if (!this.writerConnection) {
+      throw new Error('MyLens document storage writer lock is not held.');
     }
-    return this.pool;
+    return this.writerConnection;
   }
 
   private async readRow(key: string): Promise<string | null> {
-    const [rows] = await this.getPool().execute<DocumentRow[]>(
+    const [rows] = await this.getWriterConnection().execute<DocumentRow[]>(
       `SELECT document FROM ${DOCUMENTS_TABLE} WHERE document_key = ?`,
       [key],
     );
@@ -561,7 +610,7 @@ export class MySqlDocumentBackend implements DocumentBackend {
   }
 
   private async writeRow(key: string, value: string): Promise<void> {
-    await this.getPool().execute(
+    await this.getWriterConnection().execute(
       `INSERT INTO ${DOCUMENTS_TABLE} (document_key, document) VALUES (?, ?)
        ON DUPLICATE KEY UPDATE document = VALUES(document)`,
       [key, value],
@@ -569,11 +618,14 @@ export class MySqlDocumentBackend implements DocumentBackend {
   }
 
   private async removeRow(key: string): Promise<void> {
-    await this.getPool().execute(`DELETE FROM ${DOCUMENTS_TABLE} WHERE document_key = ?`, [key]);
+    await this.getWriterConnection().execute(
+      `DELETE FROM ${DOCUMENTS_TABLE} WHERE document_key = ?`,
+      [key],
+    );
   }
 
   private async listRowKeys(): Promise<string[]> {
-    const [rows] = await this.getPool().execute<DocumentRow[]>(
+    const [rows] = await this.getWriterConnection().execute<DocumentRow[]>(
       `SELECT document_key FROM ${DOCUMENTS_TABLE}`,
     );
     return rows.map((row) => row.document_key);

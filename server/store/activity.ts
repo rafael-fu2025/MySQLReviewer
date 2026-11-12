@@ -5,10 +5,53 @@ import { DATA_DIR } from '../config';
 import { JsonStore } from './json-store';
 
 /**
- * Append-mostly log of who did what, surfaced on the admin page. Capped so
- * the file stays small; digests identify queries without storing their text.
+ * Append-mostly log of who did what, surfaced on the admin page. Per-account
+ * partition caps keep installation growth bounded by MAX_USERS while preventing
+ * one account from evicting another's evidence.
  */
-const MAX_ENTRIES = 2000;
+/** Ordinary high-volume events each account may retain. */
+export const MAX_ORDINARY_ENTRIES_PER_USER = 500;
+/** Security/admin evidence each account may retain independently. */
+export const MAX_RESERVED_ENTRIES_PER_USER = 500;
+
+const ORDINARY_ACTIONS = new Set<ActivityAction>([
+  'query',
+  'connect',
+  'disconnect',
+  'practice-generate',
+  'practice-evaluate',
+  'practice-daily',
+]);
+
+function isOrdinary(entry: Pick<ActivityEntry, 'action'>): boolean {
+  return ORDINARY_ACTIONS.has(entry.action);
+}
+
+/**
+ * Retention policy:
+ * - ordinary and reserved/security activity each have independent per-account
+ *   caps, so no account can evict another account's evidence;
+ * - login/logout, unlock/lock, audits, report actions and every admin action use
+ *   the reserved partition, which ordinary traffic from the same owner also
+ *   cannot evict;
+ * - MAX_USERS bounds the installation total while listActivity keeps one
+ *   chronological stream for the admin UI.
+ */
+export function retainActivityEntries(entries: ActivityEntry[]): ActivityEntry[] {
+  const ordinaryCount = new Map<string, number>();
+  const reservedCount = new Map<string, number>();
+  const retainedNewestFirst: ActivityEntry[] = [];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    const counts = isOrdinary(entry) ? ordinaryCount : reservedCount;
+    const limit = isOrdinary(entry) ? MAX_ORDINARY_ENTRIES_PER_USER : MAX_RESERVED_ENTRIES_PER_USER;
+    const count = counts.get(entry.userId) ?? 0;
+    if (count >= limit) continue;
+    counts.set(entry.userId, count + 1);
+    retainedNewestFirst.push(entry);
+  }
+  return retainedNewestFirst.reverse();
+}
 
 const store = new JsonStore<{ entries: ActivityEntry[] }>(
   path.join(DATA_DIR, 'activity.json'),
@@ -37,10 +80,9 @@ export async function logActivity(input: ActivityInput): Promise<void> {
     ...(input.digest ? { digest: input.digest } : {}),
     ...(input.detail ? { detail: input.detail.slice(0, 200) } : {}),
   };
-  await store.update((current) => {
-    const next = [...current.entries, entry];
-    return { entries: next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next };
-  });
+  await store.update((current) => ({
+    entries: retainActivityEntries([...current.entries, entry]),
+  }));
 }
 
 export async function listActivity(options: {
@@ -57,3 +99,5 @@ export async function listActivity(options: {
   const offset = Math.max(options.offset ?? 0, 0);
   return { entries: newestFirst.slice(offset, offset + limit), total: filtered.length };
 }
+
+export { store as activityStore };

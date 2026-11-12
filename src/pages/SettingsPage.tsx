@@ -703,11 +703,7 @@ export function SettingsPage() {
                     </div>
                     <div className="mt-2 text-2xs text-muted">
                       {profile.ssl?.enabled ? 'TLS · ' : ''}
-                      {profile.passwordSource === 'saved'
-                        ? 'encrypted password'
-                        : profile.passwordSource === 'session'
-                          ? 'session password'
-                          : 'no saved password'}
+                      {profile.hasPassword ? 'encrypted saved password' : 'passwordless connection'}
                       {' · '}
                       {profile.lastUsedAt
                         ? `used ${formatRelative(profile.lastUsedAt)}`

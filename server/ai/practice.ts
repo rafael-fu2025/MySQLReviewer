@@ -38,7 +38,7 @@ import {
 } from '../db/practice';
 import {
   addPracticeAttempt,
-  getPracticeSet,
+  getOwnedPracticeSet,
   listPracticeAttemptsForSet,
   recordPracticeReviewOutcome,
   savePracticeSet,
@@ -315,8 +315,15 @@ function questionKind(type: PracticeQuestion['type']): {
 }
 
 export interface PracticeScopeOptions {
+  /** The authenticated account that owns every generated artifact. */
+  userId: string;
   /** Narrows a member session to their sandbox databases. */
   scopeOverride?: { allowed: string[] };
+}
+
+export interface PracticeGenerationOptions extends PracticeScopeOptions {
+  /** Cancels provider calls, including the repair round trip. */
+  signal?: AbortSignal;
 }
 
 function programmableObjectsText(objects: DatabaseObjects, maxChars: number): string {
@@ -419,10 +426,9 @@ export async function generatePracticeSet(
   provider: AiProvider,
   apiKey: string | null,
   onDelta: (text: string) => void,
-  signal?: AbortSignal,
-  options: PracticeScopeOptions = {},
+  options: PracticeGenerationOptions,
 ): Promise<PracticeGenerationRunResult> {
-  const scopeOverride = options.scopeOverride;
+  const { userId, scopeOverride, signal } = options;
   await assertDatabaseAllowed(request.profileId, request.database, scopeOverride);
   const settings = await getSettings();
   const server = getCachedServerInfo(request.profileId);
@@ -601,6 +607,7 @@ export async function generatePracticeSet(
 
   const set: PracticeSet = {
     id: crypto.randomUUID(),
+    userId,
     profileId: request.profileId,
     createdAt: new Date().toISOString(),
     database: request.database,
@@ -616,6 +623,7 @@ export async function generatePracticeSet(
 }
 
 export async function evaluatePractice(input: {
+  userId: string;
   profileId: string;
   setId: string;
   questionId: string;
@@ -629,7 +637,9 @@ export async function evaluatePractice(input: {
   /** Cancels the provider calls, including the repair round trip. */
   signal?: AbortSignal;
 }): Promise<PracticeEvaluation> {
-  const set = await getPracticeSet(input.setId);
+  // Account ownership is checked before the profile, question, duplicate lookup,
+  // database access, provider call, or reference-answer use.
+  const set = await getOwnedPracticeSet(input.setId, input.userId);
   if (set.profileId !== input.profileId) {
     throw new AppError(
       'PRACTICE_SET_FORBIDDEN',
@@ -644,10 +654,15 @@ export async function evaluatePractice(input: {
 
   const userSql = (input.userSql ?? '').trim();
   const userAnswer = (input.userAnswer ?? '').trim();
+  const scopeOverride = input.scopeOverride;
+
+  // Scope is enforced before the duplicate fast path: a cached grade must never
+  // turn into a way to use a database the current session can no longer access.
+  await assertDatabaseAllowed(input.profileId, set.database, scopeOverride);
 
   // Resubmitting the same answer must not inflate the attempt history: return the
-  // recorded evaluation instead of grading and storing a second copy.
-  const previousAttempts = await listPracticeAttemptsForSet(input.profileId, set.id);
+  // caller's recorded evaluation instead of grading and storing a second copy.
+  const previousAttempts = await listPracticeAttemptsForSet(input.profileId, set.id, input.userId);
   const duplicate = previousAttempts.find(
     (attempt) =>
       attempt.questionId === question.id &&
@@ -657,8 +672,6 @@ export async function evaluatePractice(input: {
     return { ...duplicate.evaluation, duplicate: true };
   }
 
-  const scopeOverride = input.scopeOverride;
-  await assertDatabaseAllowed(input.profileId, set.database, scopeOverride);
   const server = getCachedServerInfo(input.profileId);
   const settings = await getSettings();
   const schema = await schemaTextForTables(
@@ -881,6 +894,7 @@ export async function evaluatePractice(input: {
   const attemptedAt = new Date().toISOString();
   await addPracticeAttempt({
     id: crypto.randomUUID(),
+    userId: input.userId,
     profileId: input.profileId,
     setId: set.id,
     questionId: question.id,
@@ -904,6 +918,7 @@ export async function evaluatePractice(input: {
   // already recorded, so a queue failure must not fail the response.
   try {
     await recordPracticeReviewOutcome({
+      userId: input.userId,
       profileId: input.profileId,
       setId: set.id,
       questionId: question.id,

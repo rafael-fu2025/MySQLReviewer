@@ -32,7 +32,11 @@ import {
 import { buildMcpTools, listMcpTools } from '../ai/agent-mcp';
 import { AGENT_TOOLS } from '../../shared/agent-tools';
 import { getSettings } from '../store/settings';
-import { deleteConversation, getConversation, saveConversationTurns } from '../store/conversations';
+import {
+  deleteConversation,
+  findConversation,
+  saveConversationTurns,
+} from '../store/conversations';
 import { runAgentTurn, type AgentEvent } from '../ai/agent';
 import { openSse } from '../sse';
 import { getDatabaseScope } from '../db/scope';
@@ -346,18 +350,22 @@ aiRouter.post(
         database,
         scopeOverride,
         userId: user.id,
-        serverWide: scope.mode === 'all' && scope.serverWideInsights,
+        serverWide: user.role === 'admin' && scope.mode === 'all' && scope.serverWideInsights,
         userRole: user.role === 'member' ? 'member' : 'admin',
         // The coach sees only the challenge's own tables.
         tableFilter: body.mode === 'challenge' ? (schemaTables ?? undefined) : undefined,
       };
       const base =
         body.mode === 'challenge' ? buildCoachTools(toolCtx) : buildWorkspaceTools(toolCtx);
-      // Configured MCP servers merge into the toolset; a server that cannot
-      // start is skipped, never fatal for the turn. The coach never gets them.
+      // Configured MCP servers are administrator-only: separate subprocesses do
+      // not isolate the external resource behind an MCP server. A server that
+      // fails to start is skipped, never fatal. The coach never gets MCP tools.
       const mcp =
-        body.mode === 'workspace' && settings.mcpServers && settings.mcpServers.length > 0
-          ? await buildMcpTools(settings.mcpServers)
+        body.mode === 'workspace' &&
+        user.role === 'admin' &&
+        settings.mcpServers &&
+        settings.mcpServers.length > 0
+          ? await buildMcpTools(settings.mcpServers, { userId: user.id })
           : {
               definitions: [],
               handlers: new Map<string, (args: Record<string, unknown>) => Promise<string>>(),
@@ -554,15 +562,17 @@ aiRouter.get(
   '/conversations/:id',
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
-    const record = await getConversation(param(req, 'id'), user.id);
+    const record = await findConversation(param(req, 'id'), user.id);
     res.json({
-      data: {
-        id: record.id,
-        mode: record.mode,
-        title: record.title,
-        turns: record.turns,
-        updatedAt: record.updatedAt,
-      },
+      data: record
+        ? {
+            id: record.id,
+            mode: record.mode,
+            title: record.title,
+            turns: record.turns,
+            updatedAt: record.updatedAt,
+          }
+        : null,
     });
   }),
 );
@@ -601,7 +611,9 @@ aiRouter.get(
   asyncHandler(async (req, res) => {
     requireAdmin(req);
     const settings = await getSettings();
-    const statuses = settings.mcpServers?.length ? await listMcpTools(settings.mcpServers) : [];
+    const statuses = settings.mcpServers?.length
+      ? await listMcpTools(settings.mcpServers, { userId: req.user!.id })
+      : [];
     res.json({
       data: {
         builtin: AGENT_TOOLS,

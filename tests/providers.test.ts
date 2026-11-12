@@ -10,6 +10,7 @@ import {
   createProvider,
 } from '../server/store/providers';
 import { canReuseStoredPassword } from '../server/routes/connections';
+import { currentRuntimeUserId, runWithRuntimeUser } from '../server/runtime-context';
 import { testProvider } from './fixtures';
 
 afterEach(() => {
@@ -369,8 +370,125 @@ describe('F-13 a malformed provider answer is repaired locally', () => {
 });
 
 describe('F-17 the AI endpoints are rate limited and bounded', () => {
+  const completion = () => complete(testProvider, 'secret', [{ role: 'user', content: 'Hi' }]);
+  const asUser = (userId: string, fn: () => Promise<unknown>) => runWithRuntimeUser(userId, fn);
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
   afterEach(() => {
     resetAiLimits();
+  });
+
+  it('gives each authenticated account its own twenty-call minute window', async () => {
+    resetAiLimits();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
+    for (let index = 0; index < 20; index += 1) {
+      await asUser('user-a', completion);
+    }
+    await expect(asUser('user-a', completion)).rejects.toMatchObject({ code: 'AI_RATE_LIMIT' });
+
+    for (let index = 0; index < 20; index += 1) {
+      await asUser('user-b', completion);
+    }
+    await expect(asUser('user-b', completion)).rejects.toMatchObject({ code: 'AI_RATE_LIMIT' });
+  });
+
+  it('lets another account use eligible active slots and bypass a saturated owner in the queue', async () => {
+    resetAiLimits();
+    const releases: Array<() => void> = [];
+    const started: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        started.push(currentRuntimeUserId() ?? 'anonymous');
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    const pending: Promise<unknown>[] = [];
+    try {
+      pending.push(asUser('user-a', completion), asUser('user-a', completion));
+      await flush();
+      expect(started).toEqual(['user-a', 'user-a']);
+
+      // A owns its maximum two active calls and fills its four queue positions.
+      for (let index = 0; index < 4; index += 1) pending.push(asUser('user-a', completion));
+      await flush();
+      await expect(asUser('user-a', completion)).rejects.toMatchObject({ code: 'AI_BUSY' });
+
+      // B must take the two remaining global slots even though A is at the head
+      // of the queue and is not eligible for another active slot.
+      pending.push(asUser('user-b', completion), asUser('user-b', completion));
+      await flush();
+      expect(started).toEqual(['user-a', 'user-a', 'user-b', 'user-b']);
+    } finally {
+      // Opening one gate may start another queued call. Release each newly
+      // started call until every promise settles, then reset the global hooks.
+      let settled = false;
+      const allSettled = Promise.allSettled(pending).then(() => {
+        settled = true;
+      });
+      while (!settled) {
+        const release = releases.shift();
+        if (release) release();
+        await flush();
+      }
+      await allSettled;
+    }
+  });
+
+  it('retains the anonymous installation-wide sixty-call limit', async () => {
+    resetAiLimits();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
+    for (let index = 0; index < 60; index += 1) await completion();
+    await expect(completion()).rejects.toMatchObject({ code: 'AI_RATE_LIMIT' });
+  });
+
+  it('retains the anonymous global active and queue bounds', async () => {
+    resetAiLimits();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => {
+        await gate;
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    const pending = Array.from({ length: 12 }, () => completion().catch(() => undefined));
+    await flush();
+    await expect(completion()).rejects.toMatchObject({ code: 'AI_BUSY' });
+    release();
+    await Promise.allSettled(pending);
   });
 
   it('refuses more than sixty provider calls per minute', async () => {

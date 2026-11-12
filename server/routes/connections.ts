@@ -13,6 +13,7 @@ import {
 } from '../db/manager';
 import { listDatabases } from '../db/introspection';
 import { generateGrantSql } from '../db/grants';
+import { publishDatabaseToMembers } from '../db/publish';
 import { AppError } from '../errors';
 import { assertProfileAssigned, requireAdmin, sandboxScopeOverride } from '../auth';
 import { logActivity } from '../store/activity';
@@ -64,9 +65,7 @@ const TestSchema = ConnectionSchema.extend({
   includeDatabases: z.boolean().optional(),
 });
 
-const ConnectSchema = z.object({
-  password: z.string().max(2_000).optional(),
-});
+const ConnectSchema = z.object({}).strict();
 
 const UnlockSchema = z.object({
   phrase: z.string().max(100),
@@ -98,6 +97,24 @@ export interface PasswordReuseTarget {
 
 function normalizeHost(value: string): string {
   return value.trim().toLowerCase();
+}
+
+/**
+ * The databases this save publishes to the members of the connection.
+ *
+ * A database counts as newly published when it is on the allowlist now and
+ * was not on it before. A database that was already published keeps the
+ * clones the members already have: re-cloning it would replace their work.
+ */
+function newlyPublishedDatabases(
+  previous: { databaseScope?: 'all' | 'selected'; allowedDatabases?: string[] } | null,
+  profile: { databaseScope: 'all' | 'selected'; allowedDatabases: string[] },
+): string[] {
+  if (profile.databaseScope !== 'selected') return [];
+  const before = new Set(
+    previous?.databaseScope === 'selected' ? (previous.allowedDatabases ?? []) : [],
+  );
+  return profile.allowedDatabases.filter((database) => !before.has(database));
 }
 
 function normalizeSocketPath(value: string | null | undefined): string | null {
@@ -193,8 +210,34 @@ connectionsRouter.put(
     const user = requireAdmin(req);
     const id = param(req, 'id');
     const body = parseBody(ConnectionSchema, req);
+    const previous = await getStoredProfile(id).catch(() => null);
     const profile = await updateProfile(id, body);
     await invalidateProfile(id);
+
+    // Publishing a database reaches the members as a clone, not as the live
+    // schema: a member works in their own copy so their writes never touch
+    // the administrator's data. Only a database that was newly published is
+    // provisioned — one that was already on the allowlist has been handed
+    // out before, and re-cloning it would throw away the members' work.
+    const published = newlyPublishedDatabases(previous, profile);
+    const clones = [];
+    for (const source of published) {
+      try {
+        const result = await publishDatabaseToMembers(id, source);
+        clones.push(result);
+      } catch (error) {
+        // The connection itself is saved. A clone that could not be made is
+        // reported, not fatal: the administrator can retry from the Admin
+        // page without losing the allowlist change.
+        clones.push({
+          source,
+          sandboxes: [],
+          skipped: [],
+          errors: [error instanceof Error ? error.message : String(error)],
+        });
+      }
+    }
+
     await logActivity({
       userId: user.id,
       username: user.username,
@@ -202,7 +245,7 @@ connectionsRouter.put(
       profileId: id,
       detail: `"${profile.name}" updated`,
     });
-    res.json({ data: profile });
+    res.json({ data: { ...profile, clones } });
   }),
 );
 
@@ -222,6 +265,66 @@ connectionsRouter.delete(
       detail: `"${profile.name}" deleted`,
     });
     res.json({ data: { deleted: true } });
+  }),
+);
+
+/**
+ * Publishes the connection's databases to its members on demand: every
+ * member receives a clone of every published database they do not have yet.
+ *
+ * The Admin page calls this after the allowlist changes, and it is also the
+ * way to catch up a member who was added after a database was published.
+ */
+connectionsRouter.post(
+  '/:id/publish',
+  asyncHandler(async (req, res) => {
+    const user = requireAdmin(req);
+    const id = param(req, 'id');
+    await getProfile(id);
+    const body = parseBody(
+      z.object({
+        databases: z.array(z.string().min(1).max(200)).max(100).optional(),
+        includeData: z.boolean().optional(),
+      }),
+      req,
+    );
+    const profile = await getStoredProfile(id);
+    if (profile.databaseScope !== 'selected') {
+      throw new AppError(
+        'VALIDATION',
+        'Publish a database on a connection that is limited to selected databases.',
+        400,
+      );
+    }
+    const sources =
+      body.databases && body.databases.length > 0
+        ? body.databases
+        : (profile.allowedDatabases ?? []);
+    const results = [];
+    for (const source of sources) {
+      try {
+        results.push(
+          await publishDatabaseToMembers(id, source, {
+            includeData: body.includeData !== false,
+          }),
+        );
+      } catch (error) {
+        results.push({
+          source,
+          sandboxes: [],
+          skipped: [],
+          errors: [error instanceof Error ? error.message : String(error)],
+        });
+      }
+    }
+    await logActivity({
+      userId: user.id,
+      username: user.username,
+      action: 'admin-sandbox-provision',
+      profileId: id,
+      detail: `${results.length} database(s) published to members`,
+    });
+    res.json({ data: { results } });
   }),
 );
 
@@ -251,9 +354,9 @@ connectionsRouter.post(
   asyncHandler(async (req, res) => {
     const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
-    const body = parseBody(ConnectSchema, req);
+    parseBody(ConnectSchema, req);
     await getProfile(id);
-    const server = await connectProfile(id, body.password);
+    const server = await connectProfile(id);
     const override = sandboxScopeOverride(user, id);
     const databases = await listDatabases(id, override);
     const result: ConnectResult = {
@@ -277,8 +380,14 @@ connectionsRouter.post(
   asyncHandler(async (req, res) => {
     const user = assertProfileAssigned(req, param(req, 'id'));
     const id = param(req, 'id');
-    await disconnectProfile(id);
-    lockWrites(id, user.id, { profileWide: user.role === 'admin' });
+    if (user.role === 'admin') {
+      await disconnectProfile(id);
+      lockWrites(id, user.id, { profileWide: true });
+    } else {
+      // Pools are shared process resources. A member disconnect is a personal
+      // state transition only and may not tear down in-flight work for others.
+      lockWrites(id, user.id, { profileWide: false });
+    }
     await logActivity({
       userId: user.id,
       username: user.username,

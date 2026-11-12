@@ -2,11 +2,16 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { AppError } from '../errors';
 import { requireAdmin } from '../auth';
-import { dropSandbox, nextSandboxName, provisionSandbox, resetSandbox } from '../db/provision';
+import {
+  assertIdentifier,
+  dropSandbox,
+  nextSandboxName,
+  provisionSandbox,
+  resetSandbox,
+} from '../db/provision';
 import { invalidateSchemaCache } from '../db/introspection';
 import { logActivity } from '../store/activity';
 import { listActivity } from '../store/activity';
-import { deleteSessionsForUser } from '../store/sessions';
 import {
   addAssignment,
   createUser,
@@ -21,7 +26,7 @@ import {
 import { getStoredProfile } from '../store/profiles';
 import { updateSettings } from '../store/settings';
 import { revokeAllWriteGrants, revokeWriteGrantsForUser } from '../db/manager';
-import { parseBody } from './util';
+import { param, parseBody } from './util';
 import crypto from 'node:crypto';
 
 const router = Router();
@@ -40,6 +45,16 @@ const AssignmentSchema = z.object({
   source: z.string().min(1).max(64),
   includeData: z.boolean(),
 });
+
+/**
+ * A sandbox name reaches a `DROP DATABASE` statement, so it is re-checked as
+ * a plain SQL identifier (letters, digits, `_`, `$`) before it leaves this
+ * route. The provisioner generates these names, but the value is persisted
+ * with the account, so it is not trusted on the way back out.
+ */
+function parseSandboxIdentifier(name: string): string {
+  return assertIdentifier(name, 'Sandbox database');
+}
 
 const CreateUserSchema = z.object({
   username: z.string().trim().min(2).max(40),
@@ -96,16 +111,13 @@ router.put('/users/:id', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
     const body = parseBody(UpdateUserSchema, req);
-    if (req.params.id === admin.id && body.disabled === true) {
+    if (param(req, 'id') === admin.id && body.disabled === true) {
       throw new AppError('LAST_ADMIN', 'You cannot disable your own account.', 400);
     }
-    const user = await updateUser(req.params.id, body);
+    const user = await updateUser(param(req, 'id'), body);
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
-    // A password reset must invalidate every session that was issued for the
-    // old password; disabling an account revokes its sessions as well.
-    if (body.disabled === true || body.password !== undefined) {
-      await deleteSessionsForUser(user.id);
-    }
+    // updateUser atomically applies the account change and immediately revokes
+    // sessions and personal write grants for a password reset or disable.
     await logActivity({
       userId: admin.id,
       username: admin.username,
@@ -127,7 +139,7 @@ router.put('/users/:id/write-unlock', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
     const body = parseBody(WriteUnlockAccountSchema, req);
-    const target = await findUserById(req.params.id);
+    const target = await findUserById(param(req, 'id'));
     if (!target) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
     if (target.role === 'admin') {
       throw new AppError(
@@ -136,11 +148,11 @@ router.put('/users/:id/write-unlock', async (req, res, next) => {
         400,
       );
     }
-    const user = await setWriteUnlockDisabled(req.params.id, body.disabled);
+    const user = await setWriteUnlockDisabled(param(req, 'id'), body.disabled);
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
     if (body.disabled) {
-      // Drop any grant the account is holding right now, on every profile: the
-      // lock has to bite immediately, not when the 15-minute window runs out.
+      // setWriteUnlockDisabled updates the policy; revoke immediately so no
+      // live grant survives until its 15-minute expiry.
       revokeWriteGrantsForUser(user.id);
     }
     await logActivity({
@@ -189,13 +201,12 @@ router.put('/settings/write-unlock', async (req, res, next) => {
 router.delete('/users/:id', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
-    if (req.params.id === admin.id) {
+    if (param(req, 'id') === admin.id) {
       throw new AppError('LAST_ADMIN', 'You cannot delete your own account.', 400);
     }
-    const user = await findUserById(req.params.id);
+    const user = await findUserById(param(req, 'id'));
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
-    await deleteUser(req.params.id);
-    await deleteSessionsForUser(req.params.id);
+    await deleteUser(param(req, 'id'));
     await logActivity({
       userId: admin.id,
       username: admin.username,
@@ -217,7 +228,7 @@ router.post('/users/:id/assignments', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
     const body = parseBody(AssignmentSchema, req);
-    const user = await findUserById(req.params.id);
+    const user = await findUserById(param(req, 'id'));
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
     const profile = await getStoredProfile(body.profileId);
     if (!profile) throw new AppError('PROFILE_NOT_FOUND', 'That connection does not exist.', 404);
@@ -266,14 +277,17 @@ router.post('/users/:id/assignments', async (req, res, next) => {
 router.post('/users/:id/assignments/:assignmentId/reset', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
-    const user = await findUserById(req.params.id);
+    const user = await findUserById(param(req, 'id'));
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
-    const assignment = user.assignments.find((a) => a.id === req.params.assignmentId);
+    const assignment = user.assignments.find((a) => a.id === param(req, 'assignmentId'));
     if (!assignment) throw new AppError('ASSIGNMENT_NOT_FOUND', 'No such sandbox.', 404);
+    // The sandbox name reaches a DROP DATABASE statement, so it is validated
+    // as a plain identifier here, before it is handed to the provisioner.
+    const sandbox = parseSandboxIdentifier(assignment.sandbox);
     const result = await resetSandbox(
       assignment.profileId,
       assignment.source,
-      assignment.sandbox,
+      sandbox,
       assignment.includeData,
     );
     const updated = await patchAssignment(user.id, assignment.id, {
@@ -298,11 +312,14 @@ router.post('/users/:id/assignments/:assignmentId/reset', async (req, res, next)
 router.delete('/users/:id/assignments/:assignmentId', async (req, res, next) => {
   try {
     const admin = requireAdmin(req);
-    const user = await findUserById(req.params.id);
+    const user = await findUserById(param(req, 'id'));
     if (!user) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
-    const assignment = user.assignments.find((a) => a.id === req.params.assignmentId);
+    const assignment = user.assignments.find((a) => a.id === param(req, 'assignmentId'));
     if (!assignment) throw new AppError('ASSIGNMENT_NOT_FOUND', 'No such sandbox.', 404);
-    await dropSandbox(assignment.profileId, assignment.sandbox);
+    // The sandbox name reaches a DROP DATABASE statement, so it is validated
+    // as a plain identifier here, before it is handed to the provisioner.
+    const sandbox = parseSandboxIdentifier(assignment.sandbox);
+    await dropSandbox(assignment.profileId, sandbox);
     const updated = await removeAssignment(user.id, assignment.id);
     if (!updated) throw new AppError('USER_NOT_FOUND', 'That user does not exist.', 404);
     await logActivity({

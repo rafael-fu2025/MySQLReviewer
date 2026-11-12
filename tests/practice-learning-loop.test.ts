@@ -25,6 +25,7 @@ import {
   recordPracticeReviewOutcome,
   removePracticeReviewItem,
   savePracticeSet,
+  setPracticeDailyEntry,
 } from '../server/store/practice';
 import { filterPracticeHintLadder, toPublicPracticeQuestion } from '../server/db/practice';
 import { boundPracticeQuestion } from '../server/ai/practice';
@@ -50,6 +51,7 @@ import { practiceRouter } from '../server/routes/practice';
 /* ------------------------------------------------------------------ */
 
 const DAY_MS = 86_400_000;
+const PRACTICE_USER_ID = 'u1';
 
 function dayKey(base: Date, offsetDays: number): string {
   return localDateKey(new Date(base.getFullYear(), base.getMonth(), base.getDate() - offsetDays));
@@ -78,6 +80,7 @@ function question(overrides: Partial<PracticeQuestion> = {}): PracticeQuestion {
 function practiceSet(id: string, profileId: string, questions: PracticeQuestion[]): PracticeSet {
   return {
     id,
+    userId: PRACTICE_USER_ID,
     profileId,
     createdAt: '2026-01-01T00:00:00.000Z',
     database: 'shop',
@@ -99,6 +102,7 @@ function attempt(
 ): PracticeAttempt {
   return {
     id,
+    userId: PRACTICE_USER_ID,
     profileId,
     setId,
     questionId,
@@ -151,8 +155,9 @@ function readStoreFile(): {
   return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'practice.json'), 'utf8'));
 }
 
-function reviewItems(profileId: string): Array<Record<string, unknown>> {
-  return (readStoreFile().reviews?.[profileId] as Array<Record<string, unknown>>) ?? [];
+function reviewItems(profileId: string, userId = PRACTICE_USER_ID): Array<Record<string, unknown>> {
+  const key = `${encodeURIComponent(userId)}:${encodeURIComponent(profileId)}`;
+  return (readStoreFile().reviews?.[key] as Array<Record<string, unknown>>) ?? [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,7 +253,7 @@ describe('practice xp weights', () => {
       ),
     );
 
-    const progress = await getPracticeProgress(profile);
+    const progress = await getPracticeProgress(profile, PRACTICE_USER_ID);
     // today + yesterday are consecutive; three days ago is behind a gap.
     expect(progress.currentStreak).toBe(2);
     expect(progress.longestStreak).toBe(2);
@@ -272,6 +277,7 @@ describe('practice review scheduling', () => {
     const start = new Date();
     // An incorrect answer lands in box 0, due the next day.
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId,
@@ -289,6 +295,7 @@ describe('practice review scheduling', () => {
     for (let box = 1; box <= 4; box += 1) {
       at += PRACTICE_REVIEW_INTERVAL_DAYS[box - 1] * DAY_MS;
       await recordPracticeReviewOutcome({
+        userId: PRACTICE_USER_ID,
         profileId: profile,
         setId,
         questionId,
@@ -311,6 +318,7 @@ describe('practice review scheduling', () => {
     // A correct answer at box 4 graduates: the item leaves the queue.
     at += PRACTICE_REVIEW_INTERVAL_DAYS[3] * DAY_MS;
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId,
@@ -329,6 +337,7 @@ describe('practice review scheduling', () => {
     await savePracticeSet(practiceSet(setId, profile, [question({ id: questionId })]));
     const start = new Date();
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId,
@@ -338,6 +347,7 @@ describe('practice review scheduling', () => {
       attemptedAt: iso(new Date(start.getTime() - 10 * DAY_MS)),
     });
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId,
@@ -355,6 +365,7 @@ describe('practice review scheduling', () => {
     const setId = 'set-srs-notexec';
     await savePracticeSet(practiceSet(setId, profile, [question({ id: 'q-ne' })]));
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-ne',
@@ -380,6 +391,7 @@ describe('practice review scheduling', () => {
     const now = new Date();
     // Attempted two days ago with a close verdict: due since yesterday.
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-due',
@@ -390,6 +402,7 @@ describe('practice review scheduling', () => {
     });
     // Attempted just now with a correct verdict: not due for three days.
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-future',
@@ -399,7 +412,7 @@ describe('practice review scheduling', () => {
       attemptedAt: iso(now),
     });
 
-    const due = await listDuePracticeReviewItems(profile);
+    const due = await listDuePracticeReviewItems(PRACTICE_USER_ID, profile);
     expect(due).toHaveLength(1);
     expect(due[0].item.questionId).toBe('q-due');
     expect(due[0].item.box).toBe(0);
@@ -408,9 +421,52 @@ describe('practice review scheduling', () => {
     expect(due[0].scenario).toBe('Find the due rows.');
 
     // Dismiss removes the item; a second dismiss reports that nothing was left.
-    expect(await removePracticeReviewItem(profile, setId, 'q-due')).toBe(true);
-    expect(await listDuePracticeReviewItems(profile)).toHaveLength(0);
-    expect(await removePracticeReviewItem(profile, setId, 'q-due')).toBe(false);
+    expect(await removePracticeReviewItem(PRACTICE_USER_ID, profile, setId, 'q-due')).toBe(true);
+    expect(await listDuePracticeReviewItems(PRACTICE_USER_ID, profile)).toHaveLength(0);
+    expect(await removePracticeReviewItem(PRACTICE_USER_ID, profile, setId, 'q-due')).toBe(false);
+  });
+
+  it('dismisses only the caller account review item', async () => {
+    const profile = 'profile-review-account-dismiss';
+    const setIdA = 'set-review-account-a';
+    const setIdB = 'set-review-account-b';
+    const userB = 'u2';
+    await Promise.all([
+      savePracticeSet(practiceSet(setIdA, profile, [question({ id: 'q-shared' })])),
+      savePracticeSet({
+        ...practiceSet(setIdB, profile, [question({ id: 'q-shared' })]),
+        userId: userB,
+      }),
+    ]);
+    const attemptedAt = iso(new Date(Date.now() - 2 * DAY_MS));
+    await Promise.all([
+      recordPracticeReviewOutcome({
+        userId: PRACTICE_USER_ID,
+        profileId: profile,
+        setId: setIdA,
+        questionId: 'q-shared',
+        verdict: 'close',
+        topics: ['joins'],
+        difficulty: 'medium',
+        attemptedAt,
+      }),
+      recordPracticeReviewOutcome({
+        userId: userB,
+        profileId: profile,
+        setId: setIdB,
+        questionId: 'q-shared',
+        verdict: 'close',
+        topics: ['joins'],
+        difficulty: 'medium',
+        attemptedAt,
+      }),
+    ]);
+
+    expect(await removePracticeReviewItem(PRACTICE_USER_ID, profile, setIdA, 'q-shared')).toBe(
+      true,
+    );
+    expect(await listDuePracticeReviewItems(PRACTICE_USER_ID, profile)).toHaveLength(0);
+    expect(await listDuePracticeReviewItems(userB, profile)).toHaveLength(1);
   });
 
   it('caps the queue per profile and evicts the least recently reviewed', async () => {
@@ -422,6 +478,7 @@ describe('practice review scheduling', () => {
     await Promise.all(
       Array.from({ length: 502 }, (_, index) =>
         recordPracticeReviewOutcome({
+          userId: PRACTICE_USER_ID,
           profileId: profile,
           setId,
           questionId: `q-${index}`,
@@ -439,6 +496,48 @@ describe('practice review scheduling', () => {
     expect(ids.has('q-1')).toBe(false);
     expect(ids.has('q-2')).toBe(true);
     expect(ids.has('q-501')).toBe(true);
+  }, 120_000);
+
+  it('review retention for A cannot evict B', async () => {
+    const profile = 'profile-review-retention-accounts';
+    const userB = 'u-review-b';
+    const setA = 'set-review-retention-a';
+    const setB = 'set-review-retention-b';
+    await Promise.all([
+      savePracticeSet(practiceSet(setA, profile, [question({ id: 'q-a' })])),
+      savePracticeSet({
+        ...practiceSet(setB, profile, [question({ id: 'q-b' })]),
+        userId: userB,
+      }),
+    ]);
+    const base = Date.now() - 600 * 60_000;
+    await recordPracticeReviewOutcome({
+      userId: userB,
+      profileId: profile,
+      setId: setB,
+      questionId: 'q-b',
+      verdict: 'incorrect',
+      topics: ['select'],
+      difficulty: 'easy',
+      attemptedAt: iso(new Date(base - 60_000)),
+    });
+    await Promise.all(
+      Array.from({ length: 502 }, (_, index) =>
+        recordPracticeReviewOutcome({
+          userId: PRACTICE_USER_ID,
+          profileId: profile,
+          setId: setA,
+          questionId: `q-a-${index}`,
+          verdict: 'incorrect',
+          topics: ['select'],
+          difficulty: 'easy',
+          attemptedAt: iso(new Date(base + index * 60_000)),
+        }),
+      ),
+    );
+
+    expect(reviewItems(profile, PRACTICE_USER_ID)).toHaveLength(500);
+    expect(reviewItems(profile, userB).map((item) => item.questionId)).toEqual(['q-b']);
   }, 120_000);
 });
 
@@ -627,6 +726,7 @@ describe('GET /api/practice/review and DELETE /api/practice/review/:setId/:quest
       ]),
     );
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-http',
@@ -665,6 +765,7 @@ describe('GET /api/practice/review and DELETE /api/practice/review/:setId/:quest
     const setId = 'set-review-dismiss';
     await savePracticeSet(practiceSet(setId, profile, [question({ id: 'q-dismiss' })]));
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-dismiss',
@@ -737,7 +838,7 @@ describe('GET /api/practice/daily', () => {
     expect(JSON.stringify(body)).not.toContain('secret FROM answers');
 
     // The fallback pick is persisted as the day's challenge.
-    const entry = await getPracticeDailyEntry(profile);
+    const entry = await getPracticeDailyEntry(PRACTICE_USER_ID, profile);
     expect(entry).toEqual({ date: localDateKey(new Date()), setId });
   });
 
@@ -771,6 +872,35 @@ describe('GET /api/practice/daily', () => {
     const second = await getJson<DailyResponse>(server, `/api/practice/daily?profileId=${profile}`);
     expect(second.body.data.set?.id).toBe('set-daily-stable');
     expect(h.resolveProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps daily pointers stable and isolated for concurrent accounts', async () => {
+    const profile = 'profile-daily-accounts';
+    const userB = 'u2';
+    const setA = 'set-daily-account-a';
+    const setB = 'set-daily-account-b';
+    await Promise.all([
+      savePracticeSet(practiceSet(setA, profile, [question({ id: 'q-daily-a' })])),
+      savePracticeSet({
+        ...practiceSet(setB, profile, [question({ id: 'q-daily-b' })]),
+        userId: userB,
+      }),
+    ]);
+    const date = localDateKey(new Date());
+    await Promise.all([
+      setPracticeDailyEntry(PRACTICE_USER_ID, profile, { date, setId: setA }),
+      setPracticeDailyEntry(userB, profile, { date, setId: setB }),
+    ]);
+
+    const [entryA, entryB] = await Promise.all([
+      getPracticeDailyEntry(PRACTICE_USER_ID, profile),
+      getPracticeDailyEntry(userB, profile),
+    ]);
+    expect(entryA).toEqual({ date, setId: setA });
+    expect(entryB).toEqual({ date, setId: setB });
+
+    await setPracticeDailyEntry(PRACTICE_USER_ID, profile, { date, setId: setA });
+    expect(await getPracticeDailyEntry(userB, profile)).toEqual({ date, setId: setB });
   });
 
   it('generates a one-question medium challenge on the weakest topics', async () => {
@@ -807,8 +937,8 @@ describe('GET /api/practice/daily', () => {
       ]),
       summary: 'Daily challenge',
     };
-    // The real generation persists the set; the mock mirrors that so the route
-    // can stamp and serve it.
+    // The real generation persists the set with the authenticated owner; the
+    // mock mirrors that contract so the route can serve it immediately.
     h.generatePracticeSet.mockImplementation(async () => {
       await savePracticeSet(generated);
       return { set: generated, raw: '' };
@@ -829,14 +959,16 @@ describe('GET /api/practice/daily', () => {
     expect(request.count).toBe(1);
     expect(request.difficulty).toBe('medium');
     expect(request.database).toBe('shop');
-    expect(request.topics).toEqual((await getPracticeProgress(profile)).recommendedTopics);
+    expect(request.topics).toEqual(
+      (await getPracticeProgress(profile, PRACTICE_USER_ID)).recommendedTopics,
+    );
 
     // The generated set was persisted, owned and recorded as today's challenge.
     expect(body.data.set?.questions[0]).not.toHaveProperty('referenceSql');
-    const entry = await getPracticeDailyEntry(profile);
+    const entry = await getPracticeDailyEntry(PRACTICE_USER_ID, profile);
     expect(entry).toEqual({ date: localDateKey(new Date()), setId: 'set-daily-gen' });
     const sets = await import('../server/store/practice');
-    const owned = (await sets.listPracticeSets(profile, 10)).find(
+    const owned = (await sets.listPracticeSets(profile, 10, PRACTICE_USER_ID)).find(
       (item) => item.id === 'set-daily-gen',
     );
     expect(owned?.userId).toBe(user.id);
@@ -853,6 +985,7 @@ describe('review items referencing evicted sets', () => {
     const setId = 'set-evict';
     await savePracticeSet(practiceSet(setId, profile, [question({ id: 'q-evict' })]));
     await recordPracticeReviewOutcome({
+      userId: PRACTICE_USER_ID,
       profileId: profile,
       setId,
       questionId: 'q-evict',
@@ -861,7 +994,7 @@ describe('review items referencing evicted sets', () => {
       difficulty: 'medium',
       attemptedAt: iso(new Date(Date.now() - 2 * DAY_MS)),
     });
-    expect(await listDuePracticeReviewItems(profile)).toHaveLength(1);
+    expect(await listDuePracticeReviewItems(PRACTICE_USER_ID, profile)).toHaveLength(1);
 
     // 40 newer sets push `set-evict` (and every older set) out of the 40-set cap.
     for (let index = 0; index < 40; index += 1) {
@@ -871,7 +1004,7 @@ describe('review items referencing evicted sets', () => {
     }
 
     // The listing skips the evicted reference and prunes the stale item.
-    expect(await listDuePracticeReviewItems(profile)).toHaveLength(0);
+    expect(await listDuePracticeReviewItems(PRACTICE_USER_ID, profile)).toHaveLength(0);
     expect(reviewItems(profile)).toHaveLength(0);
   });
 });

@@ -390,7 +390,7 @@ describe('per-question timer', () => {
     // Seeded from the set's attempt history…
     expect(source).toContain('counts[attempt.questionId] = (counts[attempt.questionId] ?? 0) + 1');
     // …bumped after a newly graded submission (a duplicate never counts)…
-    expect(source).toMatch(/\[question\.id\]: \(previous\[question\.id\] \?\? 0\) \+ 1/);
+    expect(source).toMatch(/\[questionId\]: \(previous\[questionId\] \?\? 0\) \+ 1/);
     // …and cleared when another set is activated.
     expect(source).toContain('setAttemptCounts({})');
   });
@@ -522,6 +522,22 @@ describe('D2 design pass wiring', () => {
 
   it('fills the flagged badge like the navigator flag', () => {
     expect(source).toMatch(/<Flag size=\{9\} fill="currentColor"/);
+  });
+
+  it('keys all practice state by account and profile without render-time ref mutation', () => {
+    expect(source).toContain('const identityKey = `${currentUserId ??');
+    expect(source).toContain('<PracticePageSession');
+    expect(source).toContain('key={identityKey}');
+    expect(source).toContain('generationAbort.current?.abort()');
+    expect(source).not.toContain('practiceIdentity.current');
+    expect(source).not.toContain('loadedIdentity');
+  });
+
+  it('scopes the schema-panel preference by account and deletes the legacy key', () => {
+    expect(source).toContain('schemaPanelKey(currentUserId)');
+    expect(source).toContain('sessionStorage.removeItem(SCHEMA_PANEL_PREFIX)');
+    expect(source).toContain('`${SCHEMA_PANEL_PREFIX}.${userId}`');
+    expect(source).not.toContain('SCHEMA_PANEL_KEY');
   });
 
   it('loads the hub through one Promise.all pass that settles the loading flag', () => {

@@ -17,6 +17,7 @@ function New-Session {
 function Login($ctx, $user, $pw) {
   $r = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $ctx.Session -Headers $ctx.Headers `
     -ContentType 'application/json' -Body (@{ username = $user; password = $pw } | ConvertTo-Json)
+  $ctx.Headers['x-mylens-expected-user-id'] = [string]$r.data.user.id
   return @{ Ctx = $ctx; User = $r.data.user }
 }
 function Try-Post($ctx, $url, $body) {

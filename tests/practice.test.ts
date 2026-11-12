@@ -340,6 +340,7 @@ function question(overrides: Partial<PracticeQuestion> = {}): PracticeQuestion {
 function practiceSet(questions: PracticeQuestion[] = [question()]): PracticeSet {
   return {
     id: 'set-1',
+    userId: 'practice-test-user',
     profileId: 'profile-a',
     createdAt: '2026-01-01T00:00:00.000Z',
     database: 'shop',
@@ -353,6 +354,7 @@ function practiceSet(questions: PracticeQuestion[] = [question()]): PracticeSet 
 function attempt(overrides: Partial<PracticeAttempt> = {}): PracticeAttempt {
   return {
     id: 'attempt-1',
+    userId: 'practice-test-user',
     profileId: 'profile-a',
     setId: 'set-1',
     questionId: 'q1',

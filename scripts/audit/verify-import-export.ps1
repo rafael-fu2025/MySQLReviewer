@@ -10,6 +10,7 @@ $boot = Invoke-RestMethod -Uri "$base/api/bootstrap" -WebSession $session -Heade
 $auth = @{ 'x-mylens-token' = $boot.data.token; Origin = $base }
 $login = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $session -Headers $auth `
   -ContentType 'application/json' -Body (@{ username='rafael'; password='review123' } | ConvertTo-Json)
+$auth['x-mylens-expected-user-id'] = [string]$login.data.user.id
 $conns = Invoke-RestMethod -Uri "$base/api/connections/" -WebSession $session -Headers $auth
 $profileId = @($conns.data)[0].id
 Invoke-RestMethod -Uri "$base/api/connections/$profileId/unlock" -Method Post -WebSession $session -Headers $auth `
@@ -104,6 +105,7 @@ $mBoot = Invoke-RestMethod -Uri "$base/api/bootstrap" -WebSession $memSession -H
 $mAuth = @{ 'x-mylens-token' = $mBoot.data.token; Origin = $base }
 $mLogin = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $memSession -Headers $mAuth `
   -ContentType 'application/json' -Body (@{ username='sherina'; password='member123' } | ConvertTo-Json)
+$mAuth['x-mylens-expected-user-id'] = [string]$mLogin.data.user.id
 $mProfile = $mLogin.data.user.assignments[0].profileId
 try {
   Invoke-RestMethod -Uri "$base/api/db/$mProfile/databases/checkit_db/export" -Method Post -WebSession $memSession -Headers $mAuth `

@@ -189,10 +189,11 @@ describe('format options', () => {
     });
   });
 
-  it('keeps the options in the persisted ui store and out of resetLayout', () => {
-    // Source check: the fields ride on the `mylens.ui.v1` persisted store.
+  it('keeps the options in the explicitly hydrated per-user ui store and out of resetLayout', () => {
     const source = readFileSync(new URL('../src/store/ui-store.ts', import.meta.url), 'utf8');
-    expect(source).toContain("name: 'mylens.ui.v1'");
+    expect(source).toContain("export const LEGACY_UI_STORAGE_KEY = 'mylens.ui.v1'");
+    expect(source).toContain("const USER_UI_STORAGE_PREFIX = 'mylens.ui.v2.'");
+    expect(source).toContain('hydrateForUser: (userId) =>');
     expect(source).toContain('formatKeywordCase');
     expect(source).toContain('setFormatOptions');
 

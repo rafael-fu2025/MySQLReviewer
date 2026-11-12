@@ -106,6 +106,18 @@ function argNumber(args: Record<string, unknown>, key: string, fallback: number)
  * for a missing site key.
  */
 export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
+  // Every server-wide telemetry tool is removed from both the definitions and
+  // handlers when the effective profile scope does not allow it. In
+  // particular, members never get these tools because the route sets
+  // `serverWide` false for every member.
+  const serverWide = ctx.serverWide && ctx.userRole === 'admin';
+  const serverWideToolNames = new Set([
+    'server_status',
+    'process_list',
+    'perf_snapshot',
+    'slow_queries',
+    'security_audit',
+  ]);
   const readOnlyGuard = (sql: string): string | null => {
     if (!sql.trim()) return 'The `sql` argument is empty.';
     const classified = classifySql(sql);
@@ -476,8 +488,9 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
     return json(snapshot);
   });
 
-  // Members see only their own history and snippets; admins see the profile's.
-  const ownerId = ctx.userRole === 'member' ? ctx.userId : undefined;
+  // History and snippets are personal artifacts for every role. Administrator
+  // privileges do not turn an assistant turn into a cross-account search.
+  const ownerId = ctx.userId;
 
   handlers.set('sample_table', async (args) => {
     const table = argString(args, 'table').trim();
@@ -551,6 +564,7 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
   handlers.set('search_history', async (args) => {
     const query = argString(args, 'query').trim().toLowerCase();
     if (!query) return toolError('The `query` argument is required.');
+    if (!ownerId) return toolError('History needs a signed-in user.');
     const entries = await listHistory(ctx.profileId, 500, ownerId);
     const matches = entries
       .filter(
@@ -575,6 +589,7 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
   handlers.set('find_snippet', async (args) => {
     const query = argString(args, 'query').trim().toLowerCase();
     if (!query) return toolError('The `query` argument is required.');
+    if (!ownerId) return toolError('Snippets need a signed-in user.');
     const snippets = await listSnippets(ownerId);
     const matches = snippets
       .filter(
@@ -607,7 +622,7 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
   });
 
   handlers.set('slow_queries', async () => {
-    if (!ctx.serverWide) {
+    if (!serverWide) {
       return toolError(
         'Server-wide insights are disabled for this connection, so the slow log and Performance Schema are off limits.',
       );
@@ -623,7 +638,7 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
   });
 
   handlers.set('security_audit', async () => {
-    if (!ctx.serverWide) {
+    if (!serverWide) {
       return toolError(
         'Server-wide insights are disabled for this connection, so account and privilege data is off limits.',
       );
@@ -645,6 +660,12 @@ export function buildWorkspaceTools(ctx: AgentToolContext): AgentToolSet {
     return json({ delivered: true, note: 'The proposal card is shown to the user.' });
   });
 
+  if (!serverWide) {
+    return {
+      definitions: definitions.filter((tool) => !serverWideToolNames.has(tool.name)),
+      handlers: new Map([...handlers.entries()].filter(([name]) => !serverWideToolNames.has(name))),
+    };
+  }
   return { definitions, handlers };
 }
 

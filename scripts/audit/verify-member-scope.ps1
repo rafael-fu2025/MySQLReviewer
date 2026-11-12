@@ -47,6 +47,7 @@ $auth = @{ 'x-mylens-token' = $token; Origin = $base }
 try {
   $login = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $session -Headers $auth `
     -ContentType 'application/json' -Body (@{ username = $memberUser; password = $memberPass } | ConvertTo-Json)
+  $auth['x-mylens-expected-user-id'] = [string]$login.data.user.id
 } catch {
   $detail = ''
   try { $detail = ($_.ErrorDetails.Message | ConvertFrom-Json).error.code } catch { $detail = $_.Exception.Message }

@@ -17,7 +17,7 @@ snippetsRouter.get(
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
     res.json({
-      data: await listSnippets(user.role === 'member' ? user.id : undefined),
+      data: await listSnippets(user.id),
     });
   }),
 );
@@ -37,11 +37,7 @@ snippetsRouter.put(
     const user = currentUser(req);
     const body = parseBody(SnippetSchema, req);
     res.json({
-      data: await updateSnippet(
-        param(req, 'id'),
-        body,
-        user.role === 'member' ? user.id : undefined,
-      ),
+      data: await updateSnippet(param(req, 'id'), body, user.id),
     });
   }),
 );
@@ -50,7 +46,7 @@ snippetsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
     const user = currentUser(req);
-    await deleteSnippet(param(req, 'id'), user.role === 'member' ? user.id : undefined);
+    await deleteSnippet(param(req, 'id'), user.id);
     res.json({ data: { deleted: true } });
   }),
 );

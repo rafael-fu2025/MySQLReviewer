@@ -206,8 +206,9 @@ vi.mock('../server/store/practice', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/store/practice')>();
   return {
     ...actual,
-    getPracticeSet: (async () => ({
+    getOwnedPracticeSet: (async () => ({
       id: 'set-1',
+      userId: 'u1',
       profileId: 'p1',
       createdAt: '2026-01-01T00:00:00.000Z',
       database: 'shop',
@@ -232,7 +233,7 @@ vi.mock('../server/store/practice', async (importOriginal) => {
           execute: false,
         },
       ],
-    })) as unknown as typeof actual.getPracticeSet,
+    })) as unknown as typeof actual.getOwnedPracticeSet,
     listPracticeAttemptsForSet:
       (async () => []) as unknown as typeof actual.listPracticeAttemptsForSet,
     addPracticeAttempt: (async (attempt: unknown) => {
@@ -616,6 +617,7 @@ describe('F-13 — the repair round trip is observable and does not resend the c
     h.providerAnswers.push('not json', 'still not json');
 
     const evaluation = await evaluatePractice({
+      userId: 'u1',
       profileId: 'p1',
       setId: 'set-1',
       questionId: 'q1',

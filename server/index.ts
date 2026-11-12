@@ -20,7 +20,12 @@ import { isBootstrapRequestAllowed } from './bootstrap-origin';
 import { shutdownPools } from './db/manager';
 import { shutdownMcp } from './ai/agent-mcp';
 import { startScheduler, stopScheduler } from './scheduler';
-import { resolveSessionUser } from './auth';
+import {
+  bindRuntimeUser,
+  privateAuthenticatedResponse,
+  rejectUnexpectedUser,
+  resolveSessionUser,
+} from './auth';
 import {
   closeDocumentBackend,
   describeStorage,
@@ -189,8 +194,10 @@ app.use((req, res, next) => {
 });
 
 // Resolves the signed-in user (if any) for every /api request, including
-// bootstrap and auth themselves. Never rejects on its own.
-app.use('/api', resolveSessionUser);
+// bootstrap and auth themselves. Never rejects on its own. Authenticated JSON
+// is private/no-store even on bootstrap/auth, while the expected-owner check is
+// deliberately installed only after those recovery routes.
+app.use('/api', resolveSessionUser, privateAuthenticatedResponse, bindRuntimeUser);
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -278,7 +285,7 @@ app.get('/api/bootstrap', async (req, res, next) => {
       settings,
       apiToken: API_TOKEN,
     });
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', user ? 'private, no-store' : 'no-store');
     res.json({ data: payload });
   } catch (error) {
     next(error);
@@ -330,6 +337,11 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+
+// Every authenticated app request must assert the account that owns its state.
+// Bootstrap and the exempt auth discovery/credential routes are mounted above;
+// authenticated logout enforces the same middleware inside authRouter.
+app.use('/api', rejectUnexpectedUser);
 
 app.use('/api/admin', adminRouter);
 app.use('/api/connections', connectionsRouter);

@@ -14,6 +14,7 @@ import { explorerRouter } from '../server/routes/explorer';
  * Not a real credential; never submitted to any authentication endpoint.
  */
 const SQL_LITERAL_SENTINEL = ['p@ssw', '0rd', '-REAL'].join('');
+const HISTORY_OWNER_ID = 'masking-policy-owner';
 
 /**
  * Shared fixtures for the database-layer policy tests. Every database call is
@@ -23,7 +24,7 @@ const h = vi.hoisted(() => ({
   unlocked: false,
   conn: null as { threadId: number; query: unknown } | null,
   calls: [] as { sql: string; values?: unknown[]; timeout?: number }[],
-  history: [] as { sql: string }[],
+  history: [] as { sql: string; userId: string }[],
   guardCalls: [] as {
     rowLimit: number;
     queryTimeoutMs: number;
@@ -126,8 +127,8 @@ vi.mock('../server/store/history', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/store/history')>();
   return {
     ...actual,
-    addHistory: (async (input: { sql: string }) => {
-      h.history.push({ sql: input.sql });
+    addHistory: (async (input: { sql: string; userId: string }) => {
+      h.history.push({ sql: input.sql, userId: input.userId });
       return { ...input, id: 'entry-1' } as never;
     }) as unknown as typeof actual.addHistory,
   };
@@ -455,9 +456,12 @@ describe('D-18 — the history file keeps no secret literals', () => {
     });
 
     const { executeQuery } = await import('../server/db/query');
-    await executeQuery('p1', `SELECT id FROM users WHERE password = '${SQL_LITERAL_SENTINEL}'`);
+    await executeQuery('p1', `SELECT id FROM users WHERE password = '${SQL_LITERAL_SENTINEL}'`, {
+      userId: HISTORY_OWNER_ID,
+    });
 
     expect(h.history).toHaveLength(1);
+    expect(h.history[0].userId).toBe(HISTORY_OWNER_ID);
     expect(h.history[0].sql).not.toContain(SQL_LITERAL_SENTINEL);
     expect(h.history[0].sql).toContain('= ?');
   });

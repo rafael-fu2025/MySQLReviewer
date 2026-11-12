@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import crypto from 'node:crypto';
 import type { McpServerConfig } from '../../shared/types';
 import { AppError } from '../errors';
 import type { ChatToolDefinition } from './http';
@@ -220,15 +221,41 @@ class McpConnection {
 
 const sessions = new Map<string, McpConnection>();
 
-async function getSession(config: McpServerConfig): Promise<McpConnection> {
-  const existing = sessions.get(config.name);
+export interface McpIsolationContext {
+  /** The signed-in account whose turn owns this process/session cache. */
+  userId?: string;
+}
+
+function configFingerprint(config: McpServerConfig): string {
+  return crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        command: config.command,
+        args: config.args ?? [],
+        allowedTools: config.allowedTools ?? [],
+      }),
+    )
+    .digest('hex');
+}
+
+function sessionKey(config: McpServerConfig, context: McpIsolationContext): string {
+  return `${context.userId ?? 'system'}\0${config.name}\0${configFingerprint(config)}`;
+}
+
+async function getSession(
+  config: McpServerConfig,
+  context: McpIsolationContext = {},
+): Promise<McpConnection> {
+  const key = sessionKey(config, context);
+  const existing = sessions.get(key);
   if (existing) return existing;
   const connection = new McpConnection(config, (dead) => {
-    if (sessions.get(dead.config.name) === dead) sessions.delete(dead.config.name);
+    if (sessions.get(key) === dead) sessions.delete(key);
   });
-  // Register before the handshake so a concurrent caller shares the session
-  // instead of spawning a second child.
-  sessions.set(config.name, connection);
+  // Register before the handshake so a concurrent caller for the same owner and
+  // exact config shares the child, while another user/config cannot.
+  sessions.set(key, connection);
   try {
     await connection.start();
   } catch (error) {
@@ -239,11 +266,14 @@ async function getSession(config: McpServerConfig): Promise<McpConnection> {
 }
 
 /** Tool listings per configured server; a failed server degrades to an error entry. */
-export async function listMcpTools(servers: McpServerConfig[]): Promise<McpServerStatus[]> {
+export async function listMcpTools(
+  servers: McpServerConfig[],
+  context: McpIsolationContext = {},
+): Promise<McpServerStatus[]> {
   const statuses = await Promise.all(
     servers.map(async (config): Promise<McpServerStatus> => {
       try {
-        const connection = await getSession(config);
+        const connection = await getSession(config, context);
         return { server: config.name, ok: true, tools: connection.tools };
       } catch (cause) {
         return {
@@ -263,9 +293,13 @@ export async function callMcpTool(
   server: string,
   toolName: string,
   args: Record<string, unknown>,
+  config: McpServerConfig,
+  context: McpIsolationContext = {},
 ): Promise<string> {
-  const connection = sessions.get(server);
-  if (!connection) throw new Error(`The MCP server "${server}" is not connected.`);
+  const connection = sessions.get(sessionKey(config, context));
+  if (!connection || connection.config.name !== server) {
+    throw new Error(`The MCP server "${server}" is not connected for this account.`);
+  }
   return connection.callTool(toolName, args);
 }
 
@@ -289,17 +323,21 @@ function safeSlug(value: string): string {
  * tool, named `mcp_<server>_<tool>`. The per-server allowlist wins first,
  * admin governance (`disabledAgentTools`) is applied afterwards by the route.
  */
-export async function buildMcpTools(servers: McpServerConfig[]): Promise<{
+export async function buildMcpTools(
+  servers: McpServerConfig[],
+  context: McpIsolationContext = {},
+): Promise<{
   definitions: ChatToolDefinition[];
   handlers: Map<string, (args: Record<string, unknown>) => Promise<string>>;
 }> {
   const definitions: ChatToolDefinition[] = [];
   const handlers = new Map<string, (args: Record<string, unknown>) => Promise<string>>();
-  const statuses = await listMcpTools(servers);
+  const statuses = await listMcpTools(servers, context);
   for (const status of statuses) {
     if (!status.ok) continue;
     const config = servers.find((entry) => entry.name === status.server);
-    const allow = config?.allowedTools?.length ? new Set(config.allowedTools) : null;
+    if (!config) continue;
+    const allow = config.allowedTools?.length ? new Set(config.allowedTools) : null;
     const slug = safeSlug(status.server);
     for (const tool of status.tools) {
       if (allow && !allow.has(tool.name)) continue;
@@ -312,7 +350,9 @@ export async function buildMcpTools(servers: McpServerConfig[]): Promise<{
           `Tool ${tool.name} from the MCP server ${status.server}.`,
         parameters: tool.schema,
       });
-      handlers.set(mergedName, async (args) => callMcpTool(status.server, tool.name, args));
+      handlers.set(mergedName, async (args) =>
+        callMcpTool(status.server, tool.name, args, config, context),
+      );
     }
   }
   return { definitions, handlers };

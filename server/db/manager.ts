@@ -17,7 +17,6 @@ import {
   getProfilePassword,
   getStoredProfile,
   touchProfile,
-  setSessionPassword,
 } from '../store/profiles';
 import { getServerInfo, applyPoolSession } from './dialect';
 
@@ -240,11 +239,7 @@ export async function testConnection(
   }
 }
 
-export async function connectProfile(
-  profileId: string,
-  passwordOverride?: string,
-): Promise<ServerInfo> {
-  if (typeof passwordOverride === 'string') setSessionPassword(profileId, passwordOverride);
+export async function connectProfile(profileId: string): Promise<ServerInfo> {
   const pool = await getPool(profileId);
   const defaultDatabase = pools.get(profileId)?.defaultDatabase ?? null;
   let connection: PoolConnection | null = null;

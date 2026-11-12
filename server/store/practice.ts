@@ -15,8 +15,9 @@ import { DATA_DIR } from '../config';
 import { AppError } from '../errors';
 import { JsonStore } from './json-store';
 
-/** One spaced-repetition item of a profile's review queue (at-rest shape). */
+/** One spaced-repetition item of an account's profile review queue (at-rest shape). */
 export interface PracticeReviewItem {
+  userId: string;
   profileId: string;
   setId: string;
   questionId: string;
@@ -30,13 +31,25 @@ export interface PracticeReviewItem {
   difficulty: PracticeDifficulty;
 }
 
+/** A daily pointer carries its owner as a second guard beyond the composite map key. */
+interface OwnedPracticeDailyEntry extends PracticeDailyEntry {
+  userId: string;
+  profileId: string;
+}
+
 interface PracticeFile {
   sets: PracticeSet[];
   attempts: PracticeAttempt[];
-  /** Per-profile review queues. Absent on files written before the learning loop. */
+  /**
+   * Per-account + profile review queues. Older files used bare profile ids;
+   * those keys are deliberately never read as an account queue.
+   */
   reviews?: Record<string, PracticeReviewItem[]>;
-  /** Per-profile daily challenge pointers. Absent on files written before the learning loop. */
-  daily?: Record<string, PracticeDailyEntry>;
+  /**
+   * Per-account + profile daily pointers. Older bare-profile pointers remain
+   * inert instead of being claimed by the first account that asks for one.
+   */
+  daily?: Record<string, PracticeDailyEntry | OwnedPracticeDailyEntry>;
 }
 
 const store = new JsonStore<PracticeFile>(path.join(DATA_DIR, 'practice.json'), () => ({
@@ -46,15 +59,63 @@ const store = new JsonStore<PracticeFile>(path.join(DATA_DIR, 'practice.json'), 
   daily: {},
 }));
 
-const MAX_SETS = 40;
-const MAX_ATTEMPTS = 1_500;
-const MAX_REVIEW_ITEMS_PER_PROFILE = 500;
+const MAX_SETS_PER_USER = 40;
+const MAX_ATTEMPTS_PER_USER = 1_500;
+const MAX_REVIEW_ITEMS_PER_USER_PROFILE = 500;
+
+function accountProfileKey(userId: string, profileId: string): string {
+  return `${encodeURIComponent(userId)}:${encodeURIComponent(profileId)}`;
+}
+
+function retainForUser<T extends { userId?: string }>(
+  items: T[],
+  userId: string,
+  maxForUser: number,
+): T[] {
+  let seen = 0;
+  return items.filter((item) => item.userId !== userId || ++seen <= maxForUser);
+}
+
+/**
+ * Applies the per-account cap to a newest-first list. Exported for a fast,
+ * deterministic boundary test; production set and attempt writes use this same
+ * function inside their atomic JsonStore updates.
+ */
+export function retainPracticeItemsForUser<T extends { userId?: string }>(
+  items: T[],
+  userId: string,
+  maxForUser: number,
+): T[] {
+  return retainForUser(items, userId, maxForUser);
+}
+
+/** Test-visible storage limits; production writes enforce each limit per account. */
+export const PRACTICE_RETENTION = {
+  setsPerUser: MAX_SETS_PER_USER,
+  attemptsPerUser: MAX_ATTEMPTS_PER_USER,
+  reviewsPerUserProfile: MAX_REVIEW_ITEMS_PER_USER_PROFILE,
+} as const;
 
 export async function savePracticeSet(set: PracticeSet): Promise<PracticeSet> {
-  await store.update((current) => ({
-    ...current,
-    sets: [set, ...current.sets.filter((item) => item.id !== set.id)].slice(0, MAX_SETS),
-  }));
+  if (!set.userId) {
+    throw new AppError('AUTH_REQUIRED', 'Sign in to save a practice set.', 401);
+  }
+  const ownerId = set.userId;
+  await store.update((current) => {
+    const existing = current.sets.find((item) => item.id === set.id);
+    if (existing && existing.userId !== ownerId) {
+      throw new AppError(
+        'PRACTICE_SET_FORBIDDEN',
+        'This practice set belongs to another account.',
+        403,
+      );
+    }
+    const next = [set, ...current.sets.filter((item) => item.id !== set.id)];
+    return {
+      ...current,
+      sets: retainPracticeItemsForUser(next, ownerId, MAX_SETS_PER_USER),
+    };
+  });
   return set;
 }
 
@@ -67,99 +128,119 @@ export async function getPracticeSet(id: string): Promise<PracticeSet> {
   return set;
 }
 
-export async function listPracticeSets(
-  profileId?: string,
-  limit = 20,
-  userId?: string,
-): Promise<PracticeSet[]> {
-  const file = await store.read();
-  let sets = profileId ? file.sets.filter((set) => set.profileId === profileId) : file.sets;
-  // Members see only the sets they generated; pre-admin sets are admin-only.
-  if (userId) {
-    sets = sets.filter((set) => set.userId === userId);
+export async function getOwnedPracticeSet(id: string, userId: string): Promise<PracticeSet> {
+  const set = await getPracticeSet(id);
+  // Legacy unattributed sets fail closed here; direct internal reads can still
+  // inspect them, but no account can claim or evaluate them.
+  if (!set.userId || set.userId !== userId) {
+    throw new AppError(
+      'PRACTICE_SET_FORBIDDEN',
+      'This practice set belongs to another account.',
+      403,
+    );
   }
-  return sets.slice(0, Math.max(1, Math.min(50, limit)));
+  return set;
 }
 
-/** Records who generated a set; called right after the set is persisted. */
-export async function stampPracticeSetOwner(setId: string, userId: string): Promise<void> {
-  await store.update((current) => ({
-    ...current,
-    sets: current.sets.map((set) => (set.id === setId ? { ...set, userId } : set)),
-  }));
+export async function listPracticeSets(
+  profileId: string,
+  limit = 20,
+  userId: string,
+): Promise<PracticeSet[]> {
+  const file = await store.read();
+  return file.sets
+    .filter((set) => set.profileId === profileId && set.userId === userId)
+    .slice(0, Math.max(1, Math.min(50, limit)));
 }
 
 export async function addPracticeAttempt(attempt: PracticeAttempt): Promise<PracticeAttempt> {
-  await store.update((current) => ({
-    ...current,
-    attempts: [attempt, ...current.attempts].slice(0, MAX_ATTEMPTS),
-  }));
+  if (!attempt.userId) {
+    throw new AppError('AUTH_REQUIRED', 'Sign in to save a practice attempt.', 401);
+  }
+  const ownerId = attempt.userId;
+  await store.update((current) => {
+    const existing = current.attempts.find((item) => item.id === attempt.id);
+    if (existing && existing.userId !== ownerId) {
+      throw new AppError(
+        'PRACTICE_ATTEMPT_FORBIDDEN',
+        'This practice attempt belongs to another account.',
+        403,
+      );
+    }
+    const next = [attempt, ...current.attempts.filter((item) => item.id !== attempt.id)];
+    return {
+      ...current,
+      attempts: retainPracticeItemsForUser(next, ownerId, MAX_ATTEMPTS_PER_USER),
+    };
+  });
   return attempt;
 }
 
 export async function listPracticeAttempts(
-  profileId?: string,
+  profileId: string,
   limit = 30,
-  userId?: string,
+  userId: string,
 ): Promise<PracticeAttempt[]> {
   const file = await store.read();
-  let attempts = profileId
-    ? file.attempts.filter((attempt) => attempt.profileId === profileId)
-    : file.attempts;
-  if (userId) {
-    attempts = attempts.filter((attempt) => attempt.userId === userId);
-  }
-  return attempts.slice(0, Math.max(1, Math.min(100, limit)));
+  return file.attempts
+    .filter((attempt) => attempt.profileId === profileId && attempt.userId === userId)
+    .slice(0, Math.max(1, Math.min(100, limit)));
 }
 
 /**
- * Every recorded attempt for one set, independent of the listing window used by
- * `listPracticeAttempts`. Used for duplicate detection and for deciding whether a
- * question's answer material may be released.
+ * Every recorded attempt for one account and set, independent of the listing
+ * window. Used for duplicate detection and answer-release decisions.
  */
 export async function listPracticeAttemptsForSet(
   profileId: string,
   setId: string,
-  userId?: string,
+  userId: string,
 ): Promise<PracticeAttempt[]> {
   const file = await store.read();
-  let filtered = file.attempts.filter(
-    (attempt) => attempt.profileId === profileId && attempt.setId === setId,
+  return file.attempts.filter(
+    (attempt) =>
+      attempt.profileId === profileId && attempt.setId === setId && attempt.userId === userId,
   );
-  if (userId) {
-    filtered = filtered.filter((attempt) => attempt.userId === userId);
-  }
-  return filtered;
 }
 
-/** Records who submitted an attempt; called right after it is persisted. */
-export async function stampPracticeAttemptOwner(
-  profileId: string,
-  setId: string,
-  questionId: string,
-  userId: string,
-): Promise<void> {
+export async function clearPracticeAttempts(profileId: string, userId: string): Promise<void> {
   await store.update((current) => ({
     ...current,
-    attempts: current.attempts.map((attempt) =>
-      attempt.profileId === profileId &&
-      attempt.setId === setId &&
-      attempt.questionId === questionId
-        ? { ...attempt, userId }
-        : attempt,
+    attempts: current.attempts.filter(
+      (attempt) => !(attempt.profileId === profileId && attempt.userId === userId),
     ),
   }));
 }
 
-export async function clearPracticeAttempts(profileId?: string, userId?: string): Promise<void> {
-  await store.update((current) => ({
-    ...current,
-    attempts: current.attempts.filter((attempt) => {
-      const matchesProfile = profileId ? attempt.profileId === profileId : true;
-      const matchesUser = userId ? attempt.userId === userId : true;
-      return !(matchesProfile && matchesUser);
-    }),
-  }));
+/**
+ * Atomically removes every account-owned practice artifact. Legacy ownerless
+ * data is left quarantined, and entries owned by every other account survive.
+ */
+export async function deletePracticeDataForUser(userId: string): Promise<void> {
+  if (!userId) {
+    throw new AppError('AUTH_REQUIRED', 'Practice data cleanup requires an account.', 401);
+  }
+  await store.update((current) => {
+    const reviews = Object.fromEntries(
+      Object.entries(current.reviews ?? {}).map(([key, items]) => [
+        key,
+        items.filter((item) => item.userId !== userId),
+      ]),
+    );
+    const daily = Object.fromEntries(
+      Object.entries(current.daily ?? {}).filter(([, entry]) => {
+        const owned = entry as Partial<OwnedPracticeDailyEntry>;
+        return owned.userId !== userId;
+      }),
+    );
+    return {
+      ...current,
+      sets: current.sets.filter((set) => set.userId !== userId),
+      attempts: current.attempts.filter((attempt) => attempt.userId !== userId),
+      reviews,
+      daily,
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -260,7 +341,7 @@ export function practiceXpForAttempt(
 
 export async function getPracticeProgress(
   profileId: string,
-  userId?: string,
+  userId: string,
 ): Promise<PracticeProgress> {
   const attempts = await listPracticeAttempts(profileId, 500, userId);
   const topicMap = new Map<PracticeTopic, { attempts: number; total: number; best: number }>();
@@ -330,12 +411,18 @@ function addDaysIso(iso: string, days: number): string {
 }
 
 function sameReviewKey(
-  item: Pick<PracticeReviewItem, 'profileId' | 'setId' | 'questionId'>,
+  item: Pick<PracticeReviewItem, 'userId' | 'profileId' | 'setId' | 'questionId'>,
+  userId: string,
   profileId: string,
   setId: string,
   questionId: string,
 ): boolean {
-  return item.profileId === profileId && item.setId === setId && item.questionId === questionId;
+  return (
+    item.userId === userId &&
+    item.profileId === profileId &&
+    item.setId === setId &&
+    item.questionId === questionId
+  );
 }
 
 /**
@@ -351,6 +438,7 @@ function sameReviewKey(
  * attempt is stored, so a duplicate never reaches this function.
  */
 export async function recordPracticeReviewOutcome(input: {
+  userId: string;
   profileId: string;
   setId: string;
   questionId: string;
@@ -363,15 +451,16 @@ export async function recordPracticeReviewOutcome(input: {
   if (input.verdict !== 'correct' && input.verdict !== 'close' && input.verdict !== 'incorrect') {
     return;
   }
-  // A local copy: narrowing of an object property does not survive into the
-  // `store.update` closure below.
   const verdict: PracticeReviewVerdict = input.verdict;
   await store.update((current) => {
     const reviews = { ...(current.reviews ?? {}) };
-    const profileReviews = reviews[input.profileId] ?? [];
+    const key = accountProfileKey(input.userId, input.profileId);
+    const accountReviews = (reviews[key] ?? []).filter(
+      (item) => item.userId === input.userId && item.profileId === input.profileId,
+    );
     const existing =
-      profileReviews.find((item) =>
-        sameReviewKey(item, input.profileId, input.setId, input.questionId),
+      accountReviews.find((item) =>
+        sameReviewKey(item, input.userId, input.profileId, input.setId, input.questionId),
       ) ?? null;
 
     let next: PracticeReviewItem | null;
@@ -381,6 +470,7 @@ export async function recordPracticeReviewOutcome(input: {
         box > REVIEW_GRADUATION_BOX
           ? null
           : {
+              userId: input.userId,
               profileId: input.profileId,
               setId: input.setId,
               questionId: input.questionId,
@@ -393,6 +483,7 @@ export async function recordPracticeReviewOutcome(input: {
             };
     } else {
       next = {
+        userId: input.userId,
         profileId: input.profileId,
         setId: input.setId,
         questionId: input.questionId,
@@ -405,20 +496,22 @@ export async function recordPracticeReviewOutcome(input: {
       };
     }
 
-    const rest = profileReviews.filter(
-      (item) => !sameReviewKey(item, input.profileId, input.setId, input.questionId),
+    const rest = accountReviews.filter(
+      (item) => !sameReviewKey(item, input.userId, input.profileId, input.setId, input.questionId),
     );
-    // Ordered by last touch so the cap evicts the least recently reviewed item.
+    // Ordered by last touch so the per-account/profile cap evicts only that
+    // account's least recently reviewed item.
     const combined = (next ? [...rest, next] : rest).sort((a, b) =>
       a.lastAttemptAt.localeCompare(b.lastAttemptAt),
     );
-    reviews[input.profileId] = combined.slice(-MAX_REVIEW_ITEMS_PER_PROFILE);
+    reviews[key] = combined.slice(-MAX_REVIEW_ITEMS_PER_USER_PROFILE);
     return { ...current, reviews };
   });
 }
 
-/** Dismisses one review item. Returns true when an item was removed. */
+/** Dismisses one account-owned review item. Returns true when one was removed. */
 export async function removePracticeReviewItem(
+  userId: string,
   profileId: string,
   setId: string,
   questionId: string,
@@ -426,13 +519,14 @@ export async function removePracticeReviewItem(
   let removed = false;
   await store.update((current) => {
     const reviews = { ...(current.reviews ?? {}) };
-    const profileReviews = reviews[profileId] ?? [];
-    const next = profileReviews.filter((item) => {
-      const match = sameReviewKey(item, profileId, setId, questionId);
+    const key = accountProfileKey(userId, profileId);
+    const accountReviews = reviews[key] ?? [];
+    const next = accountReviews.filter((item) => {
+      const match = sameReviewKey(item, userId, profileId, setId, questionId);
       if (match) removed = true;
       return !match;
     });
-    reviews[profileId] = next;
+    reviews[key] = next;
     return { ...current, reviews };
   });
   return removed;
@@ -446,24 +540,29 @@ export interface ResolvedPracticeReviewItem {
 }
 
 /**
- * The profile's due review items (`dueAt <= now`), ordered by dueAt, each
- * resolved to its question text. Items whose set or question has been evicted
- * by the store caps (40 sets / 1500 attempts) are skipped and opportunistically
- * pruned; for members, items on sets they did not generate are skipped too.
+ * One account's due review items (`dueAt <= now`), ordered by dueAt and
+ * resolved to question text. Legacy unattributed queues are never consulted.
  */
 export async function listDuePracticeReviewItems(
+  userId: string,
   profileId: string,
-  userId?: string,
   now: Date = new Date(),
 ): Promise<ResolvedPracticeReviewItem[]> {
   const file = await store.read();
+  const key = accountProfileKey(userId, profileId);
   const nowIso = now.toISOString();
-  const due = (file.reviews?.[profileId] ?? [])
-    .filter((item) => item.dueAt <= nowIso)
+  const due = (file.reviews?.[key] ?? [])
+    .filter(
+      (item) => item.userId === userId && item.profileId === profileId && item.dueAt <= nowIso,
+    )
     .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   if (due.length === 0) return [];
 
-  const setsById = new Map(file.sets.map((set) => [set.id, set]));
+  const setsById = new Map(
+    file.sets
+      .filter((set) => set.userId === userId && set.profileId === profileId)
+      .map((set) => [set.id, set]),
+  );
   const resolved: ResolvedPracticeReviewItem[] = [];
   const stale: PracticeReviewItem[] = [];
   for (const item of due) {
@@ -471,10 +570,6 @@ export async function listDuePracticeReviewItems(
     const question = set?.questions.find((entry) => entry.id === item.questionId);
     if (!set || !question) {
       stale.push(item);
-      continue;
-    }
-    if (userId && set.userId !== userId) {
-      // Members only review sets they generated, mirroring the set listings.
       continue;
     }
     resolved.push({ item, title: question.title, scenario: question.scenario });
@@ -486,8 +581,11 @@ export async function listDuePracticeReviewItems(
       ...current,
       reviews: {
         ...(current.reviews ?? {}),
-        [profileId]: (current.reviews?.[profileId] ?? []).filter(
-          (item) => !staleKeys.has(`${item.setId}/${item.questionId}`),
+        [key]: (current.reviews?.[key] ?? []).filter(
+          (item) =>
+            item.userId !== userId ||
+            item.profileId !== profileId ||
+            !staleKeys.has(`${item.setId}/${item.questionId}`),
         ),
       },
     }));
@@ -499,17 +597,29 @@ export async function listDuePracticeReviewItems(
 /* Daily challenge pointer                                             */
 /* ------------------------------------------------------------------ */
 
-export async function getPracticeDailyEntry(profileId: string): Promise<PracticeDailyEntry | null> {
+export async function getPracticeDailyEntry(
+  userId: string,
+  profileId: string,
+): Promise<PracticeDailyEntry | null> {
   const file = await store.read();
-  return file.daily?.[profileId] ?? null;
+  const entry = file.daily?.[accountProfileKey(userId, profileId)];
+  if (!entry) return null;
+  const owned = entry as Partial<OwnedPracticeDailyEntry>;
+  return owned.userId === userId && owned.profileId === profileId
+    ? { date: entry.date, setId: entry.setId }
+    : null;
 }
 
 export async function setPracticeDailyEntry(
+  userId: string,
   profileId: string,
   entry: PracticeDailyEntry,
 ): Promise<void> {
   await store.update((current) => ({
     ...current,
-    daily: { ...(current.daily ?? {}), [profileId]: entry },
+    daily: {
+      ...(current.daily ?? {}),
+      [accountProfileKey(userId, profileId)]: { ...entry, userId, profileId },
+    },
   }));
 }

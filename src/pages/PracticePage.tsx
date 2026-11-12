@@ -96,7 +96,7 @@ const EMPTY_ANSWER: AnswerState = { sql: '', answer: '', evaluation: null };
 const CHALLENGE_COUNTS = [5, 10, 15, 20, 25];
 
 const DRAFT_PREFIX = 'mylens.practice.draft';
-const SCHEMA_PANEL_KEY = 'mylens.practice.schemaPanel';
+const SCHEMA_PANEL_PREFIX = 'mylens.practice.schemaPanel';
 
 /**
  * A stable empty transcript. The coach is given this when a challenge has no
@@ -109,9 +109,17 @@ function quoteIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
 }
 
-function readSchemaPanelOpen(): boolean {
+function schemaPanelKey(userId: string): string {
+  return `${SCHEMA_PANEL_PREFIX}.${userId}`;
+}
+
+function readSchemaPanelOpen(userId: string | null): boolean {
+  if (!userId) return true;
   try {
-    return sessionStorage.getItem(SCHEMA_PANEL_KEY) !== 'closed';
+    // The old browser-global preference must not become the first signed-in
+    // account's value. Remove it and read only this account's key.
+    sessionStorage.removeItem(SCHEMA_PANEL_PREFIX);
+    return sessionStorage.getItem(schemaPanelKey(userId)) !== 'closed';
   } catch {
     return true;
   }
@@ -919,8 +927,30 @@ export function PracticeEmptyScreen({
 }
 
 export function PracticePage() {
-  const navigate = useNavigate();
+  const currentUserId = useAppStore((state) => state.currentUser?.id ?? null);
   const activeProfileId = useAppStore((state) => state.activeProfileId);
+  const identityKey = `${currentUserId ?? 'signed-out'}:${activeProfileId ?? 'no-profile'}`;
+
+  // React discards the old keyed subtree before rendering the new account. That
+  // synchronously drops every practice state bucket without mutating state or
+  // refs during render; the session cleanup below aborts its in-flight work.
+  return (
+    <PracticePageSession
+      key={identityKey}
+      currentUserId={currentUserId}
+      activeProfileId={activeProfileId}
+    />
+  );
+}
+
+function PracticePageSession({
+  currentUserId,
+  activeProfileId,
+}: {
+  currentUserId: string | null;
+  activeProfileId: string | null;
+}) {
+  const navigate = useNavigate();
   const selectedDatabase = useAppStore((state) => state.selectedDatabase);
   const databases = useAppStore((state) => state.databases);
   const setDatabase = useAppStore((state) => state.setDatabase);
@@ -950,6 +980,11 @@ export function PracticePage() {
   const [practiceSet, setPracticeSet] = useState<PracticeSetPublic | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
+  const [restoredDrafts, setRestoredDrafts] = useState<{
+    userId: string;
+    profileId: string;
+    set: PracticeSetPublic;
+  } | null>(null);
   const [answerMaterial, setAnswerMaterial] = useState<Record<string, PracticeAnswer>>({});
   const [hintsShown, setHintsShown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -960,26 +995,19 @@ export function PracticePage() {
   const [recentSets, setRecentSets] = useState<PracticeSetPublic[]>([]);
   // The learning loop: due review cards and today's daily challenge. The daily
   // fetch can take seconds (it may generate the challenge), so the result is
-  // cached per profile for the rest of the session.
+  // cached per account + profile for the rest of the session.
   const [reviewItems, setReviewItems] = useState<PracticeReviewQueueItem[]>([]);
   const [reviewBusyKey, setReviewBusyKey] = useState<string | null>(null);
   // True until the first progress/review/sets fetch of the active profile has
   // resolved (successfully or not); the hub cards show skeletons while it is.
   const [hubLoading, setHubLoading] = useState(true);
-  // A profile switch resets the hub to skeletons. Adjusting during render (the
-  // pattern ResultsGridBase uses) keeps the reset off the effect body.
-  const [loadedProfileId, setLoadedProfileId] = useState<string | null>(activeProfileId);
-  if (activeProfileId !== loadedProfileId) {
-    setLoadedProfileId(activeProfileId);
-    setHubLoading(true);
-  }
   const [daily, setDaily] = useState<PracticeDaily | null>(null);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [dailyError, setDailyError] = useState(false);
   const dailyCache = useRef<Map<string, PracticeDaily>>(new Map());
-  // The profile the in-flight daily request belongs to; a late response for a
-  // profile that was switched away must never be applied.
-  const dailyRequestProfileId = useRef<string | null>(null);
+  // The account/profile key the in-flight daily request belongs to; a late
+  // response after either identity changes must never be applied.
+  const dailyRequestKey = useRef<string | null>(null);
   // Per-question attempt totals backing the "Attempt N" label; seeded from the
   // recorded attempts and bumped locally after each newly graded submission.
   const [attemptCounts, setAttemptCounts] = useState<Record<string, number>>({});
@@ -996,7 +1024,9 @@ export function PracticePage() {
   // and back does not lose the conversation.
   const [coachTurns, setCoachTurns] = useState<Record<string, AiChatMessage[]>>({});
   // lg+ renders the schema panel inline; below lg it is an overlay drawer.
-  const [schemaPanelOpen, setSchemaPanelOpen] = useState<boolean>(readSchemaPanelOpen);
+  const [schemaPanelOpen, setSchemaPanelOpen] = useState<boolean>(() =>
+    readSchemaPanelOpen(currentUserId),
+  );
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
   const isLargeViewport = useMediaQuery('(min-width: 1024px)');
   const editorView = useRef<EditorView | null>(null);
@@ -1038,12 +1068,13 @@ export function PracticePage() {
 
   // Remember the inline panel state for the rest of the browser session.
   useEffect(() => {
+    if (!currentUserId) return;
     try {
-      sessionStorage.setItem(SCHEMA_PANEL_KEY, schemaPanelOpen ? 'open' : 'closed');
+      sessionStorage.setItem(schemaPanelKey(currentUserId), schemaPanelOpen ? 'open' : 'closed');
     } catch {
       // Session storage is best-effort (private mode); the panel still works.
     }
-  }, [schemaPanelOpen]);
+  }, [currentUserId, schemaPanelOpen]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -1113,46 +1144,50 @@ export function PracticePage() {
   }
 
   /**
-   * Load today's daily challenge for a profile. Each profile is fetched once
-   * per session and cached, so switching back and forth does not re-run the
-   * (possibly slow) generation; `force` bypasses the cache for retries.
+   * Load today's daily challenge for one account/profile pair. Each pair is
+   * fetched once per session; `force` bypasses that pair's cache entry.
    */
-  const loadDaily = useCallback((profileId: string, options: { force?: boolean } = {}): void => {
-    if (!options.force) {
-      const cached = dailyCache.current.get(profileId);
-      if (cached) {
-        dailyRequestProfileId.current = null;
-        setDaily(cached);
-        setDailyLoading(false);
-        setDailyError(false);
-        return;
+  const loadDaily = useCallback(
+    (userId: string, profileId: string, options: { force?: boolean } = {}): void => {
+      const key = `${userId}:${profileId}`;
+      if (!options.force) {
+        const cached = dailyCache.current.get(key);
+        if (cached) {
+          dailyRequestKey.current = null;
+          setDaily(cached);
+          setDailyLoading(false);
+          setDailyError(false);
+          return;
+        }
+      } else {
+        dailyCache.current.delete(key);
       }
-    } else {
-      dailyCache.current.delete(profileId);
-    }
-    dailyRequestProfileId.current = profileId;
-    setDaily(null);
-    setDailyLoading(true);
-    setDailyError(false);
-    void dbApi
-      .practiceDaily(profileId)
-      .then((entry) => {
-        if (dailyRequestProfileId.current !== profileId) return;
-        dailyRequestProfileId.current = null;
-        dailyCache.current.set(profileId, entry);
-        setDaily(entry);
-        setDailyLoading(false);
-      })
-      .catch(() => {
-        if (dailyRequestProfileId.current !== profileId) return;
-        dailyRequestProfileId.current = null;
-        setDailyError(true);
-        setDailyLoading(false);
-      });
-  }, []);
+      dailyRequestKey.current = key;
+      setDaily(null);
+      setDailyLoading(true);
+      setDailyError(false);
+      void dbApi
+        .practiceDaily(profileId)
+        .then((entry) => {
+          if (dailyRequestKey.current !== key) return;
+          dailyRequestKey.current = null;
+          dailyCache.current.set(key, entry);
+          setDaily(entry);
+          setDailyLoading(false);
+        })
+        .catch(() => {
+          if (dailyRequestKey.current !== key) return;
+          dailyRequestKey.current = null;
+          setDailyError(true);
+          setDailyLoading(false);
+        });
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const identityKey = `${currentUserId}:${activeProfileId}`;
     // The hub loads in one pass: progress, recent sets and the review queue
     // settle together, so the cards show skeletons until all three resolve.
     // Failures resolve too — an empty card beats a skeleton that never ends.
@@ -1163,16 +1198,29 @@ export function PracticePage() {
       dbApi.practiceReviewQueue(activeProfileId).catch(() => undefined),
     ]).then(([nextProgress, nextSets, nextReview]) => {
       if (cancelled) return;
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey) return;
       setProgress(nextProgress ?? null);
       setRecentSets(nextSets ?? []);
       setReviewItems(nextReview ?? []);
       setHubLoading(false);
     });
-    loadDaily(activeProfileId);
+    loadDaily(currentUserId, activeProfileId);
     return () => {
       cancelled = true;
     };
-  }, [activeProfileId, loadDaily]);
+  }, [currentUserId, activeProfileId, loadDaily]);
+
+  useEffect(() => {
+    return () => {
+      generationAbort.current?.abort();
+      generationAbort.current = null;
+      runRequest.current += 1;
+      dailyRequestKey.current = null;
+      activeSetId.current = null;
+      persistedSetId.current = null;
+    };
+  }, []);
 
   // A new question starts without hints and without the previous run result.
   // The state is adjusted while rendering so the panel never shows results
@@ -1211,21 +1259,16 @@ export function PracticePage() {
   // Restore unsubmitted drafts when a set becomes active (for example after a
   // reload and reopening it from the recent list). The drafts are read while
   // rendering and merged in the same commit as the set change.
-  const [restoredDrafts, setRestoredDrafts] = useState<{
-    profileId: string;
-    set: PracticeSetPublic;
-  } | null>(null);
   if (
+    currentUserId &&
     activeProfileId &&
     practiceSet &&
-    (restoredDrafts?.profileId !== activeProfileId || restoredDrafts?.set !== practiceSet)
+    (restoredDrafts?.userId !== currentUserId ||
+      restoredDrafts?.profileId !== activeProfileId ||
+      restoredDrafts?.set !== practiceSet)
   ) {
-    setRestoredDrafts({ profileId: activeProfileId, set: practiceSet });
-    const stored = readDraft(
-      useAppStore.getState().currentUser?.id,
-      activeProfileId,
-      practiceSet.id,
-    );
+    setRestoredDrafts({ userId: currentUserId, profileId: activeProfileId, set: practiceSet });
+    const stored = readDraft(currentUserId, activeProfileId, practiceSet.id);
     if (Object.keys(stored).length > 0) {
       setAnswers((previous) => {
         const next = { ...previous };
@@ -1241,12 +1284,13 @@ export function PracticePage() {
   // Persist only unanswered text: once a question is graded the server owns the
   // attempt and the local draft is cleared.
   useEffect(() => {
-    if (!activeProfileId || !practiceSet) return;
-    if (persistedSetId.current !== practiceSet.id) {
-      // First commit after the set was opened: the restore effect has queued the
+    if (!currentUserId || !activeProfileId || !practiceSet) return;
+    const persistenceKey = `${currentUserId}:${activeProfileId}:${practiceSet.id}`;
+    if (persistedSetId.current !== persistenceKey) {
+      // First commit after the set was opened: the restore pass has queued the
       // stored drafts but they are not in `answers` yet, so writing now would
       // erase them.
-      persistedSetId.current = practiceSet.id;
+      persistedSetId.current = persistenceKey;
       return;
     }
     const drafts: Record<string, PracticeDraft> = {};
@@ -1255,8 +1299,8 @@ export function PracticePage() {
       if (!value.sql.trim() && !value.answer.trim()) continue;
       drafts[questionId] = { sql: value.sql, answer: value.answer };
     }
-    writeDraft(useAppStore.getState().currentUser?.id, activeProfileId, practiceSet.id, drafts);
-  }, [activeProfileId, practiceSet, answers]);
+    writeDraft(currentUserId, activeProfileId, practiceSet.id, drafts);
+  }, [currentUserId, activeProfileId, practiceSet, answers]);
 
   const updateCurrent = (patch: Partial<AnswerState>): void => {
     if (!question) return;
@@ -1267,10 +1311,13 @@ export function PracticePage() {
   };
 
   const loadAnswers = async (setId: string): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const requestKey = `${currentUserId}:${activeProfileId}:${setId}`;
     try {
       const payload = await dbApi.practiceAnswers(setId, activeProfileId);
-      if (activeSetId.current !== setId) return;
+      const state = useAppStore.getState();
+      const liveKey = `${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}:${activeSetId.current ?? ''}`;
+      if (liveKey !== requestKey) return;
       setAnswerMaterial(Object.fromEntries(payload.answers.map((item) => [item.questionId, item])));
     } catch {
       // Reference material is supplementary; grading already happened.
@@ -1283,10 +1330,13 @@ export function PracticePage() {
    * leaving only the generated questions.
    */
   const loadAttempts = async (setId: string): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const requestKey = `${currentUserId}:${activeProfileId}:${setId}`;
     try {
       const attempts = await dbApi.practiceSetAttempts(setId, activeProfileId);
-      if (activeSetId.current !== setId) return;
+      const state = useAppStore.getState();
+      const liveKey = `${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}:${activeSetId.current ?? ''}`;
+      if (liveKey !== requestKey) return;
       // The per-question totals seed the "Attempt N" label; the label counts
       // recorded attempts, so it is derived straight from this list.
       const counts: Record<string, number> = {};
@@ -1359,13 +1409,19 @@ export function PracticePage() {
   // is chosen or generated; resuming is one click on a recent set.
 
   const loadProgress = async (): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const identityKey = `${currentUserId}:${activeProfileId}`;
     try {
-      setProgress(await dbApi.practiceProgress(activeProfileId));
-      setRecentSets(await dbApi.practiceSets(activeProfileId, 5));
-      // The review queue changes on every graded submission (the evaluation
-      // reschedules the card), so it rides along with the progress refresh.
-      setReviewItems(await dbApi.practiceReviewQueue(activeProfileId));
+      const [nextProgress, nextSets, nextReview] = await Promise.all([
+        dbApi.practiceProgress(activeProfileId),
+        dbApi.practiceSets(activeProfileId, 5),
+        dbApi.practiceReviewQueue(activeProfileId),
+      ]);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey) return;
+      setProgress(nextProgress);
+      setRecentSets(nextSets);
+      setReviewItems(nextReview);
     } catch {
       // Supplementary UI.
     }
@@ -1387,10 +1443,13 @@ export function PracticePage() {
    * after activation.
    */
   const startReview = async (item: PracticeReviewQueueItem): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const identityKey = `${currentUserId}:${activeProfileId}`;
     setReviewBusyKey(reviewItemKey(item));
     try {
       const sets = await dbApi.practiceSets(activeProfileId, 50);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey) return;
       const set = sets.find((entry) => entry.id === item.setId);
       if (!set) {
         toast('The challenge set behind this review item is no longer available.', 'warn');
@@ -1410,32 +1469,47 @@ export function PracticePage() {
         }
       });
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error');
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+      }
     } finally {
-      setReviewBusyKey(null);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        setReviewBusyKey(null);
+      }
     }
   };
 
   /** Remove one card from the review queue; the recorded attempt stays. */
   const dismissReviewItem = async (item: PracticeReviewQueueItem): Promise<void> => {
-    if (!activeProfileId) return;
+    if (!currentUserId || !activeProfileId) return;
+    const identityKey = `${currentUserId}:${activeProfileId}`;
     setReviewBusyKey(reviewItemKey(item));
     try {
       await dbApi.dismissPracticeReviewItem(item.setId, item.questionId, activeProfileId);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey) return;
       setReviewItems((previous) =>
         previous.filter(
           (entry) => entry.setId !== item.setId || entry.questionId !== item.questionId,
         ),
       );
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), 'error');
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        toast(err instanceof Error ? err.message : String(err), 'error');
+      }
     } finally {
-      setReviewBusyKey(null);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        setReviewBusyKey(null);
+      }
     }
   };
 
   const generate = async (): Promise<void> => {
-    if (!activeProfileId || !selectedDatabase) {
+    if (!currentUserId || !activeProfileId || !selectedDatabase) {
       toast('Select a database first.', 'warn');
       return;
     }
@@ -1448,6 +1522,7 @@ export function PracticePage() {
       return;
     }
     generationAbort.current?.abort();
+    const identityKey = `${currentUserId}:${activeProfileId}`;
     const controller = new AbortController();
     generationAbort.current = controller;
     setGenerating(true);
@@ -1469,6 +1544,11 @@ export function PracticePage() {
         },
         {
           onEvent: ({ event, data }) => {
+            const state = useAppStore.getState();
+            if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey) {
+              controller.abort();
+              return;
+            }
             if (event === 'delta') {
               const payload = data as { text?: string };
               if (payload.text) setGenerationText((currentText) => currentText + payload.text);
@@ -1485,18 +1565,28 @@ export function PracticePage() {
             }
           },
           onError: (err) => {
+            const state = useAppStore.getState();
+            if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` !== identityKey)
+              return;
             setError(err instanceof Error ? err.message : String(err));
           },
         },
         controller.signal,
       );
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
+      const state = useAppStore.getState();
+      if (
+        (err as Error).name !== 'AbortError' &&
+        `${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey
+      ) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      setGenerating(false);
-      generationAbort.current = null;
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        setGenerating(false);
+        if (generationAbort.current === controller) generationAbort.current = null;
+      }
     }
   };
 
@@ -1525,29 +1615,35 @@ export function PracticePage() {
   };
 
   const evaluate = async (): Promise<void> => {
-    if (!activeProfileId || !practiceSet || !question) return;
+    if (!currentUserId || !activeProfileId || !practiceSet || !question) return;
     if (!current.sql.trim() && !current.answer.trim()) {
       toast('Write an answer before submitting.', 'warn');
       return;
     }
     setSubmitting(true);
     setError(null);
+    const identityKey = `${currentUserId}:${activeProfileId}`;
+    const setId = practiceSet.id;
+    const questionId = question.id;
     try {
       const result = await dbApi.practiceEvaluate({
         profileId: activeProfileId,
-        setId: practiceSet.id,
-        questionId: question.id,
+        setId,
+        questionId,
         userSql: current.sql.trim() || undefined,
         userAnswer: current.answer.trim() || undefined,
         providerId: includeAi ? providerId || undefined : undefined,
         model: includeAi ? model || undefined : undefined,
         includeAi: Boolean(includeAi && providerId),
       });
+      const state = useAppStore.getState();
+      const liveIdentity = `${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}`;
+      if (liveIdentity !== identityKey || activeSetId.current !== setId) return;
       if (result.duplicate) {
         // The server recognised an identical resubmission and did not record a
         // new attempt, so no progress counter changes here either.
         updateCurrent({ evaluation: result, duplicate: true });
-        void loadAnswers(practiceSet.id);
+        void loadAnswers(setId);
         toast(
           'Already submitted — this answer was recorded earlier and was not counted again.',
           'info',
@@ -1561,16 +1657,22 @@ export function PracticePage() {
       // A new attempt was recorded, so the question's "Attempt N" label moves.
       setAttemptCounts((previous) => ({
         ...previous,
-        [question.id]: (previous[question.id] ?? 0) + 1,
+        [questionId]: (previous[questionId] ?? 0) + 1,
       }));
       void loadProgress();
       void loadAnswers(practiceSet.id);
       // No verdict toast: the evaluation card is the single feedback surface,
       // and it is on screen the moment this resolves.
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setSubmitting(false);
+      const state = useAppStore.getState();
+      if (`${state.currentUser?.id ?? ''}:${state.activeProfileId ?? ''}` === identityKey) {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -1780,7 +1882,9 @@ export function PracticePage() {
           dailyFailed={dailyError}
           onOpenDaily={openDailyChallenge}
           onRetryDaily={() => {
-            if (activeProfileId) loadDaily(activeProfileId, { force: true });
+            if (currentUserId && activeProfileId) {
+              loadDaily(currentUserId, activeProfileId, { force: true });
+            }
           }}
           reviewItems={reviewItems}
           reviewBusyKey={reviewBusyKey}

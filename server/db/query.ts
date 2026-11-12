@@ -429,7 +429,7 @@ export async function executeQuery(
       { rollbackOnRelease: classification.needsUnlock },
     );
 
-    if (!options.skipHistory) {
+    if (!options.skipHistory && options.userId) {
       await addHistory({
         profileId,
         database,
@@ -439,13 +439,13 @@ export async function executeQuery(
         executionMs: result.elapsed,
         rowCount: result.result.rowCount,
         error: null,
-        ...(options.userId ? { userId: options.userId } : {}),
+        userId: options.userId,
       }).catch(() => undefined);
     }
     return result.result;
   } catch (error) {
     const mapped = mapDbError(error);
-    if (!options.skipHistory && mapped.code !== 'WRITE_LOCKED') {
+    if (!options.skipHistory && options.userId && mapped.code !== 'WRITE_LOCKED') {
       await addHistory({
         profileId,
         database,
@@ -455,7 +455,7 @@ export async function executeQuery(
         executionMs: performance.now() - started,
         rowCount: null,
         error: mapped.message,
-        ...(options.userId ? { userId: options.userId } : {}),
+        userId: options.userId,
       }).catch(() => undefined);
     }
     throw mapped;

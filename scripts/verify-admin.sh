@@ -29,8 +29,11 @@ echo "GET /api/connections -> $CODE (expect 401)"
 [ "$CODE" = "401" ] || { echo "FAIL: expected 401"; exit 1; }
 
 step "setup: create admin (rafael)"
-curl -s -c /tmp/admin.jar "${AUTH[@]}" -X POST $BASE/api/auth/setup \
-  -d '{"username":"rafael","displayName":"Rafael","password":"review123"}' | JQ "o.data.user.role"
+SETUP=$(curl -s -c /tmp/admin.jar "${AUTH[@]}" -X POST $BASE/api/auth/setup \
+  -d '{"username":"rafael","displayName":"Rafael","password":"review123"}')
+echo "$SETUP" | JQ "o.data.user.role"
+ADMIN_ID=$(echo "$SETUP" | JQ "o.data.user.id")
+ADMIN_AUTH=("${AUTH[@]}" -H "x-mylens-expected-user-id: $ADMIN_ID")
 
 step "bad password rejected"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" "${AUTH[@]}" -X POST $BASE/api/auth/login \
@@ -39,61 +42,64 @@ echo "bad login -> $CODE (expect 401)"
 [ "$CODE" = "401" ] || { echo "FAIL"; exit 1; }
 
 step "admin: list connections (3 seeded profiles expected)"
-PROFILES=$(curl -s -b /tmp/admin.jar "${AUTH[@]}" $BASE/api/connections)
+PROFILES=$(curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" $BASE/api/connections)
 PROFILE_ID=$(echo "$PROFILES" | JQ "o.data[0].id")
 echo "$PROFILES" | JQ "o.data.map(p=>p.name).join(', ')"
 
 step "admin: connect profile (root, empty password)"
-curl -s -b /tmp/admin.jar "${AUTH[@]}" -X POST $BASE/api/connections/$PROFILE_ID/connect -d '{}' | JQ "o.data.server.flavor + ' / ' + o.data.databases.length + ' databases visible to admin'"
+curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" -X POST $BASE/api/connections/$PROFILE_ID/connect -d '{}' | JQ "o.data.server.flavor + ' / ' + o.data.databases.length + ' databases visible to admin'"
 
 step "admin: create member sherina"
-curl -s -b /tmp/admin.jar "${AUTH[@]}" -X POST $BASE/api/admin/users \
+curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" -X POST $BASE/api/admin/users \
   -d '{"username":"sherina","displayName":"Sherina","password":"member123","role":"member"}' | JQ "o.data.username + ' (' + o.data.role + ')'"
-MEMBER_ID=$(curl -s -b /tmp/admin.jar "${AUTH[@]}" $BASE/api/admin/users | JQ "o.data.find(u=>u.username==='sherina').id")
+MEMBER_ID=$(curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" $BASE/api/admin/users | JQ "o.data.find(u=>u.username==='sherina').id")
 
 step "admin: provision sandbox northwind (with data)"
-ASSIGN=$(curl -s -b /tmp/admin.jar "${AUTH[@]}" -X POST $BASE/api/admin/users/$MEMBER_ID/assignments \
+ASSIGN=$(curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" -X POST $BASE/api/admin/users/$MEMBER_ID/assignments \
   -d "{\"profileId\":\"$PROFILE_ID\",\"source\":\"northwind\",\"includeData\":true}")
 echo "$ASSIGN" | JQ "'sandbox=' + o.data.result.sandbox + ' tables=' + o.data.result.tables + ' rows=' + o.data.result.rowsCopied"
 SANDBOX=$(echo "$ASSIGN" | JQ "o.data.result.sandbox")
 
 step "member: login as sherina"
-curl -s -c /tmp/member.jar "${AUTH[@]}" -X POST $BASE/api/auth/login \
-  -d '{"username":"sherina","password":"member123"}' | JQ "o.data.user.role"
+MEMBER_LOGIN=$(curl -s -c /tmp/member.jar "${AUTH[@]}" -X POST $BASE/api/auth/login \
+  -d '{"username":"sherina","password":"member123"}')
+echo "$MEMBER_LOGIN" | JQ "o.data.user.role"
+MEMBER_OWNER_ID=$(echo "$MEMBER_LOGIN" | JQ "o.data.user.id")
+MEMBER_AUTH=("${AUTH[@]}" -H "x-mylens-expected-user-id: $MEMBER_OWNER_ID")
 
 step "member: sees only assigned connections"
-curl -s -b /tmp/member.jar "${AUTH[@]}" $BASE/api/connections | JQ "o.data.map(p=>p.name).join(', ')"
+curl -s -b /tmp/member.jar "${MEMBER_AUTH[@]}" $BASE/api/connections | JQ "o.data.map(p=>p.name).join(', ')"
 
 step "member: database list is locked to the sandbox"
-MEMBER_DBS=$(curl -s -b /tmp/member.jar "${AUTH[@]}" $BASE/api/db/$PROFILE_ID/databases)
+MEMBER_DBS=$(curl -s -b /tmp/member.jar "${MEMBER_AUTH[@]}" $BASE/api/db/$PROFILE_ID/databases)
 echo "$MEMBER_DBS" | JQ "o.data.map(d=>d.name).join(', ')"
 COUNT=$(echo "$MEMBER_DBS" | JQ "o.data.length")
 [ "$COUNT" = "1" ] && [ "$SANDBOX" = "$(echo "$MEMBER_DBS" | JQ "o.data[0].name")" ] || { echo "FAIL: member should see only $SANDBOX"; exit 1; }
 
 step "member: admin sees everything (originals untouched)"
-curl -s -b /tmp/admin.jar "${AUTH[@]}" $BASE/api/db/$PROFILE_ID/databases | JQ "o.data.map(d=>d.name).join(', ')"
+curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" $BASE/api/db/$PROFILE_ID/databases | JQ "o.data.map(d=>d.name).join(', ')"
 
 step "member: SELECT inside sandbox works, cross-database SELECT is blocked"
-curl -s -b /tmp/member.jar "${AUTH[@]}" -X POST $BASE/api/db/$PROFILE_ID/query \
+curl -s -b /tmp/member.jar "${MEMBER_AUTH[@]}" -X POST $BASE/api/db/$PROFILE_ID/query \
   -d "{\"sql\":\"SELECT COUNT(*) AS n FROM $SANDBOX.customers\",\"database\":\"$SANDBOX\"}" | JQ "'sandbox query rows: ' + o.data.rowCount"
-CODE=$(curl -s -o "$RESP" -w "%{http_code}" -b /tmp/member.jar "${AUTH[@]}" -X POST $BASE/api/db/$PROFILE_ID/query \
+CODE=$(curl -s -o "$RESP" -w "%{http_code}" -b /tmp/member.jar "${MEMBER_AUTH[@]}" -X POST $BASE/api/db/$PROFILE_ID/query \
   -d '{"sql":"SELECT COUNT(*) AS n FROM northwind.customers","database":"northwind"}')
 echo "cross-db query -> $CODE (expect 403): $(node -e "console.log(JSON.parse(require('fs').readFileSync('$RESP','utf8')).error.code)")"
 [ "$CODE" = "403" ] || { echo "FAIL: cross-db query must be blocked"; exit 1; }
 
 step "member: admin-only routes are rejected"
 for path in /api/admin/users /api/reports /api/audit/run; do
-  CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/member.jar "${AUTH[@]}" -X POST $BASE$path -d '{}')
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/member.jar "${MEMBER_AUTH[@]}" -X POST $BASE$path -d '{}')
   echo "POST $path -> $CODE (expect 403)"
 done
-CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/member.jar "${AUTH[@]}" -X PUT $BASE/api/settings -d '{}')
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -b /tmp/member.jar "${MEMBER_AUTH[@]}" -X PUT $BASE/api/settings -d '{}')
 echo "PUT /api/settings -> $CODE (expect 403)"
 
 step "member: history is scoped to their own entries"
-HIST=$(curl -s -b /tmp/member.jar "${AUTH[@]}" "$BASE/api/history?profileId=$PROFILE_ID")
+HIST=$(curl -s -b /tmp/member.jar "${MEMBER_AUTH[@]}" "$BASE/api/history?profileId=$PROFILE_ID")
 echo "$HIST" | JQ "'member history entries: ' + o.data.length"
 
 step "admin: activity log recorded everything"
-curl -s -b /tmp/admin.jar "${AUTH[@]}" "$BASE/api/admin/activity?limit=12" | JQ "o.data.map(e=>e.username+':'+e.action).join(' | ')"
+curl -s -b /tmp/admin.jar "${ADMIN_AUTH[@]}" "$BASE/api/admin/activity?limit=12" | JQ "o.data.map(e=>e.username+':'+e.action).join(' | ')"
 
 step "ALL ASSERTIONS PASSED"

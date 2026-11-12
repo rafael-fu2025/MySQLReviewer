@@ -9,6 +9,8 @@ interface SnippetFile {
   snippets: Snippet[];
 }
 
+export const MAX_SNIPPETS_PER_USER = 500;
+
 const store = new JsonStore<SnippetFile>(path.join(DATA_DIR, 'snippets.json'), () => ({
   snippets: [],
 }));
@@ -36,12 +38,14 @@ function validate(input: SnippetInput): SnippetInput {
 }
 
 /**
- * Snippets are personal: members see and manage only their own. Entries
- * created before the admin layer (no userId) belong to the admin.
+ * Snippets are personal for every role: callers must always name the owner.
+ * Legacy ownerless entries remain quarantined rather than being attributed to
+ * whichever administrator happens to sign in first.
  */
-export async function listSnippets(userId?: string): Promise<Snippet[]> {
+export async function listSnippets(userId: string): Promise<Snippet[]> {
+  if (!userId) throw new Error('Snippet ownership is required.');
   const file = await store.read();
-  const visible = userId ? file.snippets.filter((s) => s.userId === userId) : file.snippets;
+  const visible = file.snippets.filter((snippet) => snippet.userId === userId);
   return [...visible].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -57,23 +61,30 @@ export async function createSnippet(input: SnippetInput, userId: string): Promis
     updatedAt: timestamp,
     userId,
   };
-  await store.update((current) => ({ snippets: [snippet, ...current.snippets].slice(0, 500) }));
+  await store.update((current) => {
+    const mine = [snippet, ...current.snippets.filter((entry) => entry.userId === userId)].slice(
+      0,
+      MAX_SNIPPETS_PER_USER,
+    );
+    const others = current.snippets.filter((entry) => entry.userId !== userId);
+    return { snippets: [...mine, ...others] };
+  });
   return snippet;
 }
 
 export async function updateSnippet(
   id: string,
   input: SnippetInput,
-  userId?: string,
+  userId: string,
 ): Promise<Snippet> {
+  if (!userId) throw new Error('Snippet ownership is required.');
   const clean = validate(input);
   let updated: Snippet | null = null;
   await store.update((current) => {
-    const index = current.snippets.findIndex((snippet) => snippet.id === id);
+    const index = current.snippets.findIndex(
+      (snippet) => snippet.id === id && snippet.userId === userId,
+    );
     if (index < 0) throw new AppError('SNIPPET_NOT_FOUND', 'Snippet not found.', 404);
-    if (userId && current.snippets[index].userId !== userId) {
-      throw new AppError('SNIPPET_FORBIDDEN', 'This snippet belongs to another account.', 403);
-    }
     updated = {
       ...current.snippets[index],
       title: clean.title,
@@ -89,13 +100,22 @@ export async function updateSnippet(
   return updated;
 }
 
-export async function deleteSnippet(id: string, userId?: string): Promise<void> {
+export async function deleteSnippet(id: string, userId: string): Promise<void> {
+  if (!userId) throw new Error('Snippet ownership is required.');
   await store.update((current) => {
-    const snippet = current.snippets.find((entry) => entry.id === id);
+    const snippet = current.snippets.find((entry) => entry.id === id && entry.userId === userId);
     if (!snippet) throw new AppError('SNIPPET_NOT_FOUND', 'Snippet not found.', 404);
-    if (userId && snippet.userId !== userId) {
-      throw new AppError('SNIPPET_FORBIDDEN', 'This snippet belongs to another account.', 403);
-    }
-    return { snippets: current.snippets.filter((entry) => entry.id !== id) };
+    return {
+      snippets: current.snippets.filter((entry) => !(entry.id === id && entry.userId === userId)),
+    };
   });
 }
+
+/** Removes every snippet owned by one deleted account. */
+export async function deleteSnippetsForUser(userId: string): Promise<void> {
+  await store.update((current) => ({
+    snippets: current.snippets.filter((entry) => entry.userId !== userId),
+  }));
+}
+
+export { store as snippetsStore };

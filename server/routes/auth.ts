@@ -9,12 +9,21 @@ import {
   parseSessionCookie,
   sessionCookieHeader,
 } from '../store/sessions';
-import { countUsers, createUser, findUserByUsername, verifyLogin } from '../store/users';
+import { createFirstAdmin, findUserByUsername, verifyLogin } from '../store/users';
 import { logActivity } from '../store/activity';
-import { currentUser } from '../auth';
+import { currentUser, rejectUnexpectedUser } from '../auth';
 import { parseBody } from './util';
 
 const router = Router();
+
+// Sign-in/setup responses create an authenticated browser even though the
+// request itself arrived anonymously. Mark every auth payload private so user
+// details and cookies are never reused by an intermediary cache.
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 
 const CredentialsSchema = z.object({
   username: z.string().trim().min(2).max(40),
@@ -119,15 +128,11 @@ export function resetLoginThrottle(): void {
 
 router.post('/setup', async (req, res, next) => {
   try {
-    if ((await countUsers()) > 0) {
-      throw new AppError('SETUP_DONE', 'The admin account already exists.', 403);
-    }
     const body = parseBody(CredentialsSchema, req);
-    const user = await createUser({
+    const user = await createFirstAdmin({
       username: body.username,
       displayName: body.displayName ?? body.username,
       password: body.password,
-      role: 'admin',
     });
     const session = await createSession(user.id);
     await logActivity({
@@ -180,7 +185,7 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-router.post('/logout', async (req, res, next) => {
+router.post('/logout', rejectUnexpectedUser, async (req, res, next) => {
   try {
     const sessionId = parseSessionCookie(req.headers.cookie);
     if (req.user) {

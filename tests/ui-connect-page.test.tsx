@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ReactElement } from 'react';
+import { connectionAccessDeniedMessage } from '../src/lib/copy';
+import { ConnectionForm } from '../src/components/ConnectionForm';
 import {
   ConnectionStatusPanel,
   ConnectionsSection,
@@ -110,6 +113,60 @@ function renderSection({
     />,
   );
 }
+
+describe('saved-credential-only connection UX', () => {
+  const connectSource = readFileSync(
+    new URL('../src/pages/ConnectPage.tsx', import.meta.url),
+    'utf8',
+  );
+  const storeSource = readFileSync(new URL('../src/store/app-store.ts', import.meta.url), 'utf8');
+  const formSource = readFileSync(
+    new URL('../src/components/ConnectionForm.tsx', import.meta.url),
+    'utf8',
+  );
+  const settingsSource = readFileSync(
+    new URL('../src/pages/SettingsPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  it('directs admins to edit and save the password after access is denied', () => {
+    expect(connectionAccessDeniedMessage('admin')).toContain('Edit the connection');
+    expect(connectionAccessDeniedMessage('admin')).toContain('save the correct password');
+  });
+
+  it('directs members to ask an administrator after access is denied', () => {
+    expect(connectionAccessDeniedMessage('member')).toContain('Ask an administrator');
+  });
+
+  it('removes every runtime password override path from the connect page and store', () => {
+    expect(connectSource).not.toContain('Password required');
+    expect(connectSource).not.toContain('passwordFor');
+    expect(connectSource).not.toContain('suppliedPassword');
+    expect(connectSource).not.toContain('mylens-session-password');
+    expect(storeSource).toContain('connect: (profileId: string) => Promise<void>');
+    expect(storeSource).not.toContain('connect: (profileId: string, password');
+    expect(storeSource).not.toContain('password !== undefined');
+  });
+
+  it('contains no session-password concept anywhere in client source', () => {
+    const clientSources = [connectSource, storeSource, formSource, settingsSource].join('\n');
+    expect(clientSources.toLowerCase()).not.toContain('session password');
+    expect(connectSource).toContain('encrypted saved password');
+    expect(settingsSource).toContain('encrypted saved password');
+    expect(connectSource).toContain('passwordless connection');
+    expect(settingsSource).toContain('passwordless connection');
+  });
+
+  it('makes the connection editor explain that entered passwords are encrypted and saved', () => {
+    const html = render(
+      <ConnectionForm profile={profile} onSaved={() => {}} onCancel={() => {}} />,
+    );
+    expect(html).toContain('encrypted with a local key and saved with the connection');
+    expect(html).toContain('Passwordless MySQL accounts can leave this field empty');
+    expect(html).not.toContain('Remember password');
+    expect(formSource).toContain('rememberPassword: true');
+  });
+});
 
 describe('D-11 — the hero card must size to its content', () => {
   it('does not stretch the hero card to the height of the panel next to it', () => {

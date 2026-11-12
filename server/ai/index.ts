@@ -1,5 +1,6 @@
 import type { AiProvider, AiProviderTestResult } from '../../shared/types';
 import { AppError } from '../errors';
+import { currentRuntimeUserId } from '../runtime-context';
 import { completeAnthropic, listAnthropicModels, streamAnthropic } from './anthropic';
 import { completeGoogle, listGoogleModels, streamGoogle } from './google';
 import { completeOpenAi, listOpenAiModels, streamOpenAi } from './openai';
@@ -29,56 +30,125 @@ export type {
  */
 const MAX_CONCURRENT_AI_CALLS = 4;
 const MAX_QUEUED_AI_CALLS = 8;
+/** One account cannot occupy every active provider slot or queue position. */
+const MAX_CONCURRENT_AI_CALLS_PER_USER = 2;
+const MAX_QUEUED_AI_CALLS_PER_USER = 4;
 const AI_CALLS_PER_MINUTE = 60;
+const AI_CALLS_PER_USER_PER_MINUTE = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 class AiConcurrency {
   private active = 0;
-  private readonly queue: (() => void)[] = [];
+  private readonly activeByUser = new Map<string, number>();
+  private readonly queue: Array<{ userId: string | null; start: () => void }> = [];
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.active >= MAX_CONCURRENT_AI_CALLS) {
-      if (this.queue.length >= MAX_QUEUED_AI_CALLS) {
-        throw new AppError('AI_BUSY', 'The AI provider is busy. Try again in a moment.', 429);
-      }
-      await new Promise<void>((resolve) => {
-        this.queue.push(resolve);
-      });
-    }
-    this.active += 1;
+  async run<T>(userId: string | null, fn: () => Promise<T>): Promise<T> {
+    await this.acquire(userId);
     try {
       return await fn();
     } finally {
-      this.active -= 1;
-      const next = this.queue.shift();
-      if (next) next();
+      this.release(userId);
+    }
+  }
+
+  private async acquire(userId: string | null): Promise<void> {
+    if (this.queue.length === 0 && this.canStart(userId)) {
+      this.reserve(userId);
+      return;
+    }
+    if (
+      this.queue.length >= MAX_QUEUED_AI_CALLS ||
+      (userId !== null &&
+        this.queue.filter((entry) => entry.userId === userId).length >=
+          MAX_QUEUED_AI_CALLS_PER_USER)
+    ) {
+      throw new AppError('AI_BUSY', 'The AI provider is busy. Try again in a moment.', 429);
+    }
+    await new Promise<void>((resolve) => {
+      this.queue.push({ userId, start: resolve });
+      this.drain();
+    });
+  }
+
+  private canStart(userId: string | null): boolean {
+    return (
+      this.active < MAX_CONCURRENT_AI_CALLS &&
+      (userId === null || (this.activeByUser.get(userId) ?? 0) < MAX_CONCURRENT_AI_CALLS_PER_USER)
+    );
+  }
+
+  private reserve(userId: string | null): void {
+    this.active += 1;
+    if (userId !== null) {
+      this.activeByUser.set(userId, (this.activeByUser.get(userId) ?? 0) + 1);
+    }
+  }
+
+  private release(userId: string | null): void {
+    this.active = Math.max(0, this.active - 1);
+    if (userId !== null) {
+      const left = (this.activeByUser.get(userId) ?? 1) - 1;
+      if (left <= 0) this.activeByUser.delete(userId);
+      else this.activeByUser.set(userId, left);
+    }
+    this.drain();
+  }
+
+  /** Starts the oldest eligible owner; blocked owners do not head-of-line block others. */
+  private drain(): void {
+    while (this.active < MAX_CONCURRENT_AI_CALLS) {
+      const index = this.queue.findIndex((entry) => this.canStart(entry.userId));
+      if (index < 0) return;
+      const [next] = this.queue.splice(index, 1);
+      this.reserve(next.userId);
+      next.start();
     }
   }
 }
 
 const concurrency = new AiConcurrency();
 const callTimestamps: number[] = [];
+const callTimestampsByUser = new Map<string, number[]>();
 
-function checkAiRateLimit(): void {
-  const now = Date.now();
-  while (callTimestamps.length > 0 && now - callTimestamps[0] > RATE_LIMIT_WINDOW_MS) {
-    callTimestamps.shift();
+function pruneWindow(timestamps: number[], now: number): void {
+  while (timestamps.length > 0 && now - timestamps[0] > RATE_LIMIT_WINDOW_MS) {
+    timestamps.shift();
   }
+}
+
+function checkAiRateLimit(userId: string | null): void {
+  const now = Date.now();
+  pruneWindow(callTimestamps, now);
   if (callTimestamps.length >= AI_CALLS_PER_MINUTE) {
     throw new AppError('AI_RATE_LIMIT', 'Too many AI requests. Try again in a moment.', 429);
+  }
+  if (userId !== null) {
+    const mine = callTimestampsByUser.get(userId) ?? [];
+    pruneWindow(mine, now);
+    if (mine.length >= AI_CALLS_PER_USER_PER_MINUTE) {
+      throw new AppError(
+        'AI_RATE_LIMIT',
+        'This account has sent too many AI requests. Try again in a moment.',
+        429,
+      );
+    }
+    mine.push(now);
+    callTimestampsByUser.set(userId, mine);
   }
   callTimestamps.push(now);
 }
 
-/** Runs one provider call under the rate limit and the concurrency cap. */
+/** Runs one provider call under per-user fairness and installation-wide caps. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T> {
-  checkAiRateLimit();
-  return concurrency.run(fn);
+  const userId = currentRuntimeUserId();
+  checkAiRateLimit(userId);
+  return concurrency.run(userId, fn);
 }
 
 /** Test hook: clears the rate-limit window and the queued calls. */
 export function resetAiLimits(): void {
   callTimestamps.length = 0;
+  callTimestampsByUser.clear();
 }
 
 function dispatchComplete(
